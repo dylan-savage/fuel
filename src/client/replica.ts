@@ -4,8 +4,10 @@
  * read through views.ts and write through intents.ts, and sync.ts alone holds the SyncPort.
  */
 import Dexie, { liveQuery } from 'dexie';
+import type { Gtin } from '../domain/food.js';
 import type { LocalDate } from '../domain/ids.js';
 import {
+  BARCODE_INDEX,
   DB_VERSION,
   KIND_NAMES,
   dexieStores,
@@ -46,7 +48,11 @@ interface SyncMeta {
 export interface ReplicaReader {
   get<K extends Kind>(kind: K, id: string): Promise<DocOf<K> | undefined>;
   onDate<K extends DatedKind>(kind: K, date: LocalDate): Promise<DocOf<K>[]>;
+  /** Dated documents from `from` through `to`. */
+  between<K extends DatedKind>(kind: K, from: LocalDate, to: LocalDate): Promise<DocOf<K>[]>;
   all<K extends Kind>(kind: K): Promise<DocOf<K>[]>;
+  /** Library foods carrying this barcode, through the multi-entry index. */
+  withBarcode(gtin: Gtin): Promise<DocOf<'food'>[]>;
   /** Local writes the server has not acknowledged yet. */
   pendingCount(): Promise<number>;
 }
@@ -124,7 +130,10 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
   const read: ReplicaReader = {
     get: async (kind, id) => (await table(kind).get(id))?.doc,
     onDate: async (kind, date) => (await table(kind).where('doc.date').equals(date).toArray()).map((row) => row.doc),
+    between: async (kind, from, to) =>
+      (await table(kind).where('doc.date').between(from, to, true, true).toArray()).map((row) => row.doc),
     all: async (kind) => (await table(kind).toArray()).map((row) => row.doc),
+    withBarcode: async (gtin) => (await table('food').where(BARCODE_INDEX).equals(gtin).toArray()).map((row) => row.doc),
     pendingCount: () => outbox.count(),
   };
 

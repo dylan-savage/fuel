@@ -18,6 +18,11 @@ export type CoreKey = Extract<(typeof NUTRIENTS)[number], { core: true }>['key']
 
 export const CORE_KEYS: readonly CoreKey[] = NUTRIENTS.flatMap((n) => (n.core ? [n.key] : []));
 
+/** Energy per gram of each macro (Atwater general factors). */
+export const KCAL_PER_GRAM = { protein: 4, carbs: 4, fat: 9 } as const satisfies Partial<Record<CoreKey, number>>;
+export type Macro = keyof typeof KCAL_PER_GRAM;
+export const MACROS: readonly Macro[] = ['protein', 'carbs', 'fat'];
+
 const amount = z.number().nonnegative().finite();
 
 /**

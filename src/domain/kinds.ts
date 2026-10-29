@@ -1,30 +1,38 @@
 import { z } from 'zod';
 import { Entry } from './diary.js';
 import { Food } from './food.js';
+import { Goal, Profile } from './goals.js';
 import type { LocalDate } from './ids.js';
 
 interface KindDef<S extends z.ZodType<{ id: string }>, D extends boolean> {
   readonly schema: S;
   /** Dated kinds get a doc.date index on the phone and can be read by day. */
   readonly dated: D;
+  /** Further Dexie index specs on the phone, such as '*doc.barcodes'. */
+  readonly indexes: readonly string[];
 }
 
-function doc<S extends z.ZodType<{ id: string }>>(schema: S): KindDef<S, false> {
-  return { schema, dated: false };
+function doc<S extends z.ZodType<{ id: string }>>(schema: S, indexes: readonly string[] = []): KindDef<S, false> {
+  return { schema, dated: false, indexes };
 }
 
 /** The bound makes marking a kind dated a compile error when its documents have no date. */
 function datedDoc<S extends z.ZodType<{ id: string; date: LocalDate }>>(schema: S): KindDef<S, true> {
-  return { schema, dated: true };
+  return { schema, dated: true, indexes: [] };
 }
+
+/** The phone's index on food barcodes. Multi-entry ('*'), so each GTIN is its own key. */
+export const BARCODE_INDEX = 'doc.barcodes';
 
 /**
  * The only list of document kinds. Server validation, the phone's IndexedDB tables and the
  * write types all derive from it, so adding storage is one line plus the compile errors.
  */
 const DEFS = {
-  food: doc(Food),
+  food: doc(Food, [`*${BARCODE_INDEX}`]),
   entry: datedDoc(Entry),
+  profile: doc(Profile),
+  goal: doc(Goal),
 } as const;
 
 export type Kind = keyof typeof DEFS;
@@ -64,7 +72,12 @@ export type DexieSpec = Readonly<Record<string, string>>;
 
 /** The phone's IndexedDB layout as the registry implies it today. */
 export function dexieStores(): DexieSpec {
-  const kinds = Object.fromEntries(KIND_NAMES.map((kind) => [kind, KINDS[kind].dated ? 'id, doc.date' : 'id']));
+  const kinds = Object.fromEntries(
+    KIND_NAMES.map((kind) => {
+      const { dated, indexes } = KINDS[kind];
+      return [kind, ['id', ...(dated ? ['doc.date'] : []), ...indexes].join(', ')];
+    }),
+  );
   return { ...kinds, outbox: '++mutationId', meta: 'key' };
 }
 
@@ -75,6 +88,7 @@ export function dexieStores(): DexieSpec {
  */
 export const SCHEMA_HISTORY: readonly DexieSpec[] = [
   { food: 'id', entry: 'id, doc.date', outbox: '++mutationId', meta: 'key' },
+  { food: 'id, *doc.barcodes', entry: 'id, doc.date', profile: 'id', goal: 'id', outbox: '++mutationId', meta: 'key' },
 ];
 
 export const DB_VERSION = SCHEMA_HISTORY.length;

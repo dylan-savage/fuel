@@ -1,8 +1,11 @@
+import Dexie from 'dexie';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openReplica, type Replica } from '../src/client/replica.js';
+import { Gtin } from '../src/domain/food.js';
+import { SCHEMA_HISTORY } from '../src/domain/kinds.js';
 import { MutationId, type SyncResponse } from '../src/protocol.js';
-import { entry, newEntryId, rev } from './fixtures.js';
+import { entry, food, newEntryId, rev } from './fixtures.js';
 
 const open: Replica[] = [];
 afterEach(() => {
@@ -63,5 +66,27 @@ describe('SyncPort.apply', () => {
     const bad = response({ lastMutationId: 1, changes: [{ kind: 'entry', id: 'x', rev: rev(1), doc: { id: 'x' } }] });
     await expect(port.apply(bad)).rejects.toThrow('cannot read');
     expect(await port.pendingCount()).toBe(1);
+  });
+});
+
+describe('schema upgrades', () => {
+  it('opens a phone still on the first layout with its data intact and the barcode index built', async () => {
+    const indexedDB = new IDBFactory();
+    const v1 = new Dexie('upgrade', { indexedDB, IDBKeyRange });
+    const [first] = SCHEMA_HISTORY;
+    if (first === undefined) throw new Error('no schema history');
+    v1.version(1).stores(first);
+    const oats = { ...food(), barcodes: [Gtin.parse('0049000000443')] };
+    const lunch = entry(newEntryId(), 640);
+    await v1.table('food').put({ id: oats.id, doc: oats });
+    await v1.table('entry').put({ id: lunch.id, doc: lunch });
+    v1.close();
+
+    const { replica } = await openReplica({ name: 'upgrade', indexedDB, IDBKeyRange });
+    open.push(replica);
+    expect(await replica.read.withBarcode(Gtin.parse('0049000000443'))).toEqual([oats]);
+    expect(await replica.read.withBarcode(Gtin.parse('4006381333931'))).toEqual([]);
+    expect(await replica.read.onDate('entry', lunch.date)).toEqual([lunch]);
+    expect(await replica.read.all('goal')).toEqual([]);
   });
 });
