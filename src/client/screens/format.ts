@@ -53,10 +53,24 @@ export function quantityLabel(food: FoodSnapshot, q: Quantity): string {
 }
 
 const WEEKDAY = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+const RELATIVE_DAYS = [
+  [0, 'today'],
+  [-1, 'yesterday'],
+  [1, 'tomorrow'],
+] as const;
 
+/** A day as it reads inside a sentence: "yesterday", or "Tue, Oct 27". */
+export function dayPhrase(date: LocalDate, today: LocalDate): string {
+  return RELATIVE_DAYS.find(([offset]) => addDays(today, offset) === date)?.[1] ?? WEEKDAY.format(new Date(`${date}T00:00:00Z`));
+}
+
+/** A day as a title: "Yesterday", or "Tue, Oct 27". */
 export function dayTitle(date: LocalDate, today: LocalDate): string {
-  if (date === today) return 'Today';
-  if (date === addDays(today, -1)) return 'Yesterday';
-  if (date === addDays(today, 1)) return 'Tomorrow';
-  return WEEKDAY.format(new Date(`${date}T00:00:00Z`));
+  const phrase = dayPhrase(date, today);
+  return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}`;
+}
+
+/** "1 item", "3 items". */
+export function count(n: number, noun: string, plural = `${noun}s`): string {
+  return `${n} ${n === 1 ? noun : plural}`;
 }

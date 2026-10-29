@@ -4,6 +4,7 @@ import { remainingKcal } from '../../domain/goals.js';
 import { addDays, type LocalDate } from '../../domain/ids.js';
 import { MACROS, type Macro } from '../../domain/nutrients.js';
 import { dayView, useIntents, useLive, type DayView } from '../views.js';
+import { DiaryMenu, type MenuTarget } from './DiaryMenu.js';
 import { FoodSheet } from './FoodSheet.js';
 import { MEAL_LABEL, amount, brandOf, dayTitle, kcal, quantityLabel } from './format.js';
 import { Icon, useToast } from './ui.js';
@@ -93,6 +94,7 @@ export function Diary({
   const intents = useIntents();
   const toast = useToast();
   const [editing, setEditing] = useState<Entry | null>(null);
+  const [menu, setMenu] = useState<MenuTarget | null>(null);
 
   return (
     <section class="screen diary">
@@ -110,6 +112,9 @@ export function Diary({
         </button>
         <div class="day-bar-end">
           <Waiting />
+          <button type="button" class="icon-button" aria-label="Day options" onClick={() => setMenu({ kind: 'day', date })}>
+            <Icon name="more" />
+          </button>
         </div>
       </header>
 
@@ -123,6 +128,9 @@ export function Diary({
                 <header class="meal-header">
                   <h2>{MEAL_LABEL[meal]}</h2>
                   {entries.length > 0 && <span class="meal-kcal">{kcal(totals.sum.kcal)} kcal</span>}
+                  <button type="button" class="icon-button" aria-label={`${MEAL_LABEL[meal]} options`} onClick={() => setMenu({ kind: 'meal', date, meal })}>
+                    <Icon name="more" />
+                  </button>
                 </header>
                 <ul class="list">
                   {entries.map((entry) => (
@@ -138,6 +146,15 @@ export function Diary({
             );
           })}
         </>
+      )}
+
+      {menu !== null && day !== undefined && (
+        <DiaryMenu
+          target={menu}
+          today={today}
+          entries={menu.kind === 'meal' ? day.summary.meals[menu.meal].entries : day.summary.entries}
+          onClose={() => setMenu(null)}
+        />
       )}
 
       {editing !== null && (

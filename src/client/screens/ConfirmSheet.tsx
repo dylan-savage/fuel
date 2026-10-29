@@ -1,9 +1,9 @@
+import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
-import type { Meal } from '../../domain/diary.js';
 import { defaultQuantity, missingCore, nutrientsFor, type FoodCandidate, type FoodSnapshot, type Quantity } from '../../domain/food.js';
 import { CORE_KEYS, NUTRIENTS, type CoreKey, type PartialNutrients } from '../../domain/nutrients.js';
-import { BASIS_LABEL, MEAL_LABEL, amount, parseNumber } from './format.js';
-import { MealPicker, NutritionPreview, useQuantityPicker } from './FoodSheet.js';
+import { BASIS_LABEL, amount, parseNumber } from './format.js';
+import { NutritionPreview, useQuantityPicker } from './FoodSheet.js';
 import { NumberField, Sheet, TextField } from './ui.js';
 
 const SOURCE_LABEL: Readonly<Record<FoodCandidate['source']['kind'], string>> = {
@@ -16,26 +16,30 @@ const SOURCE_LABEL: Readonly<Record<FoodCandidate['source']['kind'], string>> = 
 const coreLabel = (key: CoreKey) => NUTRIENTS.find((n) => n.key === key)?.label ?? key;
 const coreUnit = (key: CoreKey) => NUTRIENTS.find((n) => n.key === key)?.unit ?? '';
 
+/** The edited candidate and the amount picked, once every core nutrient is known. */
+export interface Confirmed {
+  readonly candidate: FoodCandidate;
+  readonly quantity: Quantity;
+}
+
 /**
  * Review an external food before it enters the library: fix the name, fill in any core
- * nutrient the source left out, pick an amount, then import and log in one tap.
+ * nutrient the source left out and pick an amount. `action` ends the sheet, such as logging
+ * it to a meal or adding it to a recipe; it gets null until the food is complete.
  */
 export function ConfirmSheet({
   candidate,
-  meal: initialMeal,
-  onConfirm,
+  action,
   onClose,
 }: {
   readonly candidate: FoodCandidate;
-  readonly meal: Meal;
-  readonly onConfirm: (candidate: FoodCandidate, quantity: Quantity, meal: Meal) => void;
+  readonly action: (confirmed: Confirmed | null) => ComponentChildren;
   readonly onClose: () => void;
 }) {
   const [name, setName] = useState(candidate.name);
   const [brand, setBrand] = useState(candidate.brand ?? '');
   /** Only what Dylan typed. An untouched field keeps the source's exact value, not its display rounding. */
   const [typed, setTyped] = useState<Readonly<Partial<Record<CoreKey, string>>>>({});
-  const [meal, setMeal] = useState(initialMeal);
 
   const nutrients: PartialNutrients = { ...candidate.nutrients };
   for (const key of CORE_KEYS) {
@@ -85,18 +89,8 @@ export function ConfirmSheet({
       {extras.length > 0 && <p class="extras">{extras.map((n) => `${n.label} ${amount(nutrients[n.key] ?? 0)} ${n.unit}`).join(' · ')}</p>}
       <NutritionPreview nutrients={snapshot && quantity ? nutrientsFor(snapshot, quantity) : null} />
       {picker}
-      <MealPicker value={meal} onChange={setMeal} />
-      <div class="sheet-actions">
-        {missing.length > 0 && <p class="hint">Add {missing.map(coreLabel).join(', ').toLowerCase()} from the label to save this food.</p>}
-        <button
-          type="button"
-          class="primary"
-          disabled={missing.length > 0 || quantity === null}
-          onClick={() => quantity && onConfirm(edited, quantity, meal)}
-        >
-          Add to library and log to {MEAL_LABEL[meal]}
-        </button>
-      </div>
+      {missing.length > 0 && <p class="hint">Add {missing.map(coreLabel).join(', ').toLowerCase()} from the label to save this food.</p>}
+      {action(missing.length === 0 && quantity !== null ? { candidate: edited, quantity } : null)}
     </Sheet>
   );
 }

@@ -91,6 +91,37 @@ export function MealPicker({ value, onChange }: { readonly value: Meal; readonly
   return <Segmented label="Meal" options={MEALS.map((m) => ({ value: m, label: MEAL_LABEL[m] }))} value={value} onChange={onChange} />;
 }
 
+/** The end of a log sheet: which meal, and the button that logs to it. */
+export function LogAction({
+  meal: initialMeal,
+  label,
+  disabled,
+  onLog,
+}: {
+  readonly meal: Meal;
+  readonly label: (meal: Meal) => string;
+  readonly disabled: boolean;
+  readonly onLog: (meal: Meal) => void;
+}) {
+  const [meal, setMeal] = useState(initialMeal);
+  return (
+    <>
+      <MealPicker value={meal} onChange={setMeal} />
+      <div class="sheet-actions">
+        <button type="button" class="primary" disabled={disabled} onClick={() => onLog(meal)}>
+          {label(meal)}
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** A secondary action under a food sheet's main button, such as "Edit food". */
+export interface SheetLink {
+  readonly label: string;
+  readonly onClick: () => void;
+}
+
 export type FoodSheetMode =
   | { readonly kind: 'log'; readonly onLog: (quantity: Quantity, meal: Meal) => void }
   | { readonly kind: 'edit'; readonly onSave: (quantity: Quantity, meal: Meal) => void; readonly onDelete: () => void };
@@ -101,14 +132,14 @@ export function FoodSheet({
   initial,
   meal: initialMeal,
   mode,
-  onEditFood,
+  link,
   onClose,
 }: {
   readonly food: FoodSnapshot;
   readonly initial: Quantity;
   readonly meal: Meal;
   readonly mode: FoodSheetMode;
-  readonly onEditFood?: () => void;
+  readonly link?: SheetLink;
   readonly onClose: () => void;
 }) {
   const { quantity, picker } = useQuantityPicker(food, initial);
@@ -136,9 +167,9 @@ export function FoodSheet({
             </button>
           </>
         )}
-        {onEditFood && (
-          <button type="button" class="text-button" onClick={onEditFood}>
-            Edit food
+        {link && (
+          <button type="button" class="text-button" onClick={link.onClick}>
+            {link.label}
           </button>
         )}
       </div>

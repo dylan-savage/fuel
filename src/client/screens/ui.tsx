@@ -17,6 +17,31 @@ export function TitleBar({ title, children }: { readonly title: string; readonly
   );
 }
 
+/** Open sheets and alerts, oldest first. One can open over another, and only the top one answers Escape. */
+const openModals: object[] = [];
+
+/** Locks page scroll while any modal is open, and closes the top one on Escape. */
+function useModal(onClose: () => void) {
+  const token = useRef({}).current;
+
+  useEffect(() => {
+    openModals.push(token);
+    document.body.classList.add('sheet-open');
+    return () => {
+      openModals.splice(openModals.indexOf(token), 1);
+      if (openModals.length === 0) document.body.classList.remove('sheet-open');
+    };
+  }, [token]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && openModals.at(-1) === token) onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose, token]);
+}
+
 /** A bottom sheet. Cancel, Escape or a tap on the backdrop closes it. */
 export function Sheet({
   title,
@@ -27,17 +52,7 @@ export function Sheet({
   readonly onClose: () => void;
   readonly children: ComponentChildren;
 }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    document.body.classList.add('sheet-open');
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.classList.remove('sheet-open');
-    };
-  }, [onClose]);
+  useModal(onClose);
 
   return (
     <div
@@ -55,6 +70,45 @@ export function Sheet({
           <span />
         </header>
         <div class="sheet-body">{children}</div>
+      </section>
+    </div>
+  );
+}
+
+export interface AlertAction {
+  readonly label: string;
+  readonly onClick: () => void;
+  /** The recommended choice, drawn bold. */
+  readonly preferred?: boolean;
+}
+
+/** A centered yes-or-no question, as iOS asks one. Escape picks `onCancel`. */
+export function Alert({
+  title,
+  message,
+  actions,
+  onCancel,
+}: {
+  readonly title: string;
+  readonly message: string;
+  readonly actions: readonly AlertAction[];
+  readonly onCancel: () => void;
+}) {
+  useModal(onCancel);
+  return (
+    <div class="alert-backdrop">
+      <section class="alert" role="alertdialog" aria-modal="true" aria-label={title}>
+        <div class="alert-text">
+          <h2>{title}</h2>
+          <p>{message}</p>
+        </div>
+        <div class="alert-actions">
+          {actions.map((action) => (
+            <button type="button" key={action.label} class={action.preferred ? 'preferred' : undefined} onClick={action.onClick}>
+              {action.label}
+            </button>
+          ))}
+        </div>
       </section>
     </div>
   );
@@ -188,11 +242,12 @@ const ICONS = {
   chevronLeft: 'M15 5l-7 7 7 7',
   chevronRight: 'M9 5l7 7-7 7',
   plus: 'M12 6v12M6 12h12',
+  more: 'M6 12h.01M12 12h.01M18 12h.01',
 } as const;
 
 export function Icon({ name }: { readonly name: keyof typeof ICONS }) {
   return (
-    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+    <svg class={`icon icon-${name}`} viewBox="0 0 24 24" aria-hidden="true">
       <path d={ICONS[name]} />
     </svg>
   );

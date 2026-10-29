@@ -46,8 +46,8 @@ export function itemsNutrients(items: readonly Ingredient[]): Nutrients {
   return combine(items.map((item) => nutrientsFor(item.food, item.quantity)));
 }
 
-/** One serving of a recipe, or of a draft that has no id yet. */
-export function perServing(recipe: Pick<Recipe, 'ingredients' | 'yield'>): Nutrients {
+/** One serving of a recipe, or of a recipe still being built. */
+export function perServing(recipe: { readonly ingredients: readonly Ingredient[]; readonly yield: Pick<RecipeYield, 'servings'> }): Nutrients {
   return scale(itemsNutrients(recipe.ingredients), 1 / recipe.yield.servings);
 }
 

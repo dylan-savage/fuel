@@ -116,6 +116,11 @@ select {
   flex: none;
 }
 
+/* The ellipsis is three round caps, so its stroke is the dot size. */
+.icon-more {
+  stroke-width: 3.4;
+}
+
 .app {
   min-height: 100dvh;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) calc(var(--tab-height) + env(safe-area-inset-bottom) + 16px)
@@ -464,12 +469,13 @@ main {
 
 .meal-header {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 0 4px 8px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0 4px 4px;
 }
 
 .meal-header h2 {
+  flex: 1;
   font-size: 20px;
   font-weight: 600;
 }
@@ -477,6 +483,11 @@ main {
 .meal-kcal {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.meal-header .icon-button {
+  height: 36px;
+  margin-right: -8px;
 }
 
 /* Add */
@@ -712,6 +723,19 @@ main {
   font-weight: 600;
 }
 
+.action-row {
+  display: grid;
+  align-content: center;
+  min-height: 56px;
+  padding: 8px 16px 8px 0;
+  text-align: left;
+  color: var(--tint);
+}
+
+.group.spaced {
+  margin-top: 20px;
+}
+
 .hint {
   color: var(--muted);
   font-size: 13px;
@@ -817,6 +841,10 @@ main {
   padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
 }
 
+.sheet-body > .group-title:first-child {
+  margin-top: 0;
+}
+
 .food-heading {
   margin-bottom: 8px;
 }
@@ -893,6 +921,74 @@ main {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   outline: none;
+}
+
+/* A search field pinned under a sheet's bar rather than the status bar. */
+.sheet .search {
+  top: 0;
+  margin-top: -16px;
+  padding-top: 16px;
+}
+
+/* Alerts */
+
+.alert-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.4);
+  animation: fade-in 0.15s ease-out;
+}
+
+.alert {
+  width: 270px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(242, 242, 242, 0.97);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  text-align: center;
+}
+
+@media (prefers-color-scheme: dark) {
+  .alert {
+    background: rgba(37, 37, 37, 0.97);
+  }
+}
+
+.alert-text {
+  padding: 19px 16px 16px;
+}
+
+.alert-text h2 {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.alert-text p {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.alert-actions {
+  display: grid;
+  border-top: 0.5px solid var(--separator);
+}
+
+.alert-actions button {
+  min-height: 44px;
+  color: var(--tint);
+}
+
+.alert-actions button + button {
+  border-top: 0.5px solid var(--separator);
+}
+
+.alert-actions .preferred {
+  font-weight: 600;
 }
 
 /* Goal */
