@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Entry } from '../src/domain/diary.js';
 import type { Food } from '../src/domain/food.js';
+import { goalId, type Goal, type Profile } from '../src/domain/goals.js';
 import { EntryId, FoodId, LocalDate, Millis } from '../src/domain/ids.js';
 import { ClientId, MutationId, Rev, type SyncRequest, type WireMutation } from '../src/protocol.js';
 
@@ -31,6 +32,22 @@ export function food(id = FoodId.parse(randomUUID())): Food {
     source: { kind: 'user' },
     archived: false,
   };
+}
+
+/** A goal effective from `date` with a manual target, so the simulation can tell versions apart. */
+export function goal(date: LocalDate, kcal: number): Goal {
+  return {
+    id: goalId(date),
+    effectiveFrom: date,
+    policy: { kind: 'activity-level', level: 'moderate' },
+    kgPerWeek: 0,
+    kcalOverride: kcal,
+    macros: { kind: 'grams', protein: 150, carbs: 200, fat: 60 },
+  };
+}
+
+export function profile(weightKg: number): Profile {
+  return { id: 'me', sex: 'male', birthDate: LocalDate.parse('1990-06-15'), heightCm: 180, weightKg };
 }
 
 export const putEntry = (id: number, doc: Entry): WireMutation => ({

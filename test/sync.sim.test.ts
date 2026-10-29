@@ -11,14 +11,17 @@ import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { describe, expect, it } from 'vitest';
 import { openReplica, type Replica, type SyncPort } from '../src/client/replica.js';
 import { syncRounds, type Transport } from '../src/client/sync.js';
-import { FoodId } from '../src/domain/ids.js';
-import type { Kind, Mutation } from '../src/domain/kinds.js';
+import { PROFILE_ID, goalId } from '../src/domain/goals.js';
+import { FoodId, LocalDate } from '../src/domain/ids.js';
+import { KIND_NAMES, type Mutation } from '../src/domain/kinds.js';
 import { openStore, type DocStore } from '../src/server/store.js';
-import { at, entry, food, newClientId, newEntryId, request } from './fixtures.js';
+import { at, entry, food, goal, newClientId, newEntryId, profile, request } from './fixtures.js';
 
 const ENTRY_IDS = Array.from({ length: 4 }, newEntryId);
 const FOOD_IDS = [FoodId.parse('0f0e0d0c-0b0a-4908-8706-050403020100'), FoodId.parse('1f1e1d1c-1b1a-4918-9716-151413121110')];
-const SLOTS = ENTRY_IDS.length + FOOD_IDS.length;
+/** Goals and the profile have fixed ids, so every phone writes the same documents. */
+const GOAL_DATES = [LocalDate.parse('2026-10-01'), LocalDate.parse('2026-10-28')];
+const SLOTS = ENTRY_IDS.length + FOOD_IDS.length + GOAL_DATES.length + 1;
 
 /** Small pages and batches so every schedule exercises multi-round pushes and pulls. */
 const PULL_PAGE = 3;
@@ -46,10 +49,16 @@ function toMutation(w: WriteOp): Mutation {
     return w.op === 'put' ? { op: 'put', kind: 'entry', doc: entry(entryId, w.kcal) } : { op: 'delete', kind: 'entry', id: entryId };
   }
   const foodId = FOOD_IDS[w.slot - ENTRY_IDS.length];
-  if (foodId === undefined) throw new Error(`no slot ${w.slot}`);
-  return w.op === 'put'
-    ? { op: 'put', kind: 'food', doc: { ...food(foodId), name: `Food ${w.kcal}` } }
-    : { op: 'delete', kind: 'food', id: foodId };
+  if (foodId !== undefined) {
+    return w.op === 'put'
+      ? { op: 'put', kind: 'food', doc: { ...food(foodId), name: `Food ${w.kcal}` } }
+      : { op: 'delete', kind: 'food', id: foodId };
+  }
+  const date = GOAL_DATES[w.slot - ENTRY_IDS.length - FOOD_IDS.length];
+  if (date !== undefined) {
+    return w.op === 'put' ? { op: 'put', kind: 'goal', doc: goal(date, w.kcal) } : { op: 'delete', kind: 'goal', id: goalId(date) };
+  }
+  return w.op === 'put' ? { op: 'put', kind: 'profile', doc: profile(40 + w.kcal / 100) } : { op: 'delete', kind: 'profile', id: PROFILE_ID };
 }
 
 const writeOp: fc.Arbitrary<WriteOp> = fc.oneof(
@@ -137,7 +146,7 @@ function serverDocs(server: DocStore): Map<string, unknown> {
 
 async function replicaDocs(replica: Replica): Promise<Map<string, unknown>> {
   const docs = new Map<string, unknown>();
-  for (const kind of ['entry', 'food'] satisfies Kind[]) {
+  for (const kind of KIND_NAMES) {
     for (const doc of await replica.read.all(kind)) docs.set(`${kind}/${doc.id}`, doc);
   }
   return docs;
