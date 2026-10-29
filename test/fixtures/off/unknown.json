@@ -1,0 +1,10 @@
+{
+  "request": "https://world.openfoodfacts.org/api/v2/product/0028400999991.json?fields=code%2Cproduct_name%2Cgeneric_name%2Cbrands%2Cnutriments%2Cserving_size%2Cserving_quantity%2Cserving_quantity_unit%2Cnutrition_data_per",
+  "status": 404,
+  "recordedAt": "2026-10-29T02:18:44.499Z",
+  "body": {
+    "code": "0028400999991",
+    "status": 0,
+    "status_verbose": "product not found"
+  }
+}

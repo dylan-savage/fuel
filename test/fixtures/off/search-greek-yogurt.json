@@ -1,0 +1,447 @@
+{
+  "request": "https://search.openfoodfacts.org/search?q=greek+yogurt&page_size=20&fields=code%2Cproduct_name%2Cgeneric_name%2Cbrands%2Cnutriments%2Cserving_size%2Cserving_quantity%2Cserving_quantity_unit%2Cnutrition_data_per",
+  "status": 200,
+  "recordedAt": "2026-10-29T02:18:45.098Z",
+  "body": {
+    "hits": [
+      {
+        "code": "0894700010137",
+        "brands": [
+          "Chobani"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 3.53,
+          "energy-kcal_100g": 52.9,
+          "fat_100g": 0,
+          "proteins_100g": 9.41,
+          "salt_100g": 0.0956,
+          "sodium_100g": 0.0382,
+          "sugars_100g": 3.53
+        },
+        "product_name": "Nonfat Greek Yogurt",
+        "generic_name": "Greek Yogurt"
+      },
+      {
+        "code": "9310653102893",
+        "brands": [
+          "Chobani"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 18.1,
+          "energy-kcal_100g": 193,
+          "energy-kj_100g": 78.2,
+          "fat_100g": 0.18,
+          "proteins_100g": 13.7,
+          "salt_100g": 0.0762,
+          "saturated-fat_100g": 0.06,
+          "sodium_100g": 0.03048,
+          "sugars_100g": 16.2
+        },
+        "product_name": "Raspberry Greek Yogurt",
+        "generic_name": "Greek Yogurt"
+      },
+      {
+        "code": "9310653103609",
+        "brands": [
+          "Chobani"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 3.88,
+          "energy-kcal_100g": 86,
+          "energy-kj_100g": 360,
+          "fat_100g": 4,
+          "proteins_100g": 8.56,
+          "salt_100g": 0.0813,
+          "sodium_100g": 0.0325
+        },
+        "product_name": "Chobani Greek Yogurt",
+        "generic_name": "Greek Yogurt"
+      },
+      {
+        "code": "0894700010120",
+        "brands": [
+          "Chobani"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 10,
+          "energy-kcal_100g": 73.3,
+          "fat_100g": 0,
+          "fiber_100g": 0.667,
+          "proteins_100g": 8,
+          "salt_100g": 0.133,
+          "saturated-fat_100g": 0,
+          "sodium_100g": 0.0533,
+          "sugars_100g": 9.33
+        },
+        "product_name": "Raspberry Greek Yogurt",
+        "generic_name": "Greek Yogurt"
+      },
+      {
+        "code": "0894700010151",
+        "brands": [
+          "Chobani"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 12,
+          "energy-kcal_100g": 80,
+          "fat_100g": 0,
+          "fiber_100g": 0.7,
+          "proteins_100g": 8,
+          "salt_100g": 0.0825,
+          "saturated-fat_100g": 0,
+          "sodium_100g": 0.033,
+          "sugars_100g": 10
+        },
+        "product_name": "Greek yogurt with pomegranate",
+        "generic_name": "Greek Yogurt"
+      },
+      {
+        "code": "0894700010052",
+        "brands": [
+          "Chobani"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 10,
+          "energy-kcal_100g": 73.3,
+          "fat_100g": 0,
+          "fiber_100g": 0.667,
+          "proteins_100g": 8,
+          "sugars_100g": 9.33
+        },
+        "product_name": "Blueberry Greek Yogurt",
+        "generic_name": "Greek Yogurt"
+      },
+      {
+        "code": "0818290012739",
+        "brands": [
+          "Chobani"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 10,
+          "energy-kcal_100g": 100,
+          "fat_100g": 3,
+          "fiber_100g": 0.667,
+          "proteins_100g": 8,
+          "salt_100g": 0.0833,
+          "saturated-fat_100g": 2.33,
+          "sodium_100g": 0.0333,
+          "sugars_100g": 8
+        },
+        "product_name": "Coconut blended low-fat greek yogurt",
+        "generic_name": "Greek Yogurt"
+      },
+      {
+        "code": "0894700010335",
+        "brands": [
+          "Chobani"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 10.666666666667,
+          "energy-kcal_100g": 86.666666666667,
+          "fat_100g": 1.6666666666667,
+          "fiber_100g": 0.7,
+          "proteins_100g": 7.3333333333333,
+          "salt_100g": 0.10833333333333,
+          "saturated-fat_100g": 1,
+          "sodium_100g": 0.043333333333332,
+          "sugars_100g": 9.3333333333333
+        },
+        "product_name": "Mango on the Bottom Low Fat Greek Yogurt",
+        "generic_name": "Greek Yogurt"
+      },
+      {
+        "code": "0857290006270",
+        "brands": [
+          "Ellenos"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 16,
+          "energy-kcal_100g": 133,
+          "fat_100g": 4.66,
+          "fiber_100g": 1.33,
+          "proteins_100g": 7.99,
+          "salt_100g": 0.133,
+          "saturated-fat_100g": 2.66,
+          "sodium_100g": 0.0532,
+          "sugars_100g": 13.3
+        },
+        "product_name": "Marionberry real greek yogurt",
+        "generic_name": "Marionberry Greek Yogurt"
+      },
+      {
+        "code": "9310653103173",
+        "brands": [
+          "Chobani"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 11.4,
+          "energy-kj_100g": 395,
+          "fat_100g": 1.6,
+          "proteins_100g": 7.9,
+          "salt_100g": 0.12954,
+          "saturated-fat_100g": 1,
+          "sodium_100g": 0.051816,
+          "sugars_100g": 11.1
+        },
+        "product_name": "Chobani Greek Yogurt - Mandarin Low Fat",
+        "generic_name": "Greek Yogurt"
+      },
+      {
+        "code": "0052159703356",
+        "brands": [
+          "Stonyfield Organic"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 2.94,
+          "energy-kcal_100g": 82.4,
+          "fat_100g": 3.53,
+          "proteins_100g": 9.41,
+          "salt_100g": 0.0735,
+          "saturated-fat_100g": 2.35,
+          "sodium_100g": 0.0294,
+          "sugars_100g": 2.35
+        },
+        "product_name": "Organic Plain Grassfed Greek Yogurt",
+        "generic_name": "Plain Greek yogurt"
+      },
+      {
+        "code": "0856091005031",
+        "brands": [
+          "Philos Greek Yogurt"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 10,
+          "energy-kcal_100g": 67,
+          "fat_100g": 0,
+          "fiber_100g": 3.3,
+          "proteins_100g": 8,
+          "salt_100g": 0.1075,
+          "saturated-fat_100g": 0,
+          "sodium_100g": 0.043,
+          "sugars_100g": 4.67
+        },
+        "product_name": "Greek yogurt"
+      },
+      {
+        "code": "0060383891190",
+        "brands": [
+          "PC greek yogurt"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 3.4285714285714,
+          "sugars_100g": 2.2857142857143,
+          "energy-kcal_100g": 57.142857142857,
+          "proteins_100g": 10.285714285714,
+          "sodium_100g": 0.04,
+          "fat_100g": 0,
+          "fiber_100g": 0,
+          "saturated-fat_100g": 0,
+          "salt_100g": 0.1
+        },
+        "product_name": "Greek yogurt plain"
+      },
+      {
+        "code": "0036632018649",
+        "brands": [
+          "Danone"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 14,
+          "energy-kcal_100g": 107,
+          "fat_100g": 2.67,
+          "fiber_100g": 0,
+          "proteins_100g": 7.33,
+          "salt_100g": 0.117,
+          "saturated-fat_100g": 1.67,
+          "sodium_100g": 0.0467,
+          "sugars_100g": 12.7
+        },
+        "product_name": "Oikos Greek Yogurt Blended - Lemon Meringue Flavor - Made with Whole Milk, Cane Sweetened",
+        "generic_name": "Oikos greek yogurt lemon meringue flavor"
+      },
+      {
+        "code": "3923004173532",
+        "brands": [
+          "Ellenos Greek yogurt"
+        ],
+        "nutriments": {
+          "fiber_100g": 1.3333333333333333,
+          "proteins_100g": 8.666666666666666,
+          "sugars_100g": 12.666666666666666,
+          "fat_100g": 4,
+          "saturated-fat_100g": 2.6666666666666665,
+          "carbohydrates_100g": 14.666666666666666,
+          "energy-kcal_100g": 133.33333333333331
+        },
+        "product_name": "Greek Yogurt Passion Fruit"
+      },
+      {
+        "code": "4770265214165",
+        "brands": [
+          "Amfora"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 4.2,
+          "energy-kcal_100g": 88,
+          "energy-kj_100g": 369,
+          "fat_100g": 3.9,
+          "proteins_100g": 9,
+          "salt_100g": 0.09,
+          "saturated-fat_100g": 2.5,
+          "sodium_100g": 0.036,
+          "sugars_100g": 3.6
+        },
+        "product_name": "Graikiškas Jogurtas",
+        "generic_name": "Greek Yogurt"
+      },
+      {
+        "code": "20577414",
+        "brands": [
+          "Milbona"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 4.5,
+          "energy-kcal_100g": 132,
+          "fat_100g": 10,
+          "fiber_100g": 0,
+          "proteins_100g": 6,
+          "salt_100g": 0.28,
+          "saturated-fat_100g": 7,
+          "sodium_100g": 0.112,
+          "sugars_100g": 4
+        },
+        "product_name": "Greek Natural Yogurt",
+        "generic_name": "Greek Yogurt"
+      },
+      {
+        "code": "0011384206421",
+        "brands": [
+          "Zoi Greek Yogurt"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 14.12,
+          "energy-kcal_100g": 141,
+          "fat_100g": 8.24,
+          "fiber_100g": 0,
+          "proteins_100g": 4.12,
+          "salt_100g": 0.1025,
+          "saturated-fat_100g": 5.29,
+          "sodium_100g": 0.041,
+          "sugars_100g": 12.35
+        },
+        "product_name": "Honey"
+      },
+      {
+        "code": "0689544082217",
+        "brands": [
+          "Fage"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 11.18,
+          "energy-kcal_100g": 112,
+          "fat_100g": 4.12,
+          "fiber_100g": 0,
+          "proteins_100g": 7.65,
+          "salt_100g": 0.08,
+          "saturated-fat_100g": 2.94,
+          "sodium_100g": 0.032,
+          "sugars_100g": 10
+        },
+        "product_name": "Greek Yogurt"
+      },
+      {
+        "code": "0077890312766",
+        "brands": [
+          "Wegmans"
+        ],
+        "nutriments": {
+          "carbohydrates_100g": 12.35,
+          "energy-kcal_100g": 82,
+          "fat_100g": 0,
+          "fiber_100g": 0,
+          "proteins_100g": 8.24,
+          "salt_100g": 0.095,
+          "saturated-fat_100g": 0,
+          "sodium_100g": 0.038,
+          "sugars_100g": 10.59
+        },
+        "product_name": "Greek Yogurt"
+      }
+    ],
+    "aggregations": null,
+    "facets": {},
+    "charts": {},
+    "page": 1,
+    "page_size": 20,
+    "page_count": 500,
+    "debug": {
+      "query": {
+        "query": {
+          "bool": {
+            "should": [
+              {
+                "match_phrase": {
+                  "product_name.en": {
+                    "query": "greek yogurt",
+                    "boost": 2
+                  }
+                }
+              },
+              {
+                "match_phrase": {
+                  "generic_name.en": {
+                    "query": "greek yogurt",
+                    "boost": 2
+                  }
+                }
+              },
+              {
+                "match_phrase": {
+                  "categories.en": {
+                    "query": "greek yogurt",
+                    "boost": 2
+                  }
+                }
+              },
+              {
+                "match_phrase": {
+                  "labels.en": {
+                    "query": "greek yogurt",
+                    "boost": 2
+                  }
+                }
+              },
+              {
+                "match_phrase": {
+                  "brands": {
+                    "query": "greek yogurt",
+                    "boost": 2
+                  }
+                }
+              },
+              {
+                "multi_match": {
+                  "query": "greek yogurt",
+                  "fields": [
+                    "product_name.en",
+                    "generic_name.en",
+                    "categories.en",
+                    "labels.en",
+                    "brands"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "size": 20,
+        "from": 0
+      }
+    },
+    "took": 20,
+    "timed_out": false,
+    "count": 10000,
+    "is_count_exact": false,
+    "warnings": null
+  }
+}
