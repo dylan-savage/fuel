@@ -12,10 +12,10 @@ import { describe, expect, it } from 'vitest';
 import { openReplica, type Replica, type SyncPort } from '../src/client/replica.js';
 import { syncRounds, type Transport } from '../src/client/sync.js';
 import { PROFILE_ID, goalId } from '../src/domain/goals.js';
-import { FoodId, LocalDate, RecipeId, SavedMealId } from '../src/domain/ids.js';
+import { FastId, FoodId, LocalDate, RecipeId, SavedMealId, WaterId } from '../src/domain/ids.js';
 import { KIND_NAMES, type Mutation } from '../src/domain/kinds.js';
 import { openStore, type DocStore } from '../src/server/store.js';
-import { at, entry, food, goal, newClientId, newEntryId, profile, recipe, request, savedMeal } from './fixtures.js';
+import { at, entry, fast, food, goal, newClientId, newEntryId, profile, recipe, request, savedMeal, water } from './fixtures.js';
 
 const ENTRY_IDS = Array.from({ length: 4 }, newEntryId);
 const FOOD_IDS = [FoodId.parse('0f0e0d0c-0b0a-4908-8706-050403020100'), FoodId.parse('1f1e1d1c-1b1a-4918-9716-151413121110')];
@@ -23,6 +23,8 @@ const FOOD_IDS = [FoodId.parse('0f0e0d0c-0b0a-4908-8706-050403020100'), FoodId.p
 const GOAL_DATES = [LocalDate.parse('2026-10-01'), LocalDate.parse('2026-10-28')];
 const RECIPE_ID = RecipeId.parse('2f2e2d2c-2b2a-4928-a726-252423222120');
 const MEAL_ID = SavedMealId.parse('3f3e3d3c-3b3a-4938-b736-353433323130');
+const WATER_IDS = [WaterId.parse('4f4e4d4c-4b4a-4948-8746-454443424140'), WaterId.parse('5f5e5d5c-5b5a-4958-9756-555453525150')];
+const FAST_ID = FastId.parse('6f6e6d6c-6b6a-4968-a766-656463626160');
 
 /** Small pages and batches so every schedule exercises multi-round pushes and pulls. */
 const PULL_PAGE = 3;
@@ -50,6 +52,12 @@ const SLOT_WRITES: readonly ((w: WriteOp) => Mutation)[] = [
   (w) => (w.op === 'put' ? { op: 'put', kind: 'profile', doc: profile(40 + w.kcal / 100) } : { op: 'delete', kind: 'profile', id: PROFILE_ID }),
   (w) => (w.op === 'put' ? { op: 'put', kind: 'recipe', doc: recipe(RECIPE_ID, w.kcal) } : { op: 'delete', kind: 'recipe', id: RECIPE_ID }),
   (w) => (w.op === 'put' ? { op: 'put', kind: 'savedMeal', doc: savedMeal(MEAL_ID, w.kcal) } : { op: 'delete', kind: 'savedMeal', id: MEAL_ID }),
+  ...WATER_IDS.map(
+    (id) =>
+      (w: WriteOp): Mutation =>
+        w.op === 'put' ? { op: 'put', kind: 'water', doc: water(id, w.kcal) } : { op: 'delete', kind: 'water', id },
+  ),
+  (w) => (w.op === 'put' ? { op: 'put', kind: 'fast', doc: fast(FAST_ID, w.kcal) } : { op: 'delete', kind: 'fast', id: FAST_ID }),
 ];
 const SLOTS = SLOT_WRITES.length;
 
