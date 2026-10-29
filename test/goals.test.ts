@@ -101,7 +101,7 @@ describe('BMR from the weight trend', () => {
 });
 
 describe('budget policies', () => {
-  // A 30-minute run at 6 mph worked out at 80 kg: 8.8 × 80 × 0.5 = 352 kcal net.
+  // A 30-minute run at 6 mph worked out at 80 kg: 8.3 × 80 × 0.5 = 332 kcal net.
   const run = workout(runId, 80);
   const eatBack = (fraction: number, fields: Partial<Goal> = {}) => goal('2026-10-01', { policy: { kind: 'eat-back-workouts', fraction }, ...fields });
 
@@ -113,22 +113,22 @@ describe('budget policies', () => {
   it('eats back the fraction of workout kcal on top of BMR × 1.2 plus the rate', () => {
     // 1760 × 1.2 − 500 = 1612.
     expect(budgetFor(eatBack(1), facts(), day('2026-10-28'))).toMatchObject({ baseKcal: 1612, workoutKcal: 0, kcal: 1612 });
-    expect(budgetFor(eatBack(1), facts({ workouts: [run] }), day('2026-10-28'))).toMatchObject({ baseKcal: 1612, workoutKcal: 352, kcal: 1964 });
-    expect(budgetFor(eatBack(0.5), facts({ workouts: [run, run] }), day('2026-10-28'))?.kcal).toBe(1612 + 352);
+    expect(budgetFor(eatBack(1), facts({ workouts: [run] }), day('2026-10-28'))).toMatchObject({ baseKcal: 1612, workoutKcal: 332, kcal: 1944 });
+    expect(budgetFor(eatBack(0.5), facts({ workouts: [run, run] }), day('2026-10-28'))?.kcal).toBe(1612 + 332);
   });
 
   it('adds the burn stored at log time, even after the weight trend moves', () => {
     const lighter = facts({ workouts: [run], weighIns: [weighIn('2026-10-28', 60)] });
-    expect(budgetFor(eatBack(1), lighter, day('2026-10-28'))?.workoutKcal).toBe(352);
+    expect(budgetFor(eatBack(1), lighter, day('2026-10-28'))?.workoutKcal).toBe(332);
   });
 
   it('eats back workouts on top of a manual target too', () => {
-    expect(budgetFor(eatBack(1, { kcalOverride: 1800 }), facts({ workouts: [run] }), day('2026-10-28'))?.kcal).toBe(2152);
+    expect(budgetFor(eatBack(1, { kcalOverride: 1800 }), facts({ workouts: [run] }), day('2026-10-28'))?.kcal).toBe(2132);
   });
 
   it('splits the eaten-back kcal into the percent macros', () => {
-    // 30% of 1964 kcal at 4 kcal a gram.
-    expect(budgetFor(eatBack(1), facts({ workouts: [run] }), day('2026-10-28'))?.macros.protein).toBe(147);
+    // 30% of 1944 kcal at 4 kcal a gram.
+    expect(budgetFor(eatBack(1), facts({ workouts: [run] }), day('2026-10-28'))?.macros.protein).toBe(146);
   });
 });
 

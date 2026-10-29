@@ -8,41 +8,47 @@ export type ActivityGroup = (typeof ACTIVITY_GROUPS)[number];
 interface MetActivity {
   readonly label: string;
   readonly group: ActivityGroup;
-  /** Energy as a multiple of resting, from the 2011 Compendium of Physical Activities. */
+  /** Energy as a multiple of resting, from the 2024 Adult Compendium of Physical Activities. */
   readonly met: number;
 }
 
 /** The built-in workouts. Adding one is one line; a workout stores its label and MET, so old ones never need this table. */
 export const MET_ACTIVITIES = {
   walk_2_5: { label: 'Walking, 2.5 mph', group: 'Walking', met: 3.0 },
-  walk_3: { label: 'Walking, 3 mph', group: 'Walking', met: 3.5 },
-  walk_3_5: { label: 'Walking, 3.5 mph, brisk', group: 'Walking', met: 4.3 },
-  walk_4: { label: 'Walking, 4 mph, very brisk', group: 'Walking', met: 5.0 },
+  walk_3: { label: 'Walking, 3 mph', group: 'Walking', met: 3.8 },
+  walk_3_5: { label: 'Walking, 3.5 mph, brisk', group: 'Walking', met: 4.8 },
+  walk_4: { label: 'Walking, 4 mph, very brisk', group: 'Walking', met: 5.5 },
+  // 17080, cross country.
   hike: { label: 'Hiking', group: 'Walking', met: 6.0 },
-  run_5: { label: 'Running, 5 mph (12 min/mi)', group: 'Running', met: 8.3 },
-  run_6: { label: 'Running, 6 mph (10 min/mi)', group: 'Running', met: 9.8 },
+  run_5: { label: 'Running, 5 mph (12 min/mi)', group: 'Running', met: 8.5 },
+  run_6: { label: 'Running, 6 mph (10 min/mi)', group: 'Running', met: 9.3 },
   run_7: { label: 'Running, 7 mph (8:34 min/mi)', group: 'Running', met: 11.0 },
-  run_8: { label: 'Running, 8 mph (7:30 min/mi)', group: 'Running', met: 11.8 },
-  run_10: { label: 'Running, 10 mph (6 min/mi)', group: 'Running', met: 14.5 },
+  run_8: { label: 'Running, 8 mph (7:30 min/mi)', group: 'Running', met: 12.0 },
+  run_10: { label: 'Running, 10 mph (6 min/mi)', group: 'Running', met: 14.8 },
   cycle_leisure: { label: 'Cycling, under 10 mph', group: 'Cycling', met: 4.0 },
   cycle_moderate: { label: 'Cycling, 12 to 14 mph', group: 'Cycling', met: 8.0 },
   cycle_fast: { label: 'Cycling, 14 to 16 mph', group: 'Cycling', met: 10.0 },
-  cycle_stationary: { label: 'Stationary bike, moderate', group: 'Cycling', met: 6.8 },
+  cycle_stationary: { label: 'Stationary bike', group: 'Cycling', met: 6.8 },
+  // 02054, multiple exercises at 8 to 15 reps.
   strength: { label: 'Strength training', group: 'Gym', met: 3.5 },
   strength_vigorous: { label: 'Strength training, vigorous', group: 'Gym', met: 6.0 },
-  hiit: { label: 'HIIT or circuit training', group: 'Gym', met: 8.0 },
+  // 02040, circuit training with minimal rest, vigorous.
+  hiit: { label: 'HIIT or circuit training', group: 'Gym', met: 7.5 },
   elliptical: { label: 'Elliptical, moderate', group: 'Gym', met: 5.0 },
-  rowing: { label: 'Rowing machine, moderate', group: 'Gym', met: 7.0 },
-  stairs: { label: 'Stair climber', group: 'Gym', met: 9.0 },
+  // 02071, under 100 W.
+  rowing: { label: 'Rowing machine, moderate', group: 'Gym', met: 5.0 },
+  // 02065, the stair treadmill, not real stairs.
+  stairs: { label: 'Stair climber', group: 'Gym', met: 9.3 },
   swim_moderate: { label: 'Swimming laps, moderate', group: 'Swimming', met: 5.8 },
   swim_vigorous: { label: 'Swimming laps, vigorous', group: 'Swimming', met: 9.8 },
-  yoga: { label: 'Yoga', group: 'Mind and body', met: 2.5 },
+  yoga: { label: 'Yoga', group: 'Mind and body', met: 2.3 },
   yoga_power: { label: 'Power yoga', group: 'Mind and body', met: 4.0 },
-  pilates: { label: 'Pilates', group: 'Mind and body', met: 3.0 },
-  basketball: { label: 'Basketball', group: 'Sports', met: 6.5 },
+  pilates: { label: 'Pilates', group: 'Mind and body', met: 2.8 },
+  basketball: { label: 'Basketball', group: 'Sports', met: 7.5 },
   soccer: { label: 'Soccer, casual', group: 'Sports', met: 7.0 },
-  tennis: { label: 'Tennis', group: 'Sports', met: 7.3 },
+  tennis: { label: 'Tennis', group: 'Sports', met: 6.8 },
   golf: { label: 'Golf, walking with clubs', group: 'Sports', met: 4.3 },
+  // 15537, low to moderate difficulty.
   climbing: { label: 'Rock climbing', group: 'Sports', met: 5.8 },
 } as const satisfies Readonly<Record<string, MetActivity>>;
 export type MetActivityId = keyof typeof MET_ACTIVITIES;

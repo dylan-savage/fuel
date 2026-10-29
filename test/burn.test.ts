@@ -9,8 +9,8 @@ const custom = (name: string, minutes: number, grossKcal: number): WorkoutDraft 
 
 describe('net workout kcal', () => {
   it('is (MET − 1) × kg × hours, leaving out the resting burn BMR already counts', () => {
-    // Running at 6 mph is 9.8 MET: 8.8 × 80 kg × 0.5 h.
-    expect(netKcal(metDraft('run_6', 30), 80)).toBeCloseTo(352);
+    // Running at 6 mph is 9.3 MET: 8.3 × 80 kg × 0.5 h.
+    expect(netKcal(metDraft('run_6', 30), 80)).toBeCloseTo(332);
     // Strength training is 3.5 MET: 2.5 × 90 kg × 1 h.
     expect(netKcal(metDraft('strength', 60), 90)).toBeCloseTo(225);
   });
@@ -22,7 +22,7 @@ describe('net workout kcal', () => {
 
   it('is stored at log time with the weight it was worked out at', () => {
     const workout = makeWorkout(metDraft('run_6', 30), { ...at, id: newId(), kg: 80 });
-    expect(workout).toMatchObject({ name: MET_ACTIVITIES.run_6.label, minutes: 30, kg: 80, kcal: 352, source: { kind: 'met', activity: 'run_6', met: 9.8 } });
+    expect(workout).toMatchObject({ name: MET_ACTIVITIES.run_6.label, minutes: 30, kg: 80, kcal: 332, source: { kind: 'met', activity: 'run_6', met: 9.3 } });
   });
 });
 

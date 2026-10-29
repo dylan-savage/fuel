@@ -484,8 +484,8 @@ describe('workouts', () => {
     await intents.logWorkout(metDraft('run_6', 30), today);
     await intents.logWeight(70, today);
     const { workouts } = await dayView(replica.read, today);
-    // 8.8 MET above resting × 80 kg × 0.5 h.
-    expect(workouts.map((w) => [w.name, w.kcal, w.kg])).toEqual([['Running, 6 mph (10 min/mi)', 352, 80]]);
+    // 8.3 MET above resting × 80 kg × 0.5 h.
+    expect(workouts.map((w) => [w.name, w.kcal, w.kg])).toEqual([['Running, 6 mph (10 min/mi)', 332, 80]]);
   });
 
   it('count toward the target only under eat-back', async () => {
@@ -498,7 +498,7 @@ describe('workouts', () => {
     expect((await dayView(replica.read, today)).budget?.kcal).toBe(1600);
 
     await intents.saveGoal({ ...draft, policy: { kind: 'eat-back-workouts', fraction: 1 } }, today);
-    expect((await dayView(replica.read, today)).budget).toMatchObject({ baseKcal: 1600, workoutKcal: 352, kcal: 1952 });
+    expect((await dayView(replica.read, today)).budget).toMatchObject({ baseKcal: 1600, workoutKcal: 332, kcal: 1932 });
     expect((await dayView(replica.read, addDays(today, 1))).budget?.workoutKcal).toBe(0);
   });
 
@@ -511,9 +511,9 @@ describe('workouts', () => {
     await intents.logWeight(100, today);
 
     const undoEdit = await intents.editWorkout(run.id, { ...metDraft('run_6', 60) });
-    expect((await replica.read.get('workout', run.id))?.kcal).toBe(704);
+    expect((await replica.read.get('workout', run.id))?.kcal).toBe(664);
     await undoEdit();
-    expect((await replica.read.get('workout', run.id))?.kcal).toBe(352);
+    expect((await replica.read.get('workout', run.id))?.kcal).toBe(332);
 
     const undoDelete = await intents.deleteWorkout(run.id);
     expect((await dayView(replica.read, today)).workouts).toEqual([]);

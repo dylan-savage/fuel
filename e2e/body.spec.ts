@@ -97,8 +97,8 @@ test('logs a workout offline and still shows it after reconnecting', async ({ pa
   await expect(page.getByText(/\d+ waiting/)).toBeHidden({ timeout: 15_000 });
   const [synced, ...others] = stored('workout');
   expect(others).toEqual([]);
-  // (9.8 − 1) MET × kg × 0.75 h, at the weight it was logged at.
-  expect(synced?.kcal).toBe(Math.round(8.8 * (synced?.kg ?? 0) * 0.75));
+  // (9.3 − 1) MET × kg × 0.75 h, at the weight it was logged at.
+  expect(synced?.kcal).toBe(Math.round(8.3 * (synced?.kg ?? 0) * 0.75));
   expect(synced?.kcal).toBe(burn);
   await page.reload();
   await expect(page.getByRole('region', { name: 'Workouts' }).getByRole('button', { name: /^Running, 6 mph/ })).toContainText(shown(burn));
