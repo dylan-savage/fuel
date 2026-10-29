@@ -1,6 +1,7 @@
 import type { Entry, Meal } from './diary.js';
-import { snapshotOf, type Food, type FoodSnapshot, type Quantity } from './food.js';
-import type { FoodId, Millis } from './ids.js';
+import { defaultQuantity, snapshotOf, type Food, type FoodSnapshot, type Quantity } from './food.js';
+import type { FoodId, Millis, RecipeId } from './ids.js';
+import { recipeSnapshot, type Recipe } from './reuse.js';
 
 /** How far back recents look. */
 export const RECENT_DAYS = 90;
@@ -29,29 +30,72 @@ export function normalize(text: string): string {
   return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().trim();
 }
 
-/** One key per food across re-logs: the library id, or the name and brand of a one-off. */
-export function foodKey(food: FoodSnapshot): string {
-  return food.origin.kind === 'food' ? `food:${food.origin.id}` : `adhoc:${normalize(food.name)}|${normalize(food.brand ?? '')}`;
+/** Dylan's foods and recipes: everything that has a current version to offer. */
+export interface Library {
+  readonly foods: readonly Food[];
+  readonly recipes: readonly Recipe[];
 }
 
-/** The snapshot to offer now: the library food's current version, or nothing once it is archived. */
-function current(snapshot: FoodSnapshot, library: ReadonlyMap<FoodId, Food>): FoodSnapshot | null {
-  if (snapshot.origin.kind !== 'food') return snapshot;
-  const food = library.get(snapshot.origin.id);
-  if (food === undefined) return snapshot;
-  return food.archived ? null : snapshotOf(food);
+/** One key per food across re-logs: the library id, or the name and brand of a one-off. */
+export function foodKey(food: FoodSnapshot): string {
+  const { origin } = food;
+  switch (origin.kind) {
+    case 'food':
+      return `food:${origin.id}`;
+    case 'recipe':
+      return `recipe:${origin.id}`;
+    case 'adhoc':
+      return `adhoc:${normalize(food.name)}|${normalize(food.brand ?? '')}`;
+  }
+}
+
+interface LibraryIndex {
+  readonly foods: ReadonlyMap<FoodId, Food>;
+  readonly recipes: ReadonlyMap<RecipeId, Recipe>;
+}
+
+/** The snapshot to offer now: the food's or recipe's current version, or nothing once it is archived. */
+function current(snapshot: FoodSnapshot, index: LibraryIndex): FoodSnapshot | null {
+  const { origin } = snapshot;
+  switch (origin.kind) {
+    case 'adhoc':
+      return snapshot;
+    case 'food': {
+      const food = index.foods.get(origin.id);
+      if (food === undefined) return snapshot;
+      return food.archived ? null : snapshotOf(food);
+    }
+    case 'recipe': {
+      const recipe = index.recipes.get(origin.id);
+      if (recipe === undefined) return snapshot;
+      return recipe.archived ? null : recipeSnapshot(recipe);
+    }
+  }
+}
+
+/** Every live food and recipe as a snapshot to log, by name. */
+export function offers(library: Library): FoodSnapshot[] {
+  return [...library.foods.filter((f) => !f.archived).map(snapshotOf), ...library.recipes.filter((r) => !r.archived).map(recipeSnapshot)].toSorted(
+    (a, b) => a.name.localeCompare(b.name),
+  );
 }
 
 /**
  * Foods from these entries, most used first with recency decay, each with the quantity and
- * meal of its latest use. Pure and local, so the list is instant and works offline.
+ * meal of its latest use. Pure and local, so the list is instant and works offline. A food
+ * now measured in another unit starts from its default amount, since the old one would
+ * change meaning.
  */
 export function recents(input: {
   readonly entries: readonly Entry[];
-  readonly library: ReadonlyMap<FoodId, Food>;
+  readonly library: Library;
   readonly now: Millis;
   readonly limit: number;
 }): RecentFood[] {
+  const index: LibraryIndex = {
+    foods: new Map(input.library.foods.map((f) => [f.id, f])),
+    recipes: new Map(input.library.recipes.map((r) => [r.id, r])),
+  };
   const groups = new Map<string, { latest: Entry; score: number }>();
   for (const entry of input.entries) {
     const key = foodKey(entry.food);
@@ -66,16 +110,18 @@ export function recents(input: {
   }
   return [...groups]
     .flatMap(([key, { latest, score }]) => {
-      const food = current(latest.food, input.library);
-      return food === null ? [] : [{ key, score, recent: { key, food, lastQuantity: latest.quantity, lastMeal: latest.meal, lastLoggedAt: latest.loggedAt } }];
+      const food = current(latest.food, index);
+      if (food === null) return [];
+      const lastQuantity = food.unit === latest.food.unit ? latest.quantity : defaultQuantity(food);
+      return [{ key, score, recent: { key, food, lastQuantity, lastMeal: latest.meal, lastLoggedAt: latest.loggedAt } }];
     })
     .toSorted((a, b) => b.score - a.score || b.recent.lastLoggedAt - a.recent.lastLoggedAt)
     .slice(0, input.limit)
     .map(({ recent }) => recent);
 }
 
-/** Every query word starts a word of the food's name or brand. */
-export function matches(food: FoodSnapshot, query: string): boolean {
+/** Every query word starts a word of the name or brand. */
+export function matches(food: Pick<FoodSnapshot, 'name' | 'brand'>, query: string): boolean {
   const words = normalize(`${food.name} ${food.brand ?? ''}`).split(/[^\p{L}\p{N}]+/u);
   return normalize(query)
     .split(/\s+/)
@@ -83,10 +129,10 @@ export function matches(food: FoodSnapshot, query: string): boolean {
     .every((word) => words.some((w) => w.startsWith(word)));
 }
 
-/** Recent then library foods matching the query, recents in use order. Instant and offline. */
+/** Recent then library foods and recipes matching the query, recents in use order. Instant and offline. */
 export function searchLocal(input: {
   readonly query: string;
-  readonly library: readonly Food[];
+  readonly library: Library;
   readonly recents: readonly RecentFood[];
   readonly limit: number;
 }): LocalHit[] {
@@ -94,9 +140,7 @@ export function searchLocal(input: {
   for (const recent of input.recents) {
     if (matches(recent.food, input.query)) hits.set(recent.key, { key: recent.key, food: recent.food, lastQuantity: recent.lastQuantity });
   }
-  const library = input.library.filter((food) => !food.archived).toSorted((a, b) => a.name.localeCompare(b.name));
-  for (const food of library) {
-    const snapshot = snapshotOf(food);
+  for (const snapshot of offers(input.library)) {
     const key = foodKey(snapshot);
     if (!hits.has(key) && matches(snapshot, input.query)) hits.set(key, { key, food: snapshot, lastQuantity: undefined });
   }

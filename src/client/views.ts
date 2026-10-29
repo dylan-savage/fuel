@@ -9,7 +9,7 @@ import { summarizeDay, type DaySummary } from '../domain/diary.js';
 import type { Food, Gtin } from '../domain/food.js';
 import { PROFILE_ID, budgetOn, goalOn, type Budget, type Goal, type Profile } from '../domain/goals.js';
 import { addDays, type LocalDate, type Millis } from '../domain/ids.js';
-import { RECENT_DAYS, recents, type RecentFood } from '../domain/library.js';
+import { RECENT_DAYS, recents, type Library, type RecentFood } from '../domain/library.js';
 import type { Intents } from './intents.js';
 import type { Replica, ReplicaReader, Subscribable } from './replica.js';
 import type { SyncState } from './sync.js';
@@ -25,14 +25,15 @@ export async function dayView(r: ReplicaReader, date: LocalDate): Promise<DayVie
   return { summary: summarizeDay(entries), budget: budgetOn({ goals, profile, date }) };
 }
 
-/** Every food logged in the last RECENT_DAYS, most used first. */
+/** Every food and recipe logged in the last RECENT_DAYS, most used first. */
 export async function recentsView(r: ReplicaReader, at: { readonly today: LocalDate; readonly now: Millis }): Promise<RecentFood[]> {
-  const [entries, foods] = await Promise.all([r.between('entry', addDays(at.today, -RECENT_DAYS), at.today), r.all('food')]);
-  return recents({ entries, library: new Map(foods.map((f) => [f.id, f])), now: at.now, limit: Number.POSITIVE_INFINITY });
+  const [entries, library] = await Promise.all([r.between('entry', addDays(at.today, -RECENT_DAYS), at.today), libraryView(r)]);
+  return recents({ entries, library, now: at.now, limit: Number.POSITIVE_INFINITY });
 }
 
-export function libraryView(r: ReplicaReader): Promise<Food[]> {
-  return r.all('food');
+export async function libraryView(r: ReplicaReader): Promise<Library> {
+  const [foods, recipes] = await Promise.all([r.all('food'), r.all('recipe')]);
+  return { foods, recipes };
 }
 
 /** The library food a scanned barcode names, if any. Archived foods still answer a scan. */

@@ -28,6 +28,11 @@ export function makeEntry(item: Ingredient, slot: Slot, id: EntryId, loggedAt: M
   return { ...item, id, date: slot.date, meal: slot.meal, loggedAt };
 }
 
+/** What an entry logged, to log again: the food and amount, not the day, meal or time. */
+export function itemOf(entry: Entry): Ingredient {
+  return { food: entry.food, quantity: entry.quantity };
+}
+
 /** Computed on read, never stored on the entry, so it cannot drift from the snapshot. */
 export function entryNutrients(entry: Entry): Nutrients {
   return nutrientsFor(entry.food, entry.quantity);

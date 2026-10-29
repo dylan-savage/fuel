@@ -98,10 +98,10 @@ export function Add({
   const trimmed = query.trim();
 
   const local = useMemo(
-    () => (trimmed === '' ? [] : searchLocal({ query: trimmed, library: library ?? [], recents: recentList ?? [], limit: 25 })),
+    () => (trimmed === '' ? [] : searchLocal({ query: trimmed, library: library ?? { foods: [], recipes: [] }, recents: recentList ?? [], limit: 25 })),
     [trimmed, library, recentList],
   );
-  const known = useMemo(() => new Set((library ?? []).flatMap((f) => f.barcodes)), [library]);
+  const known = useMemo(() => new Set((library?.foods ?? []).flatMap((f) => f.barcodes)), [library]);
 
   const quickLog = (food: FoodSnapshot, quantity: Quantity) =>
     void intents.logItems([{ food, quantity }], slot).then(({ undo }) => toast({ text: `Logged ${food.name} to ${MEAL_LABEL[slot.meal]}`, undo }));

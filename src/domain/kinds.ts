@@ -3,6 +3,7 @@ import { Entry } from './diary.js';
 import { Food } from './food.js';
 import { Goal, Profile } from './goals.js';
 import type { LocalDate } from './ids.js';
+import { Recipe, SavedMeal } from './reuse.js';
 
 interface KindDef<S extends z.ZodType<{ id: string }>, D extends boolean> {
   readonly schema: S;
@@ -33,6 +34,8 @@ const DEFS = {
   entry: datedDoc(Entry),
   profile: doc(Profile),
   goal: doc(Goal),
+  recipe: doc(Recipe),
+  savedMeal: doc(SavedMeal),
 } as const;
 
 export type Kind = keyof typeof DEFS;
@@ -89,6 +92,16 @@ export function dexieStores(): DexieSpec {
 export const SCHEMA_HISTORY: readonly DexieSpec[] = [
   { food: 'id', entry: 'id, doc.date', outbox: '++mutationId', meta: 'key' },
   { food: 'id, *doc.barcodes', entry: 'id, doc.date', profile: 'id', goal: 'id', outbox: '++mutationId', meta: 'key' },
+  {
+    food: 'id, *doc.barcodes',
+    entry: 'id, doc.date',
+    profile: 'id',
+    goal: 'id',
+    recipe: 'id',
+    savedMeal: 'id',
+    outbox: '++mutationId',
+    meta: 'key',
+  },
 ];
 
 export const DB_VERSION = SCHEMA_HISTORY.length;

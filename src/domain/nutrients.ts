@@ -74,6 +74,19 @@ export function scale(n: Nutrients, factor: number): Nutrients {
   return { ...out, kcal: n.kcal * factor };
 }
 
+/**
+ * What the items add up to as one food: a nutrient is known only when every item reports
+ * it, never understated as a lower bound. kcal is always known, because every item has it.
+ */
+export function combine(items: Iterable<Nutrients>): Nutrients {
+  const { sum, incomplete } = total(items);
+  const out: PartialNutrients = {};
+  for (const { key } of NUTRIENTS) {
+    if (!incomplete.has(key)) out[key] = sum[key];
+  }
+  return { ...out, kcal: sum.kcal };
+}
+
 export function total(items: Iterable<PartialNutrients>): Totals {
   const sum: Record<NutrientKey, number> = { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0 };
   const incomplete = new Set<NutrientKey>();

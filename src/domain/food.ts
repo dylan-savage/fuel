@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FoodId, Millis } from './ids.js';
+import { FoodId, Millis, RecipeId } from './ids.js';
 import { CORE_KEYS, FoodNutrients, Nutrients, PartialNutrients, scale, type CoreKey } from './nutrients.js';
 import { BASIS, FoodUnit } from './units.js';
 
@@ -72,9 +72,13 @@ export const Quantity = z.discriminatedUnion('kind', [
 ]);
 export type Quantity = z.infer<typeof Quantity>;
 
-/** Provenance of a snapshot, for grouping recents. Never read by nutrient math. */
+/**
+ * Provenance of a snapshot, for grouping recents and finding what a food edit can update.
+ * Never read by nutrient math.
+ */
 export const Origin = z.discriminatedUnion('kind', [
   z.looseObject({ kind: z.literal('food'), id: FoodId }),
+  z.looseObject({ kind: z.literal('recipe'), id: RecipeId }),
   z.looseObject({ kind: z.literal('adhoc') }),
 ]);
 export type Origin = z.infer<typeof Origin>;
