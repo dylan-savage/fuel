@@ -27,6 +27,14 @@ export function amount(n: number): string {
   return rounded.toLocaleString('en-US', { maximumFractionDigits: 1 });
 }
 
+/**
+ * A number as a form field starts with it: exact and ungrouped, so saving an untouched
+ * field writes back the same value. amount() is for display only; it rounds and groups.
+ */
+export function editable(n: number): string {
+  return String(Number(n.toFixed(6)));
+}
+
 /** Accepts "1,5" as well as "1.5". Null for blank or non-numeric input. */
 export function parseNumber(text: string): number | null {
   const trimmed = text.trim().replace(',', '.');
@@ -115,6 +123,11 @@ const TENTHS = { minimumFractionDigits: 1, maximumFractionDigits: 1 } as const;
 /** Body weight is stored in kg and shown in lb, to a tenth: "178.4". */
 export function lb(kg: number): string {
   return (kg / KG_PER_LB).toLocaleString('en-US', TENTHS);
+}
+
+/** A body weight as a form field starts with it: lb to a tenth, ungrouped. */
+export function lbField(kg: number): string {
+  return editable(Math.round((kg / KG_PER_LB) * 10) / 10);
 }
 
 /** A weekly change as it reads on screen: "−1.2 lb a week", "+0.4 lb a week". */

@@ -3,7 +3,7 @@ import { ACTIVITY_GROUPS, MET_ACTIVITIES, MET_ACTIVITY_IDS, WorkoutDraft, metDra
 import type { BudgetPolicy } from '../../domain/goals.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { useIntents, useLive, workoutLoggerView } from '../views.js';
-import { amount, kcal, lb, parseNumber } from './format.js';
+import { amount, editable, kcal, lb, parseNumber } from './format.js';
 import { Icon, NumberField, Sheet, TextField, useToast } from './ui.js';
 
 const MINUTES = [15, 30, 45, 60, 90] as const;
@@ -88,9 +88,9 @@ export function WorkoutSheet({ date, editing, onClose }: { readonly date: LocalD
   const toast = useToast();
   const view = useLive((r) => workoutLoggerView(r, date), [date]);
   const [choice, setChoice] = useState<Choice | null>(editing === undefined ? null : choiceOf(editing));
-  const [minutesText, setMinutesText] = useState(editing === undefined ? '30' : amount(editing.minutes));
+  const [minutesText, setMinutesText] = useState(editing === undefined ? '30' : editable(editing.minutes));
   const [nameText, setNameText] = useState(editing?.source.kind === 'custom' ? editing.name : '');
-  const [kcalText, setKcalText] = useState(editing?.source.kind === 'custom' ? String(editing.source.grossKcal) : '');
+  const [kcalText, setKcalText] = useState(editing?.source.kind === 'custom' ? editable(editing.source.grossKcal) : '');
   const title = editing === undefined ? 'Add workout' : 'Edit workout';
   if (view === undefined) return null;
 
@@ -102,10 +102,10 @@ export function WorkoutSheet({ date, editing, onClose }: { readonly date: LocalD
           kg={editing?.kg ?? view.weight?.kg}
           onPick={(picked, from) => {
             setChoice(picked);
-            if (from !== undefined) setMinutesText(amount(from.minutes));
+            if (from !== undefined) setMinutesText(editable(from.minutes));
             if (from?.source.kind === 'custom') {
               setNameText(from.name);
-              setKcalText(String(from.source.grossKcal));
+              setKcalText(editable(from.source.grossKcal));
             }
           }}
         />

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'preact/hooks';
 import { MEALS, type Meal } from '../../domain/diary.js';
 import { nutrientsFor, type FoodSnapshot, type Quantity, type Serving } from '../../domain/food.js';
 import { NUTRIENTS, type Nutrients } from '../../domain/nutrients.js';
-import { MEAL_LABEL, UNIT_LABEL, amount, brandOf, kcal, parseNumber, servingLabel } from './format.js';
+import { MEAL_LABEL, UNIT_LABEL, amount, brandOf, editable, kcal, parseNumber, servingLabel } from './format.js';
 import { Segmented, Sheet } from './ui.js';
 
 const sameServing = (a: Serving, b: Serving) => a.label === b.label && a.amount === b.amount;
@@ -28,7 +28,7 @@ export function useQuantityPicker(food: Pick<FoodSnapshot, 'unit' | 'servings'>,
 
   const initialUnit = initial.kind === 'serving' ? Math.max(0, units.findIndex((u) => u.label === servingLabel(food.unit, initial.serving))) : units.length - 1;
   const [unit, setUnit] = useState(initialUnit);
-  const [text, setText] = useState(amount(initial.kind === 'serving' ? initial.count : initial.amount));
+  const [text, setText] = useState(editable(initial.kind === 'serving' ? initial.count : initial.amount));
 
   const n = parseNumber(text);
   const choice = units[unit];

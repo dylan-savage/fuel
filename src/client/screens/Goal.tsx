@@ -23,7 +23,7 @@ import { DEFAULT_WATER_ML, ML_PER_FL_OZ } from '../../domain/habits.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { KCAL_PER_GRAM, MACROS, type Macro } from '../../domain/nutrients.js';
 import { goalView, useIntents, useLive } from '../views.js';
-import { amount, flOz, kcal, lb as pounds, parseNumber } from './format.js';
+import { amount, editable, flOz, kcal, lb as pounds, lbField, parseNumber } from './format.js';
 import { Icon, NumberField, Segmented, Sheet, TitleBar, useToast } from './ui.js';
 import { WeightSheet } from './Weight.js';
 
@@ -52,7 +52,7 @@ function ProfileSheet({ profile, today, onClose }: { readonly profile: Profile |
   const [birthDate, setBirthDate] = useState<string>(profile?.birthDate ?? '');
   const [ft, setFt] = useState(height === undefined ? '' : String(height.ft));
   const [inch, setInch] = useState(height === undefined ? '' : String(height.inch));
-  const [lb, setLb] = useState(profile === undefined ? '' : amount(profile.weightKg / KG_PER_LB));
+  const [lb, setLb] = useState(profile === undefined ? '' : lbField(profile.weightKg));
 
   const feet = parseNumber(ft);
   const inches = parseNumber(inch) ?? 0;
@@ -114,7 +114,7 @@ function profileSummary(profile: Profile, today: LocalDate): string {
   return `${profile.sex === 'male' ? 'Male' : 'Female'} · ${ageOn(profile.birthDate, today)} · ${ft}′${inch}″ · ${amount(profile.weightKg / KG_PER_LB)} lb`;
 }
 
-const macroTexts = (m: MacroTarget): Readonly<Record<Macro, string>> => ({ protein: amount(m.protein), carbs: amount(m.carbs), fat: amount(m.fat) });
+const macroTexts = (m: MacroTarget): Readonly<Record<Macro, string>> => ({ protein: editable(m.protein), carbs: editable(m.carbs), fat: editable(m.fat) });
 
 const POLICY_LABEL: Readonly<Record<BudgetPolicy['kind'], string>> = { 'activity-level': 'Activity level', 'eat-back-workouts': 'Eat back workouts' };
 
@@ -161,8 +161,8 @@ function GoalForm({
   const [showingWeight, setShowingWeight] = useState(false);
   const [policyKind, setPolicyKind] = useState<BudgetPolicy['kind']>(goal?.policy.kind ?? 'activity-level');
   const [level, setLevel] = useState<ActivityLevel>(goal?.policy.kind === 'activity-level' ? goal.policy.level : 'moderate');
-  const [percentText, setPercentText] = useState(goal?.policy.kind === 'eat-back-workouts' ? amount(goal.policy.fraction * 100) : '100');
-  const [goalWeightText, setGoalWeightText] = useState(goal?.goalWeightKg === undefined ? '' : pounds(goal.goalWeightKg));
+  const [percentText, setPercentText] = useState(goal?.policy.kind === 'eat-back-workouts' ? editable(goal.policy.fraction * 100) : '100');
+  const [goalWeightText, setGoalWeightText] = useState(goal?.goalWeightKg === undefined ? '' : lbField(goal.goalWeightKg));
   const [rateLb, setRateLb] = useState(goal === undefined ? -1 : Math.round((goal.kgPerWeek / KG_PER_LB) * 4) / 4);
   const [custom, setCustom] = useState(goal?.kcalOverride !== undefined);
   const [customText, setCustomText] = useState(goal?.kcalOverride === undefined ? '' : String(goal.kcalOverride));
