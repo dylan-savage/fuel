@@ -28,6 +28,13 @@ export interface AiParser {
   parse(req: AiParseRequest): Promise<AiOutcome>;
 }
 
+/**
+ * The current Opus at low effort. Low effort is the quickest setting, and structured
+ * extraction like this keeps its quality there. FUEL_AI_MODEL overrides it, such as with a
+ * Haiku or Sonnet id to compare latency in scripts/ai-smoke.mjs.
+ */
+export const DEFAULT_MODEL = 'claude-opus-5-5';
+
 /** Fast enough for a phone waiting on it; one retry covers a dropped connection or an overloaded moment. */
 const TIMEOUT_MS = 25_000;
 const MAX_RETRIES = 1;

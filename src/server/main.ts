@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { serve } from '@hono/node-server';
 import { z } from 'zod';
 import { Millis } from '../domain/ids.js';
-import { createAiParser } from './ai.js';
+import { DEFAULT_MODEL, createAiParser } from './ai.js';
 import { scheduleBackups } from './backup.js';
 import { createFoodSources } from './foods.js';
 import { log } from './log.js';
@@ -36,12 +36,7 @@ const Config = z.object({
     .trim()
     .optional()
     .transform((key) => (key === undefined || key === '' ? null : key)),
-  /**
-   * The current Opus, run at low effort (src/server/ai.ts): structured extraction like this
-   * keeps its quality at low effort, which is the quickest setting. Set a Haiku or Sonnet id
-   * here to compare latency with scripts/ai-smoke.mjs.
-   */
-  FUEL_AI_MODEL: z.string().trim().min(1).default('claude-opus-5-5'),
+  FUEL_AI_MODEL: z.string().trim().min(1).default(DEFAULT_MODEL),
   FUEL_OFF_URL: z.url().default('https://world.openfoodfacts.org'),
   FUEL_OFF_SEARCH_URL: z.url().default('https://search.openfoodfacts.org'),
   FUEL_USDA_URL: z.url().default('https://api.nal.usda.gov/fdc'),
