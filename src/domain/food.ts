@@ -176,7 +176,7 @@ export function baseAmount(q: Quantity): number {
 }
 
 /** What the food sheet starts at for a food with no history: its first serving, else 100 g or ml, else one portion. */
-export function defaultQuantity(food: FoodSnapshot): Quantity {
+export function defaultQuantity(food: Pick<FoodSnapshot, 'unit' | 'servings'>): Quantity {
   const [first] = food.servings;
   if (first !== undefined) return { kind: 'serving', serving: first, count: 1 };
   return { kind: 'amount', amount: BASIS[food.unit] };
