@@ -55,6 +55,8 @@ function DiaryScreen({ date }: { date: LocalDate }) {
 
 Every piece of user state is a document of one kind. `src/domain/kinds.ts` is the only list of kinds. Each entry names the zod schema and whether documents are dated. Every kind is phone-written today, so there is no writer field yet. It returns with the first server-written kind (wearable burn). The server's validation, the phone's IndexedDB tables, and the client's write type all derive from it. Per model-the-domain, adding storage for a feature is one line plus the compile errors it causes.
 
+Document shapes are zod loose objects at every depth. A field a newer app adds survives an older cached app that reads the document and writes it back. Drafts the app rebuilds from a form keep the stored document's unknown top-level fields.
+
 The phone's IndexedDB version is derived, not hand-bumped. `SCHEMA_HISTORY` is an append-only array of derived table specs, and the version is its length. A test fails when the current derived spec differs from the last entry. (Graft from the judge's review.)
 
 ### Food model
@@ -96,7 +98,7 @@ All pure, in `domain/goals.ts` and `domain/burn.ts`.
 ```
 bmr       = Mifflin-St Jeor(profile, trend weight on that day)
 goal      = the goal in effect on that day (goals are effective-dated)
-policy    = { kind: 'activity-level', multiplier } | { kind: 'eat-back-workouts', fraction }
+policy    = { kind: 'activity-level', level } | { kind: 'eat-back-workouts', fraction }
 
 activity-level:     target = bmr × multiplier + rate adjustment
                     workouts are recorded but do not change the budget
@@ -104,7 +106,7 @@ eat-back-workouts:  target = bmr × 1.2 + rate adjustment + fraction × Σ worko
 remaining = target − eaten kcal
 ```
 
-The default is `activity-level`, which gives a steady daily target. Workout kcal are net MET kcal, `(MET − 1) × kg × hours`, which leaves out the resting burn already in BMR. The 1.2 sedentary baseline covers digestion and light daily movement, so a logged workout is extra on top of it and never counted twice. Dylan wears an Apple Watch but does not trust its calorie numbers, so no device burn enters the budget.
+The default is `activity-level`, which gives a steady daily target. The goal stores the activity level, and the multiplier comes from the standard table (1.2 to 1.9). Changing the level saves a new goal, so past days keep theirs. The weekly rate is stored in kg and converted at 3500 kcal per lb, so losing 1 lb a week is exactly 500 kcal a day. A goal may set a manual kcal target instead, and its macros are a percent split or grams. Until weigh-ins arrive in phase 5, BMR uses the profile's current weight, so updating it shifts past days' targets slightly. That is the same tradeoff the trend makes later. Workout kcal are net MET kcal, `(MET − 1) × kg × hours`, which leaves out the resting burn already in BMR. The 1.2 sedentary baseline covers digestion and light daily movement, so a logged workout is extra on top of it and never counted twice. Dylan wears an Apple Watch but does not trust its calorie numbers, so no device burn enters the budget.
 
 ### Deferred: wearable burn import
 
@@ -114,9 +116,9 @@ Importing measured burn is out of scope until Dylan has a wearable he trusts (de
 
 ```
 src/domain/     pure; compiled with no DOM and no Node types
-  ids.ts units.ts nutrients.ts food.ts diary.ts goals.ts body.ts burn.ts habits.ts kinds.ts
+  ids.ts units.ts nutrients.ts food.ts diary.ts library.ts goals.ts body.ts burn.ts habits.ts kinds.ts
 src/protocol.ts zod schemas for every HTTP body
-src/server/     main.ts routes.ts store.ts foods.ts off.ts usda.ts ai.ts backup.ts
+src/server/     main.ts routes.ts store.ts foods.ts off.ts usda.ts upstream.ts ai.ts backup.ts
 src/client/     main.tsx replica.ts sync.ts intents.ts views.ts api.ts scanner.ts screens/
 test/           domain units, adapter fixtures, routes, sync simulation, schema history pin
 scripts/        run.sh, com.dylansavage.fuel.plist, restore.sh
@@ -129,7 +131,7 @@ Logging a recent food traces `screens/Diary.tsx` to `intents.ts` to `replica.ts`
 | Route | Purpose |
 |---|---|
 | `POST /api/sync` | the only write path for user data: push mutations, pull changes |
-| `GET /api/foods/search?q=` | USDA and Open Food Facts text search |
+| `GET /api/foods/search?q=` | USDA (when `USDA_API_KEY` is set) and Open Food Facts text search through search-a-licious; 502 only when every source fails |
 | `GET /api/foods/lookup/:ref` | barcode (`gtin:`) or USDA (`usda:`) lookup, cached on the mini |
 | `POST /api/ai/parse` | text or photo to draft entries or a food candidate; writes nothing |
 | `GET /healthz`, `GET /*` | smoke check; the built PWA |

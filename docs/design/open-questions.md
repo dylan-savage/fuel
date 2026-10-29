@@ -12,6 +12,7 @@ Deferred decisions and unstated assumptions for [design.md](design.md), as of 20
 6. **Food edits.** When you edit a food, should recipes and saved meals that use it update automatically, or always ask?
 7. **Second device.** Will a laptop browser ever write? If not, the only real sync conflict cannot happen.
 8. **MyFitnessPal history.** Do you want your MFP history imported so the trend and adaptive TDEE start with data?
+9. **Recents order.** Recents rank by how often you log a food, with each use counting half as much after a week, so daily staples stay on top. The other option is plain most-recent-first. Which feels right after a week of use?
 
 ## Decided
 
@@ -23,8 +24,14 @@ Deferred decisions and unstated assumptions for [design.md](design.md), as of 20
 - iOS does not evict IndexedDB for Home Screen web apps. The app also calls `navigator.storage.persist()`.
 - `tailscale serve` adds an identity header that the server could check to refuse anyone but Dylan's login.
 
+## Assumptions to verify on the device (phase 2)
+
+- The status bar uses `default` style so it stays readable in light mode. Check it in light and dark in the Home Screen app.
+- Sheets with a number field stay usable with the keyboard up, and inputs do not zoom on focus.
+- A typed barcode and a camera scan both reach the confirm sheet, and a known product logs in airplane mode.
+
 ## Human steps
 
 - Enable HTTPS certificates in the Tailscale admin console.
 - Install Tailscale on the iPhone and sign in.
-- Approve the tokenstash requests for `ANTHROPIC_API_KEY` (phase 4) and `USDA_API_KEY` (phase 2).
+- Approve the tokenstash requests for `ANTHROPIC_API_KEY` (phase 4) and `USDA_API_KEY` (phase 2). The USDA request is filed and pending. Once it is approved, run `node --env-file-if-exists=../.env.local scripts/record-fixtures.mjs usda`, add `test/usda.test.ts` against the recordings, and restart the server so search includes USDA.

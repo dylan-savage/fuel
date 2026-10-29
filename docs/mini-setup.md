@@ -30,8 +30,12 @@ The server reads these optional environment variables:
 | `FUEL_BACKUP_DIR` | `~/Library/Mobile Documents/com~apple~CloudDocs/fuel-backups` |
 | `FUEL_BACKUP_KEEP` | `30` |
 | `FUEL_STATIC_DIR` | `dist/client` in the repo |
+| `USDA_API_KEY` | unset: search uses Open Food Facts only |
+| `FUEL_OFF_URL` | `https://world.openfoodfacts.org` (barcode lookups) |
+| `FUEL_OFF_SEARCH_URL` | `https://search.openfoodfacts.org` (text search) |
+| `FUEL_USDA_URL` | `https://api.nal.usda.gov/fdc` |
 
-`run.sh` loads `.env.local` from the repo and from the parent folder, where tokenstash writes keys. Phase 1 needs no keys.
+`run.sh` loads `.env.local` from the repo and from the parent folder, where tokenstash writes keys. The only key is `USDA_API_KEY`, and it is optional. The log line `listening` reports `"usda": true` once the server has it.
 
 ## Deploy a new version
 
