@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { weighInId, type WeighIn } from '../src/domain/body.js';
+import { makeWorkout, metDraft, type Workout } from '../src/domain/burn.js';
 import { itemOf, type Entry } from '../src/domain/diary.js';
 import type { Food } from '../src/domain/food.js';
 import { goalId, type Goal, type Profile } from '../src/domain/goals.js';
 import type { Fast, FastEnd, Water } from '../src/domain/habits.js';
-import { EntryId, FoodId, LocalDate, Millis, type FastEndId, type FastId, type RecipeId, type SavedMealId, type WaterId } from '../src/domain/ids.js';
+import { EntryId, FoodId, LocalDate, Millis, type FastEndId, type FastId, type RecipeId, type SavedMealId, type WaterId, type WorkoutId } from '../src/domain/ids.js';
 import type { Recipe, SavedMeal } from '../src/domain/reuse.js';
 import { ClientId, MutationId, Rev, type SyncRequest, type WireMutation } from '../src/protocol.js';
 
@@ -75,6 +77,16 @@ export function fast(id: FastId, hours: number): Fast {
 
 export function fastEnd(id: FastEndId, fastId: FastId, n: number): FastEnd {
   return { id, fastId, endedAt: Millis.parse(1_800_000_000_000 + n * 60_000) };
+}
+
+export function weighIn(date: string, kg: number): WeighIn {
+  const day = LocalDate.parse(date);
+  return { id: weighInId(day), date: day, kg, loggedAt: Millis.parse(1_800_000_000_000) };
+}
+
+/** A 30-minute run at 6 mph, its burn worked out at `kg`. */
+export function workout(id: WorkoutId, kg: number, date = '2026-10-28'): Workout {
+  return makeWorkout(metDraft('run_6', 30), { id, date: LocalDate.parse(date), kg, loggedAt: Millis.parse(1_800_000_000_000) });
 }
 
 export function profile(weightKg: number): Profile {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { WorkoutId } from '../src/domain/ids.js';
 import { DB_VERSION, SCHEMA_HISTORY, dexieStores, parseDoc } from '../src/domain/kinds.js';
+import { weighIn, workout } from './fixtures.js';
 
 describe('schema history', () => {
   it('pins the derived IndexedDB layout: append dexieStores() to SCHEMA_HISTORY when this fails', () => {
@@ -38,6 +40,19 @@ describe('parseDoc', () => {
     };
     expect(parseDoc('food', food).ok).toBe(false);
     expect(parseDoc('food', { ...food, nutrients: { ...food.nutrients, fat: 7 } }).ok).toBe(true);
+  });
+});
+
+describe('body documents', () => {
+  it('give a weigh-in one id per day, so logging twice on a day rewrites one document', () => {
+    expect(parseDoc('weighIn', weighIn('2026-10-28', 80)).ok).toBe(true);
+    expect(parseDoc('weighIn', { ...weighIn('2026-10-28', 80), id: 'w:2026-10-27' }).ok).toBe(false);
+  });
+
+  it('accept a workout from an activity this app does not list', () => {
+    const run = workout(WorkoutId.parse('0b1e6c7a-3f2d-4e5a-8b9c-0d1e2f3a4b5c'), 80);
+    expect(parseDoc('workout', { ...run, name: 'Padel', source: { kind: 'met', activity: 'padel', met: 6 } }).ok).toBe(true);
+    expect(parseDoc('workout', { ...run, source: { kind: 'met', activity: 'run_6', met: 0.5 } }).ok).toBe(false);
   });
 });
 

@@ -42,3 +42,6 @@ export type FastId = z.infer<typeof FastId>;
 
 export const FastEndId = z.uuid().brand<'FastEndId'>();
 export type FastEndId = z.infer<typeof FastEndId>;
+
+export const WorkoutId = z.uuid().brand<'WorkoutId'>();
+export type WorkoutId = z.infer<typeof WorkoutId>;

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { WeighIn } from './body.js';
+import { Workout } from './burn.js';
 import { Entry } from './diary.js';
 import { Food } from './food.js';
 import { Goal, Profile } from './goals.js';
@@ -40,6 +42,8 @@ const DEFS = {
   water: datedDoc(Water),
   fast: doc(Fast),
   fastEnd: doc(FastEnd),
+  weighIn: datedDoc(WeighIn),
+  workout: datedDoc(Workout),
 } as const;
 
 export type Kind = keyof typeof DEFS;
@@ -128,6 +132,21 @@ export const SCHEMA_HISTORY: readonly DexieSpec[] = [
     water: 'id, doc.date',
     fast: 'id',
     fastEnd: 'id',
+    outbox: '++mutationId',
+    meta: 'key',
+  },
+  {
+    food: 'id, *doc.barcodes',
+    entry: 'id, doc.date',
+    profile: 'id',
+    goal: 'id',
+    recipe: 'id',
+    savedMeal: 'id',
+    water: 'id, doc.date',
+    fast: 'id',
+    fastEnd: 'id',
+    weighIn: 'id, doc.date',
+    workout: 'id, doc.date',
     outbox: '++mutationId',
     meta: 'key',
   },
