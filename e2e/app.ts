@@ -65,7 +65,7 @@ export async function kcalOf(page: Page, testId: string): Promise<number> {
   return Number((await page.getByTestId(testId).textContent())?.replace(/,/g, ''));
 }
 
-/** Fills the profile sheet and saves a 1 lb a week loss at moderate activity. */
+/** Fills the profile sheet and saves a 1 lb a week loss at moderate activity, workouts not eaten back. */
 export async function setGoal(page: Page) {
   await tab(page, 'Goal').click();
   await page.getByRole('button', { name: /Add your details|Male|Female/ }).click();
@@ -77,6 +77,7 @@ export async function setGoal(page: Page) {
   await sheet.getByLabel('Weight').fill('180');
   await sheet.getByRole('button', { name: 'Save details' }).click();
   await expect(sheet).toBeHidden();
+  await page.getByRole('radio', { name: 'Activity level', exact: true }).click();
   await page.getByRole('radio', { name: /Moderately active/ }).click();
   await page.getByLabel('Weekly goal').selectOption({ label: 'Lose 1 lb per week' });
   await page.getByRole('button', { name: 'Save goal' }).click();

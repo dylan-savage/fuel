@@ -6,9 +6,12 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { localDate } from '../src/client/clock.js';
+import { weighInId } from '../src/domain/body.js';
+import { makeWorkout, metDraft } from '../src/domain/burn.js';
 import { snapshotOf, type Food, type Ingredient, type Serving } from '../src/domain/food.js';
 import { HOUR_MS, ML_PER_FL_OZ, type Fast, type FastEnd } from '../src/domain/habits.js';
-import { FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId } from '../src/domain/ids.js';
+import { KG_PER_LB } from '../src/domain/goals.js';
+import { FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, WorkoutId, addDays } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import type { Recipe, SavedMeal } from '../src/domain/reuse.js';
 import { seed, setGoal, stored, tab, typeBarcode } from './app.js';
@@ -83,10 +86,37 @@ function habitDocs(): Mutation[] {
   return [...cleared, ...drinks, { op: 'put', kind: 'fast', doc: open }, ...past];
 }
 
+/**
+ * Ninety days of weigh-ins drifting down with day-to-day noise and a few skipped days, and
+ * two workouts today, replacing any other specs left.
+ */
+function bodyDocs(): Mutation[] {
+  const today = localDate();
+  const cleared = [
+    ...stored('weighIn').map((w): Mutation => ({ op: 'delete', kind: 'weighIn', id: w.id })),
+    ...stored('workout').map((w): Mutation => ({ op: 'delete', kind: 'workout', id: w.id })),
+  ];
+  const weighIns = Array.from({ length: 90 }, (_, i) => i).flatMap((i): Mutation[] => {
+    if (i % 9 === 4 || i % 13 === 7) return [];
+    const date = addDays(today, i - 89);
+    const pounds = 192 - 0.12 * i + 1.1 * Math.sin(i * 1.7) + 0.6 * Math.sin(i * 0.37 + 1);
+    return [{ op: 'put', kind: 'weighIn', doc: { id: weighInId(date), date, kg: pounds * KG_PER_LB, loggedAt: Millis.parse(Date.now()) } }];
+  });
+  const kg = 181.4 * KG_PER_LB;
+  const workouts = [metDraft('strength', 50), metDraft('walk_3_5', 30)].map((draft, i): Mutation => ({
+    op: 'put',
+    kind: 'workout',
+    doc: makeWorkout(draft, { id: WorkoutId.parse(randomUUID()), date: today, kg, loggedAt: Millis.parse(Date.now() - (3 - i) * HOUR_MS) }),
+  }));
+  return [...cleared, ...weighIns, ...workouts];
+}
+
 test('seeds a day worth photographing', async ({ page, request }) => {
-  await seed(request, [...reuseDocs(), ...habitDocs()]);
+  await seed(request, [...reuseDocs(), ...habitDocs(), ...bodyDocs()]);
   await page.goto('/');
   await setGoal(page);
+  await page.getByLabel('Goal weight').fill('170');
+  await page.getByRole('button', { name: 'Save goal' }).click();
 
   await tab(page, 'Diary').click();
   await page.getByRole('button', { name: 'Add to Breakfast' }).click();
@@ -200,6 +230,51 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.screenshot({ path: join(dir, `goal-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
       // A full-page capture would paint the fixed tab bar mid-page.
       await page.screenshot({ path: join(dir, `goal-${colorScheme}-full.png`), fullPage: true, animations: 'disabled', style: '.tab-bar, .toast { display: none; }' });
+    });
+
+    test(`photographs weight, workouts and the budget choice in ${colorScheme}`, async ({ page }) => {
+      await page.goto('/');
+      const tile = page.getByRole('region', { name: 'Weight' });
+      await expect(tile.getByTestId('tile-trend')).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole('region', { name: 'Workouts' }).getByText('Strength training')).toBeVisible();
+
+      await tile.getByRole('button', { name: /^Weight/ }).click();
+      const weight = page.getByRole('dialog', { name: 'Weight' });
+      await expect(weight.getByTestId('projection')).not.toHaveText('Not enough data');
+      await page.screenshot({ path: join(dir, `weight-${colorScheme}.png`), animations: 'disabled' });
+      await weight.getByRole('radio', { name: '90 days' }).click();
+      await page.screenshot({ path: join(dir, `weight-90-days-${colorScheme}.png`), animations: 'disabled' });
+      await weight.getByRole('button', { name: 'Cancel' }).click();
+
+      await tile.getByRole('button', { name: 'Weigh in', exact: true }).click();
+      const entry = page.getByRole('dialog', { name: 'Weigh-in' });
+      await entry.getByLabel('Weight').fill('181.2');
+      await page.screenshot({ path: join(dir, `weigh-in-${colorScheme}.png`), animations: 'disabled' });
+      await entry.getByRole('button', { name: 'Cancel' }).click();
+
+      const workouts = page.getByRole('region', { name: 'Workouts' });
+      await workouts.getByRole('button', { name: 'Add workout' }).click();
+      const logger = page.getByRole('dialog', { name: 'Add workout' });
+      await expect(logger.getByRole('list', { name: 'Recent workouts' })).toBeVisible();
+      await page.screenshot({ path: join(dir, `workout-picker-${colorScheme}.png`), animations: 'disabled' });
+      await logger.getByRole('region', { name: 'Running' }).getByRole('button', { name: /^Running, 6 mph/ }).click();
+      await logger.getByRole('button', { name: '45 min', exact: true }).click();
+      await expect(logger.getByTestId('workout-kcal')).not.toHaveText('–');
+      await page.screenshot({ path: join(dir, `workout-logger-${colorScheme}.png`), animations: 'disabled' });
+      await logger.getByRole('button', { name: 'Cancel' }).click();
+
+      await workouts.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: join(dir, `today-workouts-${colorScheme}.png`), animations: 'disabled' });
+      await page.screenshot({ path: join(dir, `today-${colorScheme}-full.png`), fullPage: true, animations: 'disabled', style: '.tab-bar, .toast { display: none; }' });
+
+      await tab(page, 'Goal').click();
+      const choice = page.getByRole('radiogroup', { name: 'Workouts and your target' });
+      await choice.scrollIntoViewIfNeeded();
+      await page.evaluate(() => window.scrollBy(0, -60));
+      await page.screenshot({ path: join(dir, `goal-policy-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
+      await choice.getByRole('radio', { name: 'Eat back workouts' }).click();
+      await expect(page.getByTestId('policy-sentence')).toContainText('adds 100%');
+      await page.screenshot({ path: join(dir, `goal-eat-back-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
     });
   });
 }
