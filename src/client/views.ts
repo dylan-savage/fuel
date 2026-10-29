@@ -5,6 +5,8 @@
  */
 import { createContext } from 'preact';
 import { useCallback, useContext, useEffect, useState } from 'preact/hooks';
+import type { WeighIn } from '../domain/body.js';
+import type { Workout } from '../domain/burn.js';
 import { summarizeDay, type DaySummary } from '../domain/diary.js';
 import type { Food, Gtin } from '../domain/food.js';
 import { PROFILE_ID, budgetOn, goalOn, type Budget, type Goal, type Profile } from '../domain/goals.js';
@@ -31,13 +33,25 @@ import type { SyncState } from './sync.js';
 
 export interface DayView {
   readonly summary: DaySummary;
+  /** Oldest first. */
+  readonly workouts: readonly Workout[];
   /** Null before any goal, or while a computed goal has no profile. */
   readonly budget: Budget | null;
 }
 
 export async function dayView(r: ReplicaReader, date: LocalDate): Promise<DayView> {
-  const [entries, goals, profile] = await Promise.all([r.onDate('entry', date), r.all('goal'), r.get('profile', PROFILE_ID)]);
-  return { summary: summarizeDay(entries), budget: budgetOn({ goals, profile, date }) };
+  const [entries, workouts, goals, profile, weighIns] = await Promise.all([
+    r.onDate('entry', date),
+    r.onDate('workout', date),
+    r.all('goal'),
+    r.get('profile', PROFILE_ID),
+    r.all('weighIn'),
+  ]);
+  return {
+    summary: summarizeDay(entries),
+    workouts: workouts.toSorted((a, b) => a.loggedAt - b.loggedAt),
+    budget: budgetOn({ goals, profile, weighIns, workouts, date }),
+  };
 }
 
 /** Every food and recipe logged in the last RECENT_DAYS, most used first. */
@@ -83,11 +97,13 @@ export interface GoalView {
   readonly profile: Profile | undefined;
   /** The goal in effect today. */
   readonly goal: Goal | undefined;
+  /** Every weigh-in, for BMR from today's trend. */
+  readonly weighIns: readonly WeighIn[];
 }
 
 export async function goalView(r: ReplicaReader, today: LocalDate): Promise<GoalView> {
-  const [profile, goals] = await Promise.all([r.get('profile', PROFILE_ID), r.all('goal')]);
-  return { profile, goal: goalOn(goals, today) };
+  const [profile, goals, weighIns] = await Promise.all([r.get('profile', PROFILE_ID), r.all('goal'), r.all('weighIn')]);
+  return { profile, goal: goalOn(goals, today), weighIns };
 }
 
 export interface WaterView {

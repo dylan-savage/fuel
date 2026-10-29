@@ -15,6 +15,7 @@ import {
   type Profile,
   type Sex,
 } from '../../domain/goals.js';
+import type { WeighIn } from '../../domain/body.js';
 import { DEFAULT_WATER_ML, ML_PER_FL_OZ } from '../../domain/habits.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { KCAL_PER_GRAM, MACROS, type Macro } from '../../domain/nutrients.js';
@@ -111,11 +112,11 @@ function profileSummary(profile: Profile, today: LocalDate): string {
 
 const macroTexts = (m: MacroTarget): Readonly<Record<Macro, string>> => ({ protein: amount(m.protein), carbs: amount(m.carbs), fat: amount(m.fat) });
 
-function GoalForm({ goal, profile, today }: { readonly goal: Goal | undefined; readonly profile: Profile | undefined; readonly today: LocalDate }) {
+function GoalForm({ goal, profile, weighIns, today }: { readonly goal: Goal | undefined; readonly profile: Profile | undefined; readonly weighIns: readonly WeighIn[]; readonly today: LocalDate }) {
   const intents = useIntents();
   const toast = useToast();
   const [editingProfile, setEditingProfile] = useState(false);
-  const [level, setLevel] = useState<ActivityLevel>(goal?.policy.level ?? 'moderate');
+  const [level, setLevel] = useState<ActivityLevel>(goal?.policy.kind === 'activity-level' ? goal.policy.level : 'moderate');
   const [rateLb, setRateLb] = useState(goal === undefined ? -1 : Math.round((goal.kgPerWeek / KG_PER_LB) * 4) / 4);
   const [custom, setCustom] = useState(goal?.kcalOverride !== undefined);
   const [customText, setCustomText] = useState(goal?.kcalOverride === undefined ? '' : String(goal.kcalOverride));
@@ -135,7 +136,7 @@ function GoalForm({ goal, profile, today }: { readonly goal: Goal | undefined; r
     macros: { kind: macroKind, ...macroValues },
     waterMl,
   });
-  const budget = draft.success ? budgetFor({ ...draft.data, id: goalId(today), effectiveFrom: today }, profile, today) : null;
+  const budget = draft.success ? budgetFor({ ...draft.data, id: goalId(today), effectiveFrom: today }, { profile, weighIns, workouts: [] }, today) : null;
   const percentTotal = MACROS.reduce((sum, m) => sum + (macroValues[m] ?? 0), 0);
 
   const switchMacroKind = (kind: MacroTarget['kind']) => {
@@ -171,7 +172,7 @@ function GoalForm({ goal, profile, today }: { readonly goal: Goal | undefined; r
             ? 'Add your details to calculate a target, or set a custom one.'
             : budget.basis.kind === 'manual'
               ? 'Custom target'
-              : `BMR ${kcal(budget.basis.bmr)} × ${ACTIVITY[level].multiplier} = TDEE ${kcal(budget.basis.tdee)}${rateDetail(budget.basis.rate, rateLb)}`}
+              : `BMR ${kcal(budget.basis.bmr)} × ${budget.basis.multiplier} = TDEE ${kcal(budget.basis.tdee)}${rateDetail(budget.basis.rate, rateLb)}`}
         </p>
         {budget !== null && (
           <p class="target-macros">{MACROS.map((m) => `${MACRO_LABEL[m]} ${amount(budget.macros[m])} g`).join(' · ')}</p>
@@ -267,7 +268,7 @@ export function GoalScreen({ today }: { readonly today: LocalDate }) {
   return (
     <section class="screen goal">
       <TitleBar title="Goal" />
-      {view !== undefined && <GoalForm key={view.goal?.id ?? 'none'} goal={view.goal} profile={view.profile} today={today} />}
+      {view !== undefined && <GoalForm key={view.goal?.id ?? 'none'} goal={view.goal} profile={view.profile} weighIns={view.weighIns} today={today} />}
     </section>
   );
 }

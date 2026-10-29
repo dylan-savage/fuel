@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { BodyKg, bodyWeightOn, type BodyWeight, type WeighIn } from './body.js';
+import { workoutKcal, type Workout } from './burn.js';
 import { LocalDate } from './ids.js';
 import { KCAL_PER_GRAM, MACROS, type Macro, type Totals } from './nutrients.js';
 
@@ -30,8 +32,8 @@ export const Profile = z.looseObject({
   sex: Sex,
   birthDate: LocalDate,
   heightCm: z.number().positive().max(272),
-  /** Stored in kg, shown in lb. Phase 5's weigh-in trend takes over from it in BMR. */
-  weightKg: z.number().positive().max(635),
+  /** The starting weight, in kg. BMR uses it only on days before the first weigh-in. */
+  weightKg: BodyKg,
 });
 export type Profile = z.infer<typeof Profile>;
 
@@ -39,13 +41,28 @@ export const ProfileDraft = Profile.omit({ id: true });
 export type ProfileDraft = z.infer<typeof ProfileDraft>;
 
 /**
- * How the daily target is set. `activity-level` is TDEE plus the rate adjustment; workouts
- * never change it. `eat-back-workouts` joins with workouts in phase 5.
+ * How workouts meet the daily target. `activity-level` folds exercise into the activity
+ * multiplier, so logged workouts never change the target. `eat-back-workouts` starts from
+ * the sedentary baseline and adds `fraction` of each day's workout kcal.
  */
 export const BudgetPolicy = z.discriminatedUnion('kind', [
   z.looseObject({ kind: z.literal('activity-level'), level: ActivityLevel }),
+  z.looseObject({ kind: z.literal('eat-back-workouts'), fraction: z.number().min(0).max(1) }),
 ]);
 export type BudgetPolicy = z.infer<typeof BudgetPolicy>;
+
+/** Desk job, no exercise: the baseline that eaten-back workouts sit on. */
+export const BASELINE_MULTIPLIER = ACTIVITY.sedentary.multiplier;
+
+/** What a policy multiplies BMR by, and the share of the day's workout kcal it adds. */
+export function policyTerms(policy: BudgetPolicy): { readonly multiplier: number; readonly workoutShare: number } {
+  switch (policy.kind) {
+    case 'activity-level':
+      return { multiplier: ACTIVITY[policy.level].multiplier, workoutShare: 0 };
+    case 'eat-back-workouts':
+      return { multiplier: BASELINE_MULTIPLIER, workoutShare: policy.fraction };
+  }
+}
 
 /** The most water a daily goal may ask for. */
 export const MAX_WATER_ML = 10_000;
@@ -77,6 +94,8 @@ const GoalFields = z.looseObject({
   macros: MacroTarget,
   /** The daily water goal, stored in ml. Goals saved before water existed have none. */
   waterMl: z.number().positive().max(MAX_WATER_ML).optional(),
+  /** Where the weight trend is headed, in kg. The projection counts toward it. */
+  goalWeightKg: BodyKg.optional(),
 });
 
 /**
@@ -100,10 +119,6 @@ export function ageOn(birthDate: LocalDate, date: LocalDate): number {
 /** Mifflin-St Jeor resting energy, kcal a day. */
 export function bmr(p: { readonly sex: Sex; readonly kg: number; readonly cm: number; readonly age: number }): number {
   return 10 * p.kg + 6.25 * p.cm - 5 * p.age + (p.sex === 'male' ? 5 : -161);
-}
-
-export function tdee(bmrKcal: number, level: ActivityLevel): number {
-  return bmrKcal * ACTIVITY[level].multiplier;
 }
 
 /** Daily kcal change that a weekly weight change needs. Losing 1 lb a week is −500. */
@@ -132,37 +147,69 @@ export function macroGrams(macros: MacroTarget, kcal: number): Readonly<Record<M
 }
 
 export type BudgetBasis =
-  | { readonly kind: 'computed'; readonly bmr: number; readonly tdee: number; readonly rate: number }
+  | {
+      readonly kind: 'computed';
+      readonly bmr: number;
+      readonly weight: BodyWeight;
+      readonly multiplier: number;
+      /** BMR × multiplier. */
+      readonly tdee: number;
+      readonly rate: number;
+    }
   | { readonly kind: 'manual' };
 
 /** One day's targets. Derived on read, never stored. */
 export interface Budget {
   readonly basis: BudgetBasis;
+  /** The target before workouts. */
+  readonly baseKcal: number;
+  /** What the day's workouts add. Always 0 under `activity-level`. */
+  readonly workoutKcal: number;
+  /** baseKcal + workoutKcal. */
   readonly kcal: number;
   /** Grams. */
   readonly macros: Readonly<Record<Macro, number>>;
 }
 
-/**
- * The target a goal sets on `date`. A computed target needs the profile; a manual override
- * does not. Null when the goal cannot be computed yet.
- */
-export function budgetFor(goal: Goal, profile: Profile | undefined, date: LocalDate): Budget | null {
-  if (goal.kcalOverride !== undefined) {
-    return { basis: { kind: 'manual' }, kcal: goal.kcalOverride, macros: macroGrams(goal.macros, goal.kcalOverride) };
-  }
-  if (profile === undefined) return null;
-  const rest = bmr({ sex: profile.sex, kg: profile.weightKg, cm: profile.heightCm, age: ageOn(profile.birthDate, date) });
-  const total = tdee(rest, goal.policy.level);
+/** What a day's target depends on besides the goal. */
+export interface DayFacts {
+  readonly profile: Profile | undefined;
+  /** Every weigh-in: BMR reads the trend on the day. */
+  readonly weighIns: readonly WeighIn[];
+  /** That day's workouts. */
+  readonly workouts: readonly Workout[];
+}
+
+function baseFor(goal: Goal, facts: DayFacts, date: LocalDate, multiplier: number): { readonly basis: BudgetBasis; readonly kcal: number } | null {
+  if (goal.kcalOverride !== undefined) return { basis: { kind: 'manual' }, kcal: goal.kcalOverride };
+  const { profile } = facts;
+  const weight = bodyWeightOn(facts.weighIns, profile, date);
+  if (profile === undefined || weight === undefined) return null;
+  const rest = bmr({ sex: profile.sex, kg: weight.kg, cm: profile.heightCm, age: ageOn(profile.birthDate, date) });
+  const total = rest * multiplier;
   const rate = rateKcal(goal.kgPerWeek);
-  const kcal = Math.round(total + rate);
-  return { basis: { kind: 'computed', bmr: rest, tdee: total, rate }, kcal, macros: macroGrams(goal.macros, kcal) };
+  return { basis: { kind: 'computed', bmr: rest, weight, multiplier, tdee: total, rate }, kcal: Math.round(total + rate) };
+}
+
+/**
+ * The target a goal sets on `date`: BMR from the weight trend that day, times the policy's
+ * multiplier, plus the rate adjustment, plus the share of workouts the policy eats back. A
+ * manual override replaces everything before the workouts and needs no profile. Null when
+ * the goal cannot be computed yet.
+ */
+export function budgetFor(goal: Goal, facts: DayFacts, date: LocalDate): Budget | null {
+  const { multiplier, workoutShare } = policyTerms(goal.policy);
+  const base = baseFor(goal, facts, date, multiplier);
+  if (base === null) return null;
+  const fromWorkouts = Math.round(workoutShare * workoutKcal(facts.workouts));
+  const kcal = base.kcal + fromWorkouts;
+  return { basis: base.basis, baseKcal: base.kcal, workoutKcal: fromWorkouts, kcal, macros: macroGrams(goal.macros, kcal) };
 }
 
 /** The target on `date` from the goal in effect then, or null before any goal. */
-export function budgetOn(input: { readonly goals: readonly Goal[]; readonly profile: Profile | undefined; readonly date: LocalDate }): Budget | null {
+export function budgetOn(input: DayFacts & { readonly goals: readonly Goal[]; readonly date: LocalDate }): Budget | null {
   const goal = goalOn(input.goals, input.date);
-  return goal === undefined ? null : budgetFor(goal, input.profile, input.date);
+  return goal === undefined ? null : budgetFor(goal, input, input.date);
 }
 
 /** Kcal left for the day. Negative when over. */

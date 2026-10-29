@@ -64,7 +64,7 @@ test('a day: goal, barcode to log, offline recents and scans, synced to fuel.db'
     await context.setOffline(false);
     await expect(page.getByText(/\d+ waiting/)).toBeHidden({ timeout: 15_000 });
     expect(cokeEntries()).toBe(syncedCokes + 2);
-    expect(stored('goal').map((g) => g.policy.level)).toContain('moderate');
+    expect(stored('goal').map((g) => g.policy)).toContainEqual({ kind: 'activity-level', level: 'moderate' });
     expect(stored('profile')[0]?.weightKg).toBeCloseTo(180 * 0.45359237, 3);
   });
 });
