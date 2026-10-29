@@ -33,21 +33,22 @@ export function ConfirmSheet({
 }) {
   const [name, setName] = useState(candidate.name);
   const [brand, setBrand] = useState(candidate.brand ?? '');
-  const [core, setCore] = useState<Readonly<Record<CoreKey, string>>>(() => {
-    const text = (key: CoreKey) => {
-      const value = candidate.nutrients[key];
-      return value === undefined ? '' : amount(value);
-    };
-    return { kcal: text('kcal'), protein: text('protein'), carbs: text('carbs'), fat: text('fat') };
-  });
+  /** Only what Dylan typed. An untouched field keeps the source's exact value, not its display rounding. */
+  const [typed, setTyped] = useState<Readonly<Partial<Record<CoreKey, string>>>>({});
   const [meal, setMeal] = useState(initialMeal);
 
   const nutrients: PartialNutrients = { ...candidate.nutrients };
   for (const key of CORE_KEYS) {
-    const value = parseNumber(core[key]);
+    const text = typed[key];
+    if (text === undefined) continue;
+    const value = parseNumber(text);
     if (value !== null && value >= 0) nutrients[key] = value;
     else delete nutrients[key];
   }
+  const shownCore = (key: CoreKey) => {
+    const source = candidate.nutrients[key];
+    return typed[key] ?? (source === undefined ? '' : String(Math.round(source * 10) / 10));
+  };
   const missing = missingCore(nutrients);
   const { brand: _sourceBrand, ...rest } = candidate;
   const edited: FoodCandidate = { ...rest, name: name.trim() || candidate.name, ...(brand.trim() === '' ? {} : { brand: brand.trim() }), nutrients };
@@ -74,10 +75,10 @@ export function ConfirmSheet({
             key={key}
             label={coreLabel(key)}
             unit={coreUnit(key)}
-            value={core[key]}
+            value={shownCore(key)}
             placeholder="Required"
             invalid={missing.includes(key)}
-            onInput={(value) => setCore({ ...core, [key]: value })}
+            onInput={(value) => setTyped({ ...typed, [key]: value })}
           />
         ))}
       </div>
