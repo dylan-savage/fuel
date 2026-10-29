@@ -161,6 +161,19 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.screenshot({ path: join(dir, `recipe-builder-${colorScheme}.png`), animations: 'disabled' });
       await builder.getByRole('button', { name: 'Cancel' }).click();
 
+      await page.getByLabel('Search foods').fill('chicken thigh');
+      await page.getByRole('list', { name: 'Your foods' }).getByRole('button', { name: /^Chicken thigh/ }).click();
+      await page.getByRole('dialog', { name: 'Log food' }).getByRole('button', { name: 'Edit food' }).click();
+      const editor = page.getByRole('dialog', { name: 'Edit food' });
+      await editor.getByLabel('Calories').fill('180');
+      await editor.getByRole('button', { name: 'Save food' }).click();
+      const ask = page.getByRole('alertdialog', { name: 'Also update 1 recipe?' });
+      await expect(ask).toBeVisible();
+      await page.screenshot({ path: join(dir, `food-edit-prompt-${colorScheme}.png`), animations: 'disabled' });
+      await ask.getByRole('button', { name: 'Not now' }).click();
+      await page.getByRole('dialog', { name: 'Log food' }).getByRole('button', { name: 'Cancel' }).click();
+      await page.getByLabel('Search foods').fill('');
+
       await page.getByRole('radio', { name: 'Saved meals' }).click();
       const saved = page.getByRole('list', { name: 'Saved meals' });
       await expect(saved.getByText('Usual breakfast')).toBeVisible();
