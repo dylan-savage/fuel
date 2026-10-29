@@ -104,7 +104,7 @@ export interface ReplicaOptions {
   readonly newId?: () => string;
 }
 
-/** A local write its kind's schema rejects. Thrown by commit before anything is written. */
+/** A local write its kind's schema rejects. */
 export class InvalidDocument extends Error {
   override readonly name = 'InvalidDocument';
   constructor(
@@ -172,8 +172,6 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
   const replica: Replica = {
     read,
     commit: async (mutations) => {
-      // The mini would reject the document and sync would then delete it from the phone, long
-      // after the edit. Refusing it here makes the edit itself fail, with nothing written.
       for (const m of mutations) {
         if (m.op !== 'put') continue;
         const parsed = parseDoc(m.kind, m.doc);

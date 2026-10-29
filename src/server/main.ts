@@ -30,7 +30,6 @@ const Config = z.object({
     .trim()
     .optional()
     .transform((key) => (key === undefined || key === '' ? null : key)),
-  /** Optional. Unset or empty means AI quick log answers 503 ai_unconfigured. Never logged. */
   ANTHROPIC_API_KEY: z
     .string()
     .trim()

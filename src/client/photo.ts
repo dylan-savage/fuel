@@ -1,11 +1,7 @@
-/**
- * Photos for AI quick log, shrunk on the phone before they leave it. An iPhone photo is
- * several MB; the model reads nothing past about 1568 px on the long edge, so that size as
- * a JPEG is a few hundred KB and uploads quickly on a weak signal.
- */
 import type { PhotoType } from '../protocol.js';
 
-const LONG_EDGE = 1568;
+/** A few hundred KB as a JPEG, so it uploads on a weak signal, and a nutrition label stays legible. */
+const MAX_EDGE_PX = 1568;
 const QUALITY = 0.82;
 
 export interface PreparedPhoto {
@@ -40,7 +36,7 @@ function base64Of(blob: Blob): Promise<string> {
 
 export async function preparePhoto(file: Blob): Promise<PreparedPhoto> {
   const image = await load(file);
-  const scale = Math.min(1, LONG_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
+  const scale = Math.min(1, MAX_EDGE_PX / Math.max(image.naturalWidth, image.naturalHeight));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(image.naturalWidth * scale);
   canvas.height = Math.round(image.naturalHeight * scale);

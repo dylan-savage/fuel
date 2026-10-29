@@ -1,4 +1,4 @@
-/** The HTTP surface. Each handler parses its input, calls the store, the food sources or the AI parser, and serializes the result. */
+/** The HTTP surface. Each handler parses its input, calls into AppDeps, and serializes the result. */
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -25,7 +25,6 @@ import { UpstreamError } from './upstream.js';
 export interface AppDeps {
   readonly store: DocStore;
   readonly foods: FoodSources;
-  /** Null when ANTHROPIC_API_KEY is unset: AI quick log answers 503 ai_unconfigured. */
   readonly ai: AiParser | null;
   /** The built PWA. Same origin as the API, so there is no CORS and the service worker scope is '/'. */
   readonly staticDir: string;

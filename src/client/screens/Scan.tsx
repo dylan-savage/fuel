@@ -96,7 +96,6 @@ export function Scan({ slot, onLogged }: ScanProps) {
     }
   };
 
-  /** The product the barcode missed, read from its label; its barcode comes along so the next scan finds it. */
   const photographLabel = async (barcode: Gtin, file: File) => {
     const answer = await ai.askPhoto('label', file, []);
     if (answer?.kind === 'label') flow.open({ kind: 'confirm', candidate: { ...answer.candidate, barcodes: [barcode] } });

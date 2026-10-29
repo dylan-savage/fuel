@@ -1,12 +1,7 @@
-// Calls the real Anthropic API through the built adapter for one description, one label photo
-// and one plate photo from test/fixtures/ai, and prints each answer with its latency. Name
-// several models to compare them side by side.
-//
 //   npm run build
 //   node --env-file-if-exists=../.env.local scripts/ai-smoke.mjs [model ...]
 //
-// With no model named it uses FUEL_AI_MODEL, else the server's default. ANTHROPIC_API_KEY is
-// read by the SDK from the environment and never printed.
+// With no model named it uses FUEL_AI_MODEL, else the server's default.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
@@ -21,7 +16,6 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 const fixtures = join(import.meta.dirname, '..', 'test', 'fixtures', 'ai');
 const photo = (name) => readFileSync(join(fixtures, `${name}.jpg`)).toString('base64');
-/** Dylan's foods as the phone would send them, so "my usual oats" has something to match. */
 const foods = [
   { key: 'food:oats', name: 'Overnight oats' },
   { key: 'food:egg', name: 'Egg', brand: 'Vital Farms' },

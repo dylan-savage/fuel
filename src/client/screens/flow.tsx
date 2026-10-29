@@ -1,8 +1,4 @@
-/**
- * The sheets that end in a diary entry, as one state machine shared by the Add and Scan
- * screens: log a known food or recipe, confirm an external one, review what AI found, create
- * a food or recipe, quick add, or log a saved meal.
- */
+/** The sheets that end in a diary entry, as one state machine shared by the Add and Scan screens. */
 import { useCallback, useState } from 'preact/hooks';
 import type { Meal, Slot } from '../../domain/diary.js';
 import { defaultQuantity, snapshotOf, type FoodCandidate, type FoodSnapshot, type Quantity } from '../../domain/food.js';

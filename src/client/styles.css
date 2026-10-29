@@ -1563,8 +1563,6 @@ main {
   font-size: 15px;
 }
 
-/* AI quick log on Add: a description with its send button, then the photo buttons. */
-
 .quick-log {
   margin-top: 8px;
 }
@@ -1604,8 +1602,6 @@ main {
   opacity: 0.35;
   pointer-events: none;
 }
-
-/* The draft review: one card per food AI found. */
 
 .draft-list {
   list-style: none;

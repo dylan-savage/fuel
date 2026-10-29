@@ -1,8 +1,3 @@
-/**
- * AI quick log, the pure half. The mini turns a described or photographed meal into drafts;
- * each draft logs either as the AI's estimate or as one of Dylan's own foods, so "my usual
- * oats" logs what he actually eats.
- */
 import { z } from 'zod';
 import { defaultQuantity, type FoodSnapshot, type Ingredient, type Quantity, type Serving } from './food.js';
 import { foodKey, offers, searchLocal, type Library, type LocalHit, type RecentFood } from './library.js';
@@ -19,12 +14,10 @@ export const FoodHint = z.object({
 });
 export type FoodHint = z.infer<typeof FoodHint>;
 
-/** Enough of the library to cover what he eats, small enough to send with every request. */
 export const MAX_HINTS = 60;
 
 const positive = z.number().positive().finite();
 
-/** How much was eaten, in whatever terms the model could tell. Any part may be unknown. */
 export const DraftAmount = z.object({
   /** As described or seen: "2 large", "about a cup". */
   described: z.string().max(TEXT_MAX),
@@ -47,7 +40,7 @@ export const Draft = z.object({
   /** For the whole amount, not per 100 g. */
   nutrients: FoodNutrients,
   confidence: Confidence,
-  /** The key of the hint the model judged this item to be, or null. */
+  /** The key of the hint the model judged this item to be. */
   match: z.string().nullable(),
 });
 export type Draft = z.infer<typeof Draft>;
@@ -68,7 +61,6 @@ export function foodHints(input: { readonly recents: readonly RecentFood[]; read
 
 const CHOICES = 3;
 
-/** Every food a hint can name, recents first so a match carries the amount he last logged. */
 function yours(input: { readonly recents: readonly RecentFood[]; readonly library: Library }): LocalHit[] {
   return [
     ...input.recents.map((recent): LocalHit => ({ key: recent.key, food: recent.food, lastQuantity: recent.lastQuantity })),
@@ -76,10 +68,7 @@ function yours(input: { readonly recents: readonly RecentFood[]; readonly librar
   ];
 }
 
-/**
- * Dylan's foods a draft could log as: the model's match first, then foods whose name the
- * draft's name finds. Empty when nothing of his fits, so the draft logs as the estimate.
- */
+/** Dylan's foods a draft could log as: the model's match first, then foods whose name the draft's name finds. */
 export function choicesFor(draft: Draft, input: { readonly recents: readonly RecentFood[]; readonly library: Library }): LocalHit[] {
   const matched = draft.match === null ? undefined : yours(input).find((hit) => hit.key === draft.match);
   const named = searchLocal({ query: draft.name, library: input.library, recents: input.recents, limit: CHOICES });
@@ -87,8 +76,8 @@ export function choicesFor(draft: Draft, input: { readonly recents: readonly Rec
   return choices.slice(0, CHOICES);
 }
 
-/** Close enough that a counted serving says the same as the weight the model gave. */
-const agrees = (a: number, b: number) => Math.abs(a - b) <= 0.35 * b;
+const SERVING_TOLERANCE = 0.35;
+const servingMatches = (servingTotal: number, measured: number) => Math.abs(servingTotal - measured) <= SERVING_TOLERANCE * measured;
 
 /**
  * How much of one of Dylan's foods the draft describes, in that food's unit. With no amount
@@ -100,7 +89,7 @@ export function quantityFor(amount: DraftAmount, food: Pick<FoodSnapshot, 'unit'
   if (food.unit === 'portion') return count === null ? fallback : { kind: 'amount', amount: count };
   const measured = food.unit === 'g' ? amount.grams : amount.ml;
   const [serving] = food.servings;
-  if (serving !== undefined && count !== null && (measured === null || agrees(serving.amount * count, measured))) {
+  if (serving !== undefined && count !== null && (measured === null || servingMatches(serving.amount * count, measured))) {
     return { kind: 'serving', serving, count };
   }
   return measured === null ? fallback : { kind: 'amount', amount: measured };

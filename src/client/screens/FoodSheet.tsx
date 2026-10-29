@@ -15,7 +15,6 @@ interface UnitChoice {
 /**
  * The amount picker: a number and a unit, where the units are the food's named servings plus
  * its base unit. A serving the food no longer lists still shows when the quantity carries it.
- * `onChange` hears each edit, for a list that totals several pickers.
  */
 export function useQuantityPicker(food: Pick<FoodSnapshot, 'unit' | 'servings'>, initial: Quantity, onChange?: (quantity: Quantity | null) => void) {
   const units = useMemo((): UnitChoice[] => {

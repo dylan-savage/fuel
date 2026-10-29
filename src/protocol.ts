@@ -120,7 +120,6 @@ export type LookupResponse = z.infer<typeof LookupResponse>;
 export const SearchResponse = z.object({ hits: z.array(SearchHit) });
 export type SearchResponse = z.infer<typeof SearchResponse>;
 
-/** The phone downscales a photo before sending it, to a few hundred KB; this is the ceiling. */
 export const MAX_PHOTO_BASE64 = 4_000_000;
 export const PhotoType = z.enum(['image/jpeg', 'image/png', 'image/webp']);
 export type PhotoType = z.infer<typeof PhotoType>;
@@ -157,7 +156,6 @@ export const AiFailure = z.enum([
   /** The API could not be reached, or answered with an error. */
   'ai_unavailable',
   'ai_timeout',
-  /** The model declined. */
   'ai_refused',
   /** The model's reply did not fit the schema, or was cut off. */
   'ai_unreadable',

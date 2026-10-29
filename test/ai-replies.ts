@@ -1,7 +1,6 @@
 /**
- * Model replies in the exact shape `client.beta.messages.create` returns, typed against the
- * SDK so a shape change fails to compile. Hand-written from the photos in test/fixtures/ai
- * until the API key lands; scripts/ai-smoke.mjs prints real ones to compare.
+ * Hand-written in the exact shape `client.beta.messages.create` returns, typed against the SDK,
+ * because there is no API key to record with yet. scripts/ai-smoke.mjs prints real replies.
  */
 import { readFileSync } from 'node:fs';
 import type Anthropic from '@anthropic-ai/sdk';
@@ -42,7 +41,6 @@ export function message(fields: Partial<Message>): Message {
   };
 }
 
-/** A reply whose only content is the model's JSON. */
 export const replyOf = (json: unknown): Message => message({ content: [{ type: 'text', text: JSON.stringify(json), citations: null }] });
 
 export const BREAKFAST = '2 eggs, sourdough toast with butter and my usual oats';
@@ -57,7 +55,6 @@ const item = {
   yours: null,
 };
 
-/** The breakfast, with the oats matched to the food Dylan's list numbers `oats`. */
 export function breakfastReply(oats: number | null): Message {
   return replyOf({
     items: [
@@ -69,7 +66,6 @@ export function breakfastReply(oats: number | null): Message {
   });
 }
 
-/** test/fixtures/ai/plate.jpg, judged by eye. */
 export const plateReply = replyOf({
   items: [
     { ...item, name: 'French toast', described: '2 slices', count: 2, countUnit: 'slice', grams: 200, kcal: 460, protein: 15, carbs: 52, fat: 21 },
@@ -80,7 +76,6 @@ export const plateReply = replyOf({
   ],
 });
 
-/** test/fixtures/ai/label.jpg, the Cheerios column of the panel. */
 export const labelReply = replyOf({
   readable: true,
   name: 'Cheerios',
@@ -100,7 +95,6 @@ export const labelReply = replyOf({
 
 export const photo = (name: 'label' | 'plate'): string => readFileSync(new URL(`fixtures/ai/${name}.jpg`, import.meta.url)).toString('base64');
 
-/** A stand-in for `client.beta.messages` that answers with `reply` and keeps what it was sent. */
 export function stubMessages(reply: Message | (() => Message)): MessagesApi & { readonly sent: { readonly params: CreateParams; readonly options: CreateOptions }[] } {
   const sent: { params: CreateParams; options: CreateOptions }[] = [];
   return {

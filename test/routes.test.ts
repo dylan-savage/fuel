@@ -30,7 +30,7 @@ afterAll(() => {
   for (const s of stores) s.close();
 });
 
-/** The app with Open Food Facts reached through `fetch`, USDA not configured, and AI as given. */
+/** The app with Open Food Facts reached through `fetch` and USDA not configured. */
 function appOver(fetch: Fetch, ai: AiParser | null = null) {
   const store = openStore(':memory:');
   stores.push(store);

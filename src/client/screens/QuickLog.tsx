@@ -1,8 +1,3 @@
-/**
- * Asking the mini's AI to read a meal, shared by the Add screen's quick log and the Scan
- * screen's label photo. AI needs the mini, so it is off, with the reason, while the mini
- * cannot be reached, and a request is never queued.
- */
 import { useEffect, useState } from 'preact/hooks';
 import type { FoodCandidate } from '../../domain/food.js';
 import type { Draft, FoodHint } from '../../domain/quicklog.js';
@@ -13,7 +8,6 @@ import { useSyncState } from '../views.js';
 
 export type AiSubject = 'text' | 'plate' | 'label';
 
-/** Why AI has no answer: the mini's reasons, plus a photo the phone could not read. */
 export type AiWhy = OnlineFailure | AiFailure | 'bad_photo';
 
 export type AiState =
@@ -52,7 +46,6 @@ const SENDING_TEXT: Readonly<Record<AiSubject, string>> = {
   label: 'Reading the label…',
 };
 
-/** The browser's network state and the last sync together: false once either says the mini is out of reach. */
 function useMiniReachable(): boolean {
   const sync = useSyncState();
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -97,7 +90,6 @@ export function useAi() {
   return { state, reachable, ask, askPhoto, busy: state.kind === 'sending' };
 }
 
-/** What the AI's state says under its controls, if anything. */
 export function AiStatus({ state, reachable }: { readonly state: AiState; readonly reachable: boolean }) {
   if (!reachable) return <p class="hint">{UNREACHABLE_TEXT}</p>;
   switch (state.kind) {
@@ -118,7 +110,6 @@ export function AiStatus({ state, reachable }: { readonly state: AiState; readon
   }
 }
 
-/** A photo button: a label wrapping a hidden file input, so the camera or the library can answer it. */
 export function PhotoButton({
   label,
   disabled,
@@ -128,7 +119,7 @@ export function PhotoButton({
 }: {
   readonly label: string;
   readonly disabled: boolean;
-  /** Open the camera straight away, for a label in hand. */
+  /** Open the camera straight away, skipping the photo library. */
   readonly capture?: boolean;
   readonly primary?: boolean;
   readonly onPhoto: (file: File) => void;
@@ -154,7 +145,6 @@ export function PhotoButton({
   );
 }
 
-/** The Add screen's AI quick log: describe a meal or photograph a plate or a label. */
 export function QuickLog({
   foods,
   onDrafts,

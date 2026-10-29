@@ -1,7 +1,7 @@
 /**
  * AI quick log in WebKit on the iPhone profile. The mini runs with no API key, so its route
- * answers 503; the other tests answer /api/ai/parse in the browser by running the real adapter
- * over the recorded model replies, on the request the phone actually built.
+ * answers 503. The other tests answer /api/ai/parse in the browser with the real adapter over
+ * the replies in test/ai-replies.ts, run on the request the phone built.
  */
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -15,10 +15,9 @@ import { openOffline, seed, stored, tab, typeBarcode } from './app.js';
 
 const dir = process.env.FUEL_SHOTS_DIR ?? join('test-results', 'shots');
 const photo = (name: 'label' | 'plate') => join(import.meta.dirname, '..', 'test', 'fixtures', 'ai', `${name}.jpg`);
-/** Open Food Facts does not know this barcode, in the recorded fixtures. */
-const MISSING = '0028400999991';
+const UNKNOWN_TO_OFF = '0028400999991';
+const NOT_IN_LIBRARY = '4006381333931';
 
-/** His own sourdough: 250 kcal per 100 g, a 50 g slice. */
 const sourdough: Food = {
   id: FoodId.parse(randomUUID()),
   name: 'Sourdough toast',
@@ -30,7 +29,6 @@ const sourdough: Food = {
   archived: false,
 };
 
-/** Answers the AI route with the adapter's output on the recorded reply for each kind, and keeps each request. */
 async function answerFromFixtures(page: Page): Promise<AiParseRequest[]> {
   const sent: AiParseRequest[] = [];
   await page.route('**/api/ai/parse', async (route) => {
@@ -51,7 +49,7 @@ async function describeMeal(page: Page) {
 }
 
 test.describe('online', () => {
-  // Routing sees requests the service worker would otherwise pass to the network itself.
+  // page.route does not see requests a service worker handles.
   test.use({ serviceWorkers: 'block' });
 
   test('says AI is not set up while the mini has no API key', async ({ page }) => {
@@ -82,8 +80,7 @@ test.describe('online', () => {
 
     await drafts.getByRole('button', { name: 'Remove Butter' }).click();
     await expect(drafts.getByRole('listitem')).toHaveCount(3);
-    // Eggs 143, his toast 125, and the oats estimate 380.
-    await expect(review.getByTestId('preview-kcal')).toHaveText('648');
+    await expect(review.getByTestId('preview-kcal')).toHaveText(String(143 + 125 + 380));
 
     await review.getByRole('radio', { name: 'Breakfast' }).click();
     await review.getByRole('button', { name: 'Log 3 items to Breakfast' }).click();
@@ -112,7 +109,7 @@ test.describe('online', () => {
   test('a barcode the database misses is read from its label, confirmed and found by the next scan', async ({ page }) => {
     const sent = await answerFromFixtures(page);
     await page.goto('/');
-    await typeBarcode(page, MISSING);
+    await typeBarcode(page, UNKNOWN_TO_OFF);
     await expect(page.getByText('Open Food Facts does not know this product.')).toBeVisible();
     await page.getByLabel('Photograph the label').setInputFiles(photo('label'));
 
@@ -127,15 +124,14 @@ test.describe('online', () => {
 
     await confirm.getByRole('button', { name: /^Add to library and log/ }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Logged Cheerios' })).toBeVisible();
-    await typeBarcode(page, MISSING);
+    await typeBarcode(page, UNKNOWN_TO_OFF);
     await expect(page.getByRole('dialog', { name: 'Log food' }).getByRole('heading', { name: 'Cheerios' })).toBeVisible();
-    await expect.poll(() => stored('food').filter((f) => f.barcodes.includes(Gtin.parse(MISSING)) && f.source.kind === 'ai').length, { timeout: 15_000 }).toBe(1);
+    await expect.poll(() => stored('food').filter((f) => f.barcodes.includes(Gtin.parse(UNKNOWN_TO_OFF)) && f.source.kind === 'ai').length, { timeout: 15_000 }).toBe(1);
   });
 });
 
 const UNREACHABLE = 'AI needs the mini, which cannot be reached right now.';
 
-/** Opens the Add screen with the network cut, once the app knows the mini is out of reach. */
 async function offlineAdd(page: Page, context: BrowserContext) {
   await openOffline(page, context);
   await tab(page, 'Add').click();
@@ -150,8 +146,7 @@ test('AI is off, with the reason, while the mini cannot be reached', async ({ pa
   await expect(quickLog.getByLabel('Plate photo')).toBeDisabled();
   await expect(quickLog.getByLabel('Label photo')).toBeDisabled();
 
-  // Not in the library, and offline it cannot be looked up.
-  await typeBarcode(page, '4006381333931');
+  await typeBarcode(page, NOT_IN_LIBRARY);
   await expect(page.getByLabel('Photograph the label')).toBeDisabled();
   await expect(page.getByText(UNREACHABLE)).toBeVisible();
 });

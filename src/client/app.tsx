@@ -63,7 +63,6 @@ export function App() {
     if (tab === 'scan' && scan === null) void loadScan().then(setScan);
   }, [tab, scan]);
 
-  // Screens fire intents without awaiting them, so a write the replica refused would only reach the console.
   useEffect(() => {
     const onRejection = (event: PromiseRejectionEvent) => {
       if (!(event.reason instanceof InvalidDocument)) return;

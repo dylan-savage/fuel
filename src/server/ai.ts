@@ -1,8 +1,3 @@
-/**
- * The Anthropic adapter for AI quick log. The API key lives only in this process. The model
- * answers through structured output, and its reply is parsed here into drafts or a food
- * candidate; nothing is written, since the phone logs only what Dylan confirms.
- */
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
@@ -17,7 +12,6 @@ type CreateParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 type Message = Anthropic.Beta.Messages.BetaMessage;
 type Content = Anthropic.Beta.Messages.BetaContentBlockParam;
 
-/** The one SDK call the adapter makes: `client.beta.messages` in production, recorded replies in tests. */
 export interface MessagesApi {
   create(params: CreateParams, options: { readonly timeout: number; readonly maxRetries: number }): Promise<Message>;
 }
@@ -28,14 +22,11 @@ export interface AiParser {
   parse(req: AiParseRequest): Promise<AiOutcome>;
 }
 
-/**
- * The current Opus at low effort. Low effort is the quickest setting, and structured
- * extraction like this keeps its quality there. FUEL_AI_MODEL overrides it, such as with a
- * Haiku or Sonnet id to compare latency in scripts/ai-smoke.mjs.
- */
 export const DEFAULT_MODEL = 'claude-opus-5-5';
+const EFFORT = 'low';
+/** The model names one of Dylan's foods by its number in the list it was sent. */
+const FIRST_HINT = 1;
 
-/** Fast enough for a phone waiting on it; one retry covers a dropped connection or an overloaded moment. */
 const TIMEOUT_MS = 25_000;
 const MAX_RETRIES = 1;
 
@@ -98,10 +89,9 @@ const LABEL_SYSTEM = `You read a nutrition label from a photo for Dylan's calori
 - servingLabel is the household measure, and servingGrams or servingMl the metric serving size, usually in parentheses.
 - kcal (Calories), protein, carbs (Total Carbohydrate), fat (Total Fat), fiber and sugar (Total Sugars) in grams, and sodium in mg, exactly as printed for that basis. Use null for anything you cannot read. Never estimate a value that is not printed.`;
 
-/** His foods, numbered from 1 for the model to answer with. */
 function hintList(foods: readonly FoodHint[]): string {
   if (foods.length === 0) return "Dylan's foods: none yet.";
-  return `Dylan's foods:\n${foods.map((f, i) => `${i + 1}. ${f.name}${f.brand === undefined ? '' : ` (${f.brand})`}`).join('\n')}`;
+  return `Dylan's foods:\n${foods.map((f, i) => `${i + FIRST_HINT}. ${f.name}${f.brand === undefined ? '' : ` (${f.brand})`}`).join('\n')}`;
 }
 
 const nonNegative = (n: number | null): number | undefined => (n === null || !Number.isFinite(n) || n < 0 ? undefined : n);
@@ -118,7 +108,6 @@ function nutrientsOf(reply: Pick<LabelReply, 'kcal' | 'protein' | 'carbs' | 'fat
   return out;
 }
 
-/** A model item as a draft, its `yours` number turned into the key of the food the phone sent. */
 function draftOf(item: ItemReply, foods: readonly FoodHint[]): unknown {
   const brand = text(item.brand);
   return {
@@ -133,7 +122,7 @@ function draftOf(item: ItemReply, foods: readonly FoodHint[]): unknown {
     },
     nutrients: nutrientsOf(item, 1),
     confidence: item.confidence,
-    match: item.yours === null ? null : (foods[item.yours - 1]?.key ?? null),
+    match: item.yours === null ? null : (foods[item.yours - FIRST_HINT]?.key ?? null),
   };
 }
 
@@ -200,7 +189,7 @@ export function createAiParser({ messages, model }: { readonly messages: Message
           max_tokens: 16_000,
           betas: ['server-side-fallback-2026-07-01'],
           fallbacks: 'default',
-          output_config: { effort: 'low', format: betaZodOutputFormat(schema) },
+          output_config: { effort: EFFORT, format: betaZodOutputFormat(schema) },
           system,
           messages: [{ role: 'user', content }],
         },
@@ -263,7 +252,6 @@ export function createAiParser({ messages, model }: { readonly messages: Message
   };
 }
 
-/** The reply as the schema's type, or null when it is not JSON or does not fit. */
 function safeJson<T>(reply: string, schema: z.ZodType<T>): T | null {
   let json: unknown;
   try {

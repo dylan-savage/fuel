@@ -65,8 +65,7 @@ describe('a draft logged as one of his foods', () => {
     const usual = draft('Oats', {}, 999, `food:${oats.id}`);
     const item = draftItem(usual, choose(usual)[0] ?? null);
     expect(item.quantity).toEqual(jar);
-    // His oats are 380 kcal per 100 g, and a jar is 250 g.
-    expect(nutrientsFor(item.food, item.quantity).kcal).toBeCloseTo(950);
+    expect(nutrientsFor(item.food, item.quantity).kcal).toBeCloseTo(380 * 2.5);
   });
 
   it('counts his servings when the count agrees with the weight, and logs the weight when it does not', () => {

@@ -1,7 +1,6 @@
 /**
- * Calls to the mini that read external food data or ask AI to read a meal. Nothing here
- * writes user data; that goes through the replica and sync. The result type makes every
- * caller handle the mini being out of reach.
+ * Calls to the mini. Nothing here writes user data; that goes through the replica and sync.
+ * The result type makes every caller handle the mini being out of reach.
  */
 import type { ExternalRef, SearchHit } from '../domain/food.js';
 import { AiAnswer, AiError, LookupResponse, SearchResponse, formatRef, type AiFailure, type AiParseRequest } from '../protocol.js';
@@ -18,7 +17,6 @@ interface Call<T, Why extends string> {
   readonly url: string;
   readonly init?: RequestInit;
   readonly parse: (body: unknown) => T;
-  /** The reason in an error response's body, or null when it names none. */
   readonly reasonOf?: (body: unknown) => Why | null;
 }
 
@@ -58,7 +56,6 @@ export function searchFoods(query: string, signal?: AbortSignal): Promise<Online
   return call({ url: `/api/foods/search?q=${encodeURIComponent(query)}`, init: withSignal(signal), parse: (body) => SearchResponse.parse(body).hits });
 }
 
-/** Asks the mini's AI to read a description or a photo. Online only: a request is never queued. */
 export function parseWithAi(req: AiParseRequest, signal?: AbortSignal): Promise<Online<AiAnswer, AiFailure>> {
   return call({
     url: '/api/ai/parse',
