@@ -383,6 +383,13 @@ describe('after a recipe edit', () => {
 });
 
 describe('fasting', () => {
+  it('opens one fast for a double tap on Start, and says the second started nothing', async () => {
+    const { replica, intents } = await setup();
+    const [first, second] = await Promise.all([intents.startFast(16), intents.startFast(16)]);
+    expect(await replica.read.all('fast')).toHaveLength(1);
+    expect(typeof first).toBe('function');
+    expect(second).toBeNull();
+  });
 
   it('starts once, keeps the tap as its start, changes target, ends and undoes the end', async () => {
     const { replica, intents } = await setup();

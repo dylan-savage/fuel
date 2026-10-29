@@ -15,7 +15,10 @@ function useFastActions() {
   const intents = useIntents();
   const toast = useToast();
   return {
-    start: (target: number) => void intents.startFast(target).then((undo) => toast({ text: `Started a ${fastLabel(target)} fast`, undo })),
+    start: (target: number) =>
+      void intents.startFast(target).then((undo) => {
+        if (undo !== null) toast({ text: `Started a ${fastLabel(target)} fast`, undo });
+      }),
     end: (progress: FastProgress | undefined) =>
       void intents.endFast().then((undo) => toast({ text: progress === undefined ? 'Ended your fast' : `Fasted ${span(progress.elapsedMs)}`, undo })),
   };
@@ -74,7 +77,7 @@ function FastSheet({ view, today, onClose }: { readonly view: FastView; readonly
       <Segmented
         label="Fasting goal"
         options={TARGETS.map((hours) => ({ value: String(hours), label: fastLabel(hours) }))}
-        value={String(target)}
+        value={String(running?.targetHours ?? target)}
         onChange={(value) => pick(Number(value))}
       />
       <div class="sheet-actions">

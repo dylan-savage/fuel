@@ -82,8 +82,11 @@ export interface Intents {
   /** One document per drink, so drinks added on two phones offline both count. */
   addWater(ml: number, date: LocalDate): Promise<Undo>;
   deleteWater(id: WaterId): Promise<Undo>;
-  /** Starts a fast now, unless one is already open. Started offline, it keeps the moment of the tap. */
-  startFast(targetHours: number): Promise<Undo>;
+  /**
+   * Starts a fast now, or returns null when one is already open. Started offline, it keeps
+   * the moment of the tap. A second tap waits for the first, so it cannot open a second fast.
+   */
+  startFast(targetHours: number): Promise<Undo | null>;
   /**
    * Records an end for every open fast, which also settles two phones' overlapping fasts.
    * An end is never rewritten, so a fast another phone ended keeps its earlier end.
@@ -127,6 +130,13 @@ export function createIntents(replica: Pick<Replica, 'read' | 'commit'>, clock: 
   };
 
   const fastNow = async () => fastState(withEnds(await replica.read.all('fast'), await replica.read.all('fastEnd')));
+  /** Fast intents read the fasts and then write, so they run one at a time: a double tap cannot open two. */
+  let fastQueue: Promise<unknown> = Promise.resolve();
+  const oneAtATime = <T>(work: () => Promise<T>): Promise<T> => {
+    const run = fastQueue.then(work);
+    fastQueue = run.catch(() => undefined);
+    return run;
+  };
 
   const putRecipe = async (id: RecipeId, draft: RecipeDraft): Promise<Recipe> => {
     const before = await replica.read.get('recipe', id);
@@ -246,24 +256,28 @@ export function createIntents(replica: Pick<Replica, 'read' | 'commit'>, clock: 
       return () => replica.commit([{ op: 'put', kind: 'water', doc: before }]);
     },
 
-    startFast: async (targetHours) => {
-      if ((await fastNow()).kind !== 'idle') return nothingToUndo;
-      const fast: Fast = { id: FastId.parse(clock.newId()), startedAt: clock.now(), targetHours };
-      await replica.commit([{ op: 'put', kind: 'fast', doc: fast }]);
-      return () => replica.commit([{ op: 'delete', kind: 'fast', id: fast.id }]);
-    },
+    startFast: (targetHours) =>
+      oneAtATime(async () => {
+        const startedAt = clock.now();
+        if ((await fastNow()).kind !== 'idle') return null;
+        const fast: Fast = { id: FastId.parse(clock.newId()), startedAt, targetHours };
+        await replica.commit([{ op: 'put', kind: 'fast', doc: fast }]);
+        return () => replica.commit([{ op: 'delete', kind: 'fast', id: fast.id }]);
+      }),
 
-    endFast: async () => {
-      const now = clock.now();
-      const ends = openFasts(await fastNow()).map((fast): FastEnd => ({ id: FastEndId.parse(clock.newId()), fastId: fast.id, endedAt: endAt(fast, now) }));
-      if (ends.length === 0) return nothingToUndo;
-      await replica.commit(ends.map((doc) => ({ op: 'put', kind: 'fastEnd', doc })));
-      return () => replica.commit(ends.map((end) => ({ op: 'delete', kind: 'fastEnd', id: end.id })));
-    },
+    endFast: () =>
+      oneAtATime(async () => {
+        const now = clock.now();
+        const ends = openFasts(await fastNow()).map((fast): FastEnd => ({ id: FastEndId.parse(clock.newId()), fastId: fast.id, endedAt: endAt(fast, now) }));
+        if (ends.length === 0) return nothingToUndo;
+        await replica.commit(ends.map((doc) => ({ op: 'put', kind: 'fastEnd', doc })));
+        return () => replica.commit(ends.map((end) => ({ op: 'delete', kind: 'fastEnd', id: end.id })));
+      }),
 
-    setFastTarget: async (hours) => {
-      const open = openFasts(await fastNow());
-      await replica.commit(open.map((fast) => ({ op: 'put', kind: 'fast', doc: { ...fast, targetHours: hours } })));
-    },
+    setFastTarget: (hours) =>
+      oneAtATime(async () => {
+        const open = openFasts(await fastNow());
+        await replica.commit(open.map((fast) => ({ op: 'put', kind: 'fast', doc: { ...fast, targetHours: hours } })));
+      }),
   };
 }
