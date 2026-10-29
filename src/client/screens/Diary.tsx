@@ -5,7 +5,7 @@ import { addDays, type LocalDate } from '../../domain/ids.js';
 import { MACROS, type Macro } from '../../domain/nutrients.js';
 import { dayView, useIntents, useLive, type DayView } from '../views.js';
 import { FoodSheet } from './FoodSheet.js';
-import { MEAL_LABEL, amount, dayTitle, kcal, quantityLabel } from './format.js';
+import { MEAL_LABEL, amount, brandOf, dayTitle, kcal, quantityLabel } from './format.js';
 import { Icon, useToast } from './ui.js';
 import { Waiting } from './Waiting.js';
 
@@ -69,7 +69,7 @@ function EntryRow({ entry, onOpen }: { readonly entry: Entry; readonly onOpen: (
     <li>
       <button type="button" class="entry-row" onClick={onOpen}>
         <span class="food-name">{entry.food.name}</span>
-        <span class="food-detail">{[entry.food.brand, quantityLabel(entry.food, entry.quantity)].filter(Boolean).join(' · ')}</span>
+        <span class="food-detail">{[brandOf(entry.food), quantityLabel(entry.food, entry.quantity)].filter(Boolean).join(' · ')}</span>
         <span class="entry-kcal">{kcal(entryNutrients(entry).kcal)}</span>
       </button>
     </li>

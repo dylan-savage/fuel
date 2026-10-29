@@ -785,6 +785,15 @@ main {
   animation: sheet-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/* Dark sheets sit on the elevated surface, as iOS draws them, so they lift off the page. */
+@media (prefers-color-scheme: dark) {
+  .sheet {
+    --bg: #1c1c1e;
+    --card: #2c2c2e;
+    --segment: #8e8e93;
+  }
+}
+
 .sheet-bar {
   display: grid;
   grid-template-columns: 1fr auto 1fr;

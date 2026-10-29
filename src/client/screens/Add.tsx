@@ -7,7 +7,7 @@ import { now } from '../clock.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { foodWithBarcode, libraryView, recentsView, useIntents, useLive, useRead } from '../views.js';
 import { useLogFlow, type OnLogged } from './flow.js';
-import { BASIS_LABEL, MEAL_LABEL, amount, dayTitle, kcal, quantityLabel } from './format.js';
+import { BASIS_LABEL, MEAL_LABEL, amount, brandOf, dayTitle, kcal, quantityLabel } from './format.js';
 import { MealPicker } from './FoodSheet.js';
 import { Icon, TitleBar, useToast } from './ui.js';
 
@@ -57,7 +57,7 @@ function FoodRow({
       <button type="button" class="food-row-main" onClick={onOpen}>
         <span class="food-name">{food.name}</span>
         <span class="food-detail">
-          {[food.brand, quantityLabel(food, quantity), `${kcal(nutrientsFor(food, quantity).kcal)} kcal`].filter(Boolean).join(' · ')}
+          {[brandOf(food), quantityLabel(food, quantity), `${kcal(nutrientsFor(food, quantity).kcal)} kcal`].filter(Boolean).join(' · ')}
         </span>
       </button>
       <button type="button" class="add-button" aria-label={`Log ${food.name}`} onClick={onQuickLog}>
@@ -198,7 +198,7 @@ export function Add({
                       <span class="food-detail">
                         {opening === key
                           ? 'Loading…'
-                          : [hit.candidate.brand, energy === undefined ? 'kcal unknown' : `${amount(energy)} kcal per ${BASIS_LABEL[hit.candidate.unit]}`]
+                          : [brandOf(hit.candidate), energy === undefined ? 'kcal unknown' : `${amount(energy)} kcal per ${BASIS_LABEL[hit.candidate.unit]}`]
                               .filter(Boolean)
                               .join(' · ')}
                       </span>

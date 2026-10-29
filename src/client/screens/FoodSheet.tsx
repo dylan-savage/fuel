@@ -2,7 +2,7 @@ import { useMemo, useState } from 'preact/hooks';
 import { MEALS, type Meal } from '../../domain/diary.js';
 import { nutrientsFor, type FoodSnapshot, type Quantity, type Serving } from '../../domain/food.js';
 import { NUTRIENTS, type Nutrients } from '../../domain/nutrients.js';
-import { MEAL_LABEL, UNIT_LABEL, amount, kcal, parseNumber, servingLabel } from './format.js';
+import { MEAL_LABEL, UNIT_LABEL, amount, brandOf, kcal, parseNumber, servingLabel } from './format.js';
 import { Segmented, Sheet } from './ui.js';
 
 const sameServing = (a: Serving, b: Serving) => a.label === b.label && a.amount === b.amount;
@@ -82,7 +82,7 @@ export function FoodHeading({ food }: { readonly food: Pick<FoodSnapshot, 'name'
   return (
     <div class="food-heading">
       <h3>{food.name}</h3>
-      {food.brand !== undefined && <p>{food.brand}</p>}
+      {brandOf(food) !== undefined && <p>{brandOf(food)}</p>}
     </div>
   );
 }

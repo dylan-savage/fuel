@@ -33,6 +33,11 @@ export function parseNumber(text: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+/** The brand, unless the name already says it ("Coca-Cola" by Coca-Cola). */
+export function brandOf(food: Pick<FoodSnapshot, 'name' | 'brand'>): string | undefined {
+  return food.brand !== undefined && !food.name.toLowerCase().includes(food.brand.toLowerCase()) ? food.brand : undefined;
+}
+
 export function servingLabel(unit: FoodUnit, serving: Serving): string {
   const size = `${amount(serving.amount)} ${UNIT_LABEL[unit]}`;
   return serving.label.includes(size) || unit === 'portion' ? serving.label : `${serving.label} (${size})`;
