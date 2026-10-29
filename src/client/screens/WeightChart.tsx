@@ -87,7 +87,14 @@ export function WeightChart({
           <span class="chart-readout-date">{dayTitle(shown.date, today)}</span>
         </p>
       )}
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-hidden="true" onPointerDown={scrub} onPointerMove={scrub} onPointerLeave={() => setActive(null)}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label={`Trend from ${lb(points[0]?.trendKg ?? 0)} to ${lb(points.at(-1)?.trendKg ?? 0)} lb. Every reading is in the weigh-in list below.`}
+        onPointerDown={scrub}
+        onPointerMove={scrub}
+        onPointerLeave={() => setActive(null)}
+      >
         {ticks.map((t) => (
           <g key={t} class="chart-grid">
             <line x1={PLOT.left} x2={PLOT.right} y1={y(t)} y2={y(t)} />
