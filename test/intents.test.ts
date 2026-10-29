@@ -2,49 +2,189 @@ import { randomUUID } from 'node:crypto';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createIntents } from '../src/client/intents.js';
-import { openReplica, type Replica } from '../src/client/replica.js';
-import { dayView } from '../src/client/views.js';
-import { quickAddItem } from '../src/domain/food.js';
+import { openReplica, type Replica, type SyncPort } from '../src/client/replica.js';
+import { dayView, foodWithBarcode, goalView, recentsView } from '../src/client/views.js';
+import { Gtin, quickAddItem, type FoodCandidate } from '../src/domain/food.js';
+import { KG_PER_LB, type GoalDraft } from '../src/domain/goals.js';
 import { LocalDate } from '../src/domain/ids.js';
-import { at } from './fixtures.js';
+import { at, entry, food, newEntryId, rev } from './fixtures.js';
 
 const today = LocalDate.parse('2026-10-28');
 const slot = { date: today, meal: 'lunch' } as const;
+const NOW = at(1_800_000_000_000);
 const open: Replica[] = [];
 afterEach(() => {
   for (const r of open.splice(0)) r.close();
 });
 
 async function setup() {
-  const { replica } = await openReplica({ name: 'intents', indexedDB: new IDBFactory(), IDBKeyRange });
+  const { replica, port } = await openReplica({ name: 'intents', indexedDB: new IDBFactory(), IDBKeyRange });
   open.push(replica);
-  return { replica, intents: createIntents(replica, { now: () => at(1_800_000_000_000), newId: randomUUID }) };
+  return { replica, port, intents: createIntents(replica, { now: () => NOW, newId: randomUUID }) };
 }
 
-describe('intents', () => {
+/** What the next sync would push to the mini. */
+async function pushed(port: SyncPort): Promise<unknown[]> {
+  const batch = await port.nextBatch(100);
+  return batch.mutations.flatMap((m) => (m.op === 'put' ? [m.doc] : []));
+}
+
+const yogurt: FoodCandidate = {
+  name: 'Greek yogurt',
+  brand: 'Fage',
+  unit: 'g',
+  nutrients: { kcal: 97, carbs: 3.6 },
+  servings: [{ label: '1 pot', amount: 170 }],
+  barcodes: [Gtin.parse('5201054017661')],
+  source: { kind: 'off', gtin: Gtin.parse('5201054017661'), fetchedAt: NOW },
+};
+
+describe('logging', () => {
   it('logs quick adds into the day and its kcal total, queued for the mini', async () => {
     const { replica, intents } = await setup();
     await intents.logItems([quickAddItem('Burrito', { kcal: 900 }), quickAddItem('', { kcal: 150 })], slot);
     const day = await dayView(replica.read, today);
-    expect(day.entries.map((e) => e.food.name)).toEqual(['Burrito', 'Quick add']);
-    expect(day.totals.sum.kcal).toBe(1050);
-    expect(day.totals.incomplete.has('protein')).toBe(true);
+    expect(day.summary.meals.lunch.entries.map((e) => e.food.name)).toEqual(['Burrito', 'Quick add']);
+    expect(day.summary.totals.sum.kcal).toBe(1050);
+    expect(day.summary.totals.incomplete.has('protein')).toBe(true);
     expect(await replica.read.pendingCount()).toBe(2);
+  });
+
+  it('takes a log back on undo', async () => {
+    const { replica, intents } = await setup();
+    const { undo } = await intents.logItems([quickAddItem('Latte', { kcal: 190 })], slot);
+    await undo();
+    expect((await dayView(replica.read, today)).summary.entries).toEqual([]);
   });
 
   it('deletes an entry and puts it back on undo', async () => {
     const { replica, intents } = await setup();
-    const [id] = await intents.logItems([quickAddItem('Latte', { kcal: 190 })], slot);
+    const {
+      ids: [id],
+    } = await intents.logItems([quickAddItem('Latte', { kcal: 190 })], slot);
     if (!id) throw new Error('nothing logged');
     const undo = await intents.deleteEntry(id);
-    expect((await dayView(replica.read, today)).entries).toEqual([]);
+    expect((await dayView(replica.read, today)).summary.entries).toEqual([]);
     await undo();
-    expect((await dayView(replica.read, today)).entries.map((e) => e.id)).toEqual([id]);
+    expect((await dayView(replica.read, today)).summary.entries.map((e) => e.id)).toEqual([id]);
+  });
+
+  it('edits the quantity and moves the entry to another meal', async () => {
+    const { replica, intents } = await setup();
+    const oats = food();
+    const {
+      ids: [id],
+    } = await intents.logItems([{ food: { ...oats, origin: { kind: 'food', id: oats.id } }, quantity: { kind: 'amount', amount: 40 } }], slot);
+    if (!id) throw new Error('nothing logged');
+    await intents.editEntry(id, { quantity: { kind: 'amount', amount: 80 }, meal: 'breakfast' });
+    const day = await dayView(replica.read, today);
+    expect(day.summary.meals.lunch.entries).toEqual([]);
+    expect(day.summary.meals.breakfast.totals.sum.kcal).toBe(304);
   });
 
   it('keeps other days out of the day view', async () => {
     const { replica, intents } = await setup();
     await intents.logItems([quickAddItem('Yesterday', { kcal: 100 })], { date: LocalDate.parse('2026-10-27'), meal: 'dinner' });
-    expect((await dayView(replica.read, today)).entries).toEqual([]);
+    expect((await dayView(replica.read, today)).summary.entries).toEqual([]);
+  });
+});
+
+describe('importAndLog', () => {
+  it('refuses a candidate missing core nutrients, naming them', async () => {
+    const { replica, intents } = await setup();
+    expect(await intents.importAndLog(yogurt, { kind: 'amount', amount: 170 }, slot)).toEqual({ ok: false, missing: ['protein', 'fat'] });
+    expect(await replica.read.pendingCount()).toBe(0);
+  });
+
+  it('adds the completed food to the library and logs it in one commit, so the barcode answers offline next time', async () => {
+    const { replica, port, intents } = await setup();
+    const result = await intents.importAndLog(
+      { ...yogurt, nutrients: { ...yogurt.nutrients, protein: 9, fat: 5 } },
+      { kind: 'serving', serving: { label: '1 pot', amount: 170 }, count: 1 },
+      slot,
+    );
+    expect(result.ok).toBe(true);
+    const batch = await port.nextBatch(100);
+    expect(batch.mutations.map((m) => m.kind)).toEqual(['food', 'entry']);
+    const library = await foodWithBarcode(replica.read, Gtin.parse('5201054017661'));
+    expect(library?.name).toBe('Greek yogurt');
+    expect((await dayView(replica.read, today)).summary.totals.sum.kcal).toBeCloseTo(164.9);
+  });
+});
+
+describe('recents', () => {
+  it('offer what was logged in the last 90 days with its last quantity', async () => {
+    const { replica, intents } = await setup();
+    const oats = await intents.createFood({ ...food(), barcodes: [] });
+    await intents.logItems([{ food: { ...oats, origin: { kind: 'food', id: oats.id } }, quantity: { kind: 'amount', amount: 55 } }], slot);
+    await intents.logItems([quickAddItem('Old', { kcal: 1 })], { date: LocalDate.parse('2026-07-01'), meal: 'lunch' });
+    const list = await recentsView(replica.read, { today, now: NOW });
+    expect(list.map((r) => [r.food.name, r.lastQuantity])).toEqual([['Oats', { kind: 'amount', amount: 55 }]]);
+  });
+});
+
+describe('goals', () => {
+  const draft: GoalDraft = {
+    policy: { kind: 'activity-level', level: 'moderate' },
+    kgPerWeek: -KG_PER_LB,
+    macros: { kind: 'percent', protein: 30, carbs: 40, fat: 30 },
+  };
+
+  it('puts the target and remaining kcal on the day once a profile and goal exist', async () => {
+    const { replica, intents } = await setup();
+    await intents.saveProfile({ sex: 'male', birthDate: LocalDate.parse('1990-06-15'), heightCm: 180, weightKg: 81 });
+    await intents.saveGoal(draft, today);
+    await intents.logItems([quickAddItem('Lunch', { kcal: 700 })], slot);
+    const { budget, summary } = await dayView(replica.read, today);
+    expect(budget?.kcal).toBe(2228);
+    expect((budget?.kcal ?? 0) - summary.totals.sum.kcal).toBe(1528);
+  });
+
+  it('leaves a past day on its old goal when a new one is saved', async () => {
+    const { replica, intents } = await setup();
+    await intents.saveGoal({ ...draft, kcalOverride: 2400 }, LocalDate.parse('2026-10-01'));
+    await intents.saveGoal({ ...draft, kcalOverride: 2000 }, today);
+    expect((await dayView(replica.read, LocalDate.parse('2026-10-27'))).budget?.kcal).toBe(2400);
+    expect((await dayView(replica.read, today)).budget?.kcal).toBe(2000);
+  });
+
+  it('replaces a goal saved earlier the same day, dropping a cleared override', async () => {
+    const { replica, intents } = await setup();
+    await intents.saveGoal({ ...draft, kcalOverride: 2400 }, today);
+    await intents.saveGoal(draft, today);
+    const { goal } = await goalView(replica.read, today);
+    expect(goal?.kcalOverride).toBeUndefined();
+    expect(await replica.read.all('goal')).toHaveLength(1);
+  });
+});
+
+describe('documents a newer app wrote', () => {
+  it('reach the mini with their unknown fields after this app rewrites them', async () => {
+    const { replica, port, intents } = await setup();
+    const lunch = { ...entry(newEntryId(), 400), photoId: 'p-1', food: { ...entry(newEntryId(), 400).food, imageUrl: 'x' } };
+    const oats = { ...food(), glycemicIndex: 55 };
+    const profile = { id: 'me', sex: 'male', birthDate: '1990-06-15', heightCm: 180, weightKg: 81, bodyFat: 18 };
+    await port.apply({
+      epoch: 'e1',
+      lastMutationId: 0,
+      rejected: [],
+      changes: [
+        { kind: 'entry', id: lunch.id, rev: rev(1), doc: lunch },
+        { kind: 'food', id: oats.id, rev: rev(2), doc: oats },
+        { kind: 'profile', id: 'me', rev: rev(3), doc: profile },
+      ],
+      cursor: rev(3),
+      more: false,
+    });
+
+    await intents.editEntry(lunch.id, { quantity: { kind: 'amount', amount: 2 }, meal: 'dinner' });
+    await intents.updateFood(oats.id, { ...food(), name: 'Steel-cut oats' });
+    await intents.saveProfile({ sex: 'male', birthDate: LocalDate.parse('1990-06-15'), heightCm: 180, weightKg: 80 });
+
+    const [movedLunch, renamedOats, newProfile] = await pushed(port);
+    expect(movedLunch).toMatchObject({ photoId: 'p-1', meal: 'dinner', food: { imageUrl: 'x' } });
+    expect(renamedOats).toMatchObject({ glycemicIndex: 55, name: 'Steel-cut oats' });
+    expect(newProfile).toMatchObject({ bodyFat: 18, weightKg: 80 });
+    expect(await replica.read.get('entry', lunch.id)).toMatchObject({ photoId: 'p-1' });
   });
 });

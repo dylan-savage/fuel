@@ -114,6 +114,10 @@ export const Food = FoodSnapshot.omit({ origin: true, nutrients: true }).extend(
 });
 export type Food = z.infer<typeof Food>;
 
+/** What the food editor produces; the id and archived flag belong to the library. */
+export const FoodDraft = Food.omit({ id: true, archived: true });
+export type FoodDraft = z.infer<typeof FoodDraft>;
+
 /**
  * External or AI data not yet in the library. Any nutrient may be missing; completeFood is
  * the only way to a Food, so an incomplete import cannot reach the diary.

@@ -35,6 +35,9 @@ export const Profile = z.looseObject({
 });
 export type Profile = z.infer<typeof Profile>;
 
+export const ProfileDraft = Profile.omit({ id: true });
+export type ProfileDraft = z.infer<typeof ProfileDraft>;
+
 /**
  * How the daily target is set. `activity-level` is TDEE plus the rate adjustment; workouts
  * never change it. `eat-back-workouts` joins with workouts in phase 5.
@@ -60,23 +63,27 @@ export function goalId(effectiveFrom: LocalDate): string {
   return `g:${effectiveFrom}`;
 }
 
+const GoalFields = z.looseObject({
+  id: z.string(),
+  effectiveFrom: LocalDate,
+  policy: BudgetPolicy,
+  /** Weekly body weight change. Negative loses. */
+  kgPerWeek: z.number().min(-1.2).max(1.2),
+  /** Replaces the computed daily target when set. */
+  kcalOverride: z.number().positive().max(20_000).optional(),
+  macros: MacroTarget,
+});
+
 /**
  * A goal in effect from `effectiveFrom` until the next goal. Saving a new goal never
  * rewrites an old one, so past days keep their own target. Synced document kind 'goal'.
  */
-export const Goal = z
-  .looseObject({
-    id: z.string(),
-    effectiveFrom: LocalDate,
-    policy: BudgetPolicy,
-    /** Weekly body weight change. Negative loses. */
-    kgPerWeek: z.number().min(-1.2).max(1.2),
-    /** Replaces the computed daily target when set. */
-    kcalOverride: z.number().positive().max(20_000).optional(),
-    macros: MacroTarget,
-  })
-  .refine((g) => g.id === goalId(g.effectiveFrom), 'a goal id is g:<effectiveFrom>');
+export const Goal = GoalFields.refine((g) => g.id === goalId(g.effectiveFrom), 'a goal id is g:<effectiveFrom>');
 export type Goal = z.infer<typeof Goal>;
+
+/** What the goal screen edits; the effective date and id come from the day it is saved. */
+export const GoalDraft = GoalFields.omit({ id: true, effectiveFrom: true });
+export type GoalDraft = z.infer<typeof GoalDraft>;
 
 /** Whole years on `date`. */
 export function ageOn(birthDate: LocalDate, date: LocalDate): number {

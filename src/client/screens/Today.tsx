@@ -9,7 +9,7 @@ const kcal = (n: number) => Math.round(n).toLocaleString();
 
 export function Today() {
   const date = localDate();
-  const day = useLive((r) => dayView(r, date), [date]);
+  const day = useLive((r) => dayView(r, date), [date])?.summary;
   const intents = useIntents();
   const [undo, setUndo] = useState<{ readonly label: string; readonly run: Undo } | null>(null);
 
@@ -26,9 +26,7 @@ export function Today() {
         <strong data-testid="kcal-total">{kcal(day.totals.sum.kcal)}</strong> kcal today
       </p>
       <QuickAdd
-        onAdd={(label, energy) =>
-          intents.logItems([quickAddItem(label, { kcal: energy })], { date, meal: mealAt(new Date().getHours()) })
-        }
+        onAdd={(label, energy) => intents.logItems([quickAddItem(label, { kcal: energy })], { date, meal: mealAt(new Date().getHours()) })}
       />
       <ul class="entries">
         {day.entries.map((entry) => (
