@@ -5,10 +5,12 @@ import { addDays, type LocalDate } from '../../domain/ids.js';
 import { MACROS, type Macro } from '../../domain/nutrients.js';
 import { dayView, useIntents, useLive, type DayView } from '../views.js';
 import { DiaryMenu, type MenuTarget } from './DiaryMenu.js';
+import { FastTile } from './Fasting.js';
 import { FoodSheet } from './FoodSheet.js';
 import { MEAL_LABEL, amount, brandOf, dayTitle, kcal, quantityLabel } from './format.js';
 import { Icon, useToast } from './ui.js';
 import { Waiting } from './Waiting.js';
+import { WaterTile } from './Water.js';
 
 const MACRO_LABEL: Readonly<Record<Macro, string>> = { protein: 'Protein', carbs: 'Carbs', fat: 'Fat' };
 
@@ -121,6 +123,10 @@ export function Diary({
       {day !== undefined && (
         <>
           <Summary day={day} onGoal={onGoal} />
+          <div class="habits">
+            <WaterTile date={date} today={today} />
+            {date === today && <FastTile today={today} />}
+          </div>
           {MEALS.map((meal) => {
             const { entries, totals } = day.summary.meals[meal];
             return (

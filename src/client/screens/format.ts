@@ -1,5 +1,6 @@
 import type { Meal } from '../../domain/diary.js';
 import type { FoodSnapshot, Quantity, Serving } from '../../domain/food.js';
+import { ML_PER_FL_OZ } from '../../domain/habits.js';
 import { addDays, type LocalDate } from '../../domain/ids.js';
 import type { FoodUnit } from '../../domain/units.js';
 
@@ -73,4 +74,37 @@ export function dayTitle(date: LocalDate, today: LocalDate): string {
 /** "1 item", "3 items". */
 export function count(n: number, noun: string, plural = `${noun}s`): string {
   return `${n} ${n === 1 ? noun : plural}`;
+}
+
+/** Water is stored in ml and shown in US fluid ounces, like weight in lb. */
+export function flOz(ml: number): string {
+  return amount(ml / ML_PER_FL_OZ);
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** A running timer: "13:24:05". */
+export function stopwatch(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  return `${Math.floor(seconds / 3600)}:${pad2(Math.floor((seconds % 3600) / 60))}:${pad2(seconds % 60)}`;
+}
+
+/** A finished length: "16 h 12 m", "45 m". */
+export function span(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  const hours = Math.floor(minutes / 60);
+  if (hours === 0) return `${minutes} m`;
+  return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} m`;
+}
+
+const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
+
+/** "8:12 PM" on the phone's clock. */
+export function timeOfDay(at: number): string {
+  return TIME.format(new Date(at));
+}
+
+/** A fasting target the way it is usually named: "16:8", or "24 h" for a whole day. */
+export function fastLabel(hours: number): string {
+  return hours < 24 && Number.isInteger(hours) ? `${hours}:${24 - hours}` : `${amount(hours)} h`;
 }

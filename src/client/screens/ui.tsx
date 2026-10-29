@@ -1,6 +1,8 @@
 /** Small native-feeling building blocks shared by the screens. */
 import { createContext, type ComponentChildren } from 'preact';
 import { useCallback, useContext, useEffect, useRef, useState } from 'preact/hooks';
+import type { Millis } from '../../domain/ids.js';
+import { now } from '../clock.js';
 import type { Undo } from '../intents.js';
 import { Waiting } from './Waiting.js';
 
@@ -71,6 +73,42 @@ export function Sheet({
         </header>
         <div class="sheet-body">{children}</div>
       </section>
+    </div>
+  );
+}
+
+/** The current time, refreshed every `everyMs`, for live timers. */
+export function useNow(everyMs: number): Millis {
+  const [at, setAt] = useState(now);
+  useEffect(() => {
+    const timer = setInterval(() => setAt(now()), everyMs);
+    return () => clearInterval(timer);
+  }, [everyMs]);
+  return at;
+}
+
+/** Progress as an Activity-style ring, filled clockwise from the top, with content in the middle. */
+export function Ring({
+  fraction,
+  tone,
+  size,
+  children,
+}: {
+  readonly fraction: number;
+  readonly tone: 'water' | 'fast' | 'done';
+  readonly size: number;
+  readonly children?: ComponentChildren;
+}) {
+  const radius = 44;
+  const circumference = 2 * Math.PI * radius;
+  const filled = Math.min(1, Math.max(0, fraction));
+  return (
+    <div class={`ring ${tone}`} style={{ width: `${size}px`, height: `${size}px` }}>
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="ring-track" cx="50" cy="50" r={radius} />
+        {filled > 0 && <circle class="ring-fill" cx="50" cy="50" r={radius} stroke-dasharray={`${circumference * filled} ${circumference}`} />}
+      </svg>
+      <div class="ring-center">{children}</div>
     </div>
   );
 }
@@ -243,6 +281,8 @@ const ICONS = {
   chevronRight: 'M9 5l7 7-7 7',
   plus: 'M12 6v12M6 12h12',
   more: 'M6 12h.01M12 12h.01M18 12h.01',
+  drop: 'M12 3.5c3.3 4.2 5.5 7.4 5.5 10.3a5.5 5.5 0 0 1-11 0c0-2.9 2.2-6.1 5.5-10.3Z',
+  timer: 'M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM12 9v4l2.5 2M10 2.5h4',
 } as const;
 
 export function Icon({ name }: { readonly name: keyof typeof ICONS }) {

@@ -14,10 +14,11 @@ import {
   type Profile,
   type Sex,
 } from '../../domain/goals.js';
+import { DEFAULT_WATER_ML, ML_PER_FL_OZ } from '../../domain/habits.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { KCAL_PER_GRAM, MACROS, type Macro } from '../../domain/nutrients.js';
 import { goalView, useIntents, useLive } from '../views.js';
-import { amount, kcal, parseNumber } from './format.js';
+import { amount, flOz, kcal, parseNumber } from './format.js';
 import { Icon, NumberField, Segmented, Sheet, TitleBar, useToast } from './ui.js';
 
 const MACRO_LABEL: Readonly<Record<Macro, string>> = { protein: 'Protein', carbs: 'Carbs', fat: 'Fat' };
@@ -119,14 +120,17 @@ function GoalForm({ goal, profile, today }: { readonly goal: Goal | undefined; r
   const [customText, setCustomText] = useState(goal?.kcalOverride === undefined ? '' : String(goal.kcalOverride));
   const [macroKind, setMacroKind] = useState<MacroTarget['kind']>(goal?.macros.kind ?? 'percent');
   const [macros, setMacros] = useState(goal === undefined ? { protein: '30', carbs: '40', fat: '30' } : macroTexts(goal.macros));
+  const [waterText, setWaterText] = useState(flOz(goal?.waterMl ?? DEFAULT_WATER_ML));
 
   const override = parseNumber(customText);
+  const waterOz = parseNumber(waterText);
   const macroValues = { protein: parseNumber(macros.protein), carbs: parseNumber(macros.carbs), fat: parseNumber(macros.fat) };
   const draft = GoalDraft.safeParse({
     policy: { kind: 'activity-level', level },
     kgPerWeek: rateLb * KG_PER_LB,
     ...(custom ? { kcalOverride: override } : {}),
     macros: { kind: macroKind, ...macroValues },
+    waterMl: waterOz === null ? null : waterOz * ML_PER_FL_OZ,
   });
   const budget = draft.success ? budgetFor({ ...draft.data, id: goalId(today), effectiveFrom: today }, profile, today) : null;
   const percentTotal = MACROS.reduce((sum, m) => sum + (macroValues[m] ?? 0), 0);
@@ -230,6 +234,11 @@ function GoalForm({ goal, profile, today }: { readonly goal: Goal | undefined; r
         ))}
       </div>
       {macroKind === 'percent' && <p class={Math.abs(percentTotal - 100) < 0.5 ? 'hint' : 'hint warn'}>Total {amount(percentTotal)}%. A split must add up to 100%.</p>}
+
+      <h2 class="section-title">Water</h2>
+      <div class="group">
+        <NumberField label="Daily goal" unit="fl oz" value={waterText} onInput={setWaterText} invalid={waterOz === null || waterOz <= 0} />
+      </div>
 
       <div class="screen-actions">
         <button
