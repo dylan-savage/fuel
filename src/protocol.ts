@@ -1,9 +1,10 @@
 /**
- * Wire schemas for POST /api/sync, shared by the server (which parses requests) and the
- * client (which parses responses). Documents stay `unknown` here and are parsed per kind
- * with parseDoc, so one bad document is rejected alone instead of failing its whole batch.
+ * Wire schemas for every HTTP body, shared by the server (which parses requests) and the
+ * client (which parses responses). Sync documents stay `unknown` here and are parsed per
+ * kind with parseDoc, so one bad document is rejected alone instead of failing its batch.
  */
 import { z } from 'zod';
+import { FdcId, FoodCandidate, Gtin, SearchHit, type ExternalRef } from './domain/food.js';
 import { KindName } from './domain/kinds.js';
 
 /** Server-assigned, strictly increasing per applied mutation. The only order sync trusts. */
@@ -83,3 +84,37 @@ export type SyncResponse = z.infer<typeof SyncResponse>;
 
 export const Healthz = z.object({ ok: z.literal(true), epoch: z.string(), rev: Rev });
 export type Healthz = z.infer<typeof Healthz>;
+
+/** The `:ref` path segment of GET /api/foods/lookup: `gtin:<13 digits>` or `usda:<fdcId>`. */
+export function formatRef(ref: ExternalRef): string {
+  switch (ref.kind) {
+    case 'gtin':
+      return `gtin:${ref.gtin}`;
+    case 'usda':
+      return `usda:${ref.fdcId}`;
+  }
+}
+
+export function parseRef(segment: string): ExternalRef | null {
+  const [scheme, value = ''] = segment.split(':', 2);
+  if (scheme === 'gtin') {
+    const gtin = Gtin.safeParse(value);
+    return gtin.success ? { kind: 'gtin', gtin: gtin.data } : null;
+  }
+  if (scheme === 'usda' && /^\d+$/.test(value)) {
+    const fdcId = FdcId.safeParse(Number(value));
+    return fdcId.success ? { kind: 'usda', fdcId: fdcId.data } : null;
+  }
+  return null;
+}
+
+/** GET /api/foods/lookup/:ref. The source answered; it may not know the food. */
+export const LookupResponse = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('found'), candidate: FoodCandidate }),
+  z.object({ kind: z.literal('not_found') }),
+]);
+export type LookupResponse = z.infer<typeof LookupResponse>;
+
+/** GET /api/foods/search?q=. Generic USDA foods first, then branded products. */
+export const SearchResponse = z.object({ hits: z.array(SearchHit) });
+export type SearchResponse = z.infer<typeof SearchResponse>;

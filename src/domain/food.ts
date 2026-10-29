@@ -93,10 +93,13 @@ export const FoodSnapshot = z.looseObject({
 });
 export type FoodSnapshot = z.infer<typeof FoodSnapshot>;
 
+/** A food's key in USDA FoodData Central. */
+export const FdcId = z.number().int().positive();
+
 export const FoodSource = z.discriminatedUnion('kind', [
   z.looseObject({ kind: z.literal('user') }),
   z.looseObject({ kind: z.literal('off'), gtin: Gtin, fetchedAt: Millis }),
-  z.looseObject({ kind: z.literal('usda'), fdcId: z.number().int().positive() }),
+  z.looseObject({ kind: z.literal('usda'), fdcId: FdcId }),
   z.looseObject({ kind: z.literal('ai'), from: z.enum(['label', 'plate', 'text']) }),
 ]);
 export type FoodSource = z.infer<typeof FoodSource>;
@@ -122,14 +125,37 @@ export type FoodCandidate = z.infer<typeof FoodCandidate>;
 
 export type Completion = { readonly ok: true; readonly food: Food } | { readonly ok: false; readonly missing: readonly CoreKey[] };
 
+/** The core nutrients a library food needs and these nutrients lack. */
+export function missingCore(nutrients: PartialNutrients): CoreKey[] {
+  return CORE_KEYS.filter((key) => nutrients[key] === undefined);
+}
+
 /** A Food, or the core nutrients the confirm sheet must ask for. */
 export function completeFood(candidate: FoodCandidate, id: FoodId): Completion {
   const nutrients = FoodNutrients.safeParse(candidate.nutrients);
-  if (!nutrients.success) {
-    return { ok: false, missing: CORE_KEYS.filter((key) => candidate.nutrients[key] === undefined) };
-  }
+  if (!nutrients.success) return { ok: false, missing: missingCore(candidate.nutrients) };
   return { ok: true, food: { ...candidate, id, nutrients: nutrients.data, archived: false } };
 }
+
+/** What an entry holds of a library food: its nutrition now, pointing back at the food. */
+export function snapshotOf(food: Food): FoodSnapshot {
+  const { name, brand, unit, nutrients, servings } = food;
+  return { name, ...(brand === undefined ? {} : { brand }), unit, nutrients, servings, origin: { kind: 'food', id: food.id } };
+}
+
+/** A food in an external database, by its key there. */
+export const ExternalRef = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('gtin'), gtin: Gtin }),
+  z.object({ kind: z.literal('usda'), fdcId: FdcId }),
+]);
+export type ExternalRef = z.infer<typeof ExternalRef>;
+
+/**
+ * One external search result. The candidate is what the search payload carried; looking up
+ * `ref` can add servings the search payload leaves out.
+ */
+export const SearchHit = z.object({ ref: ExternalRef, candidate: FoodCandidate });
+export type SearchHit = z.infer<typeof SearchHit>;
 
 /** A food plus how much of it: what logging takes. */
 export const Ingredient = z.looseObject({ food: FoodSnapshot, quantity: Quantity });
