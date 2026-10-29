@@ -78,20 +78,21 @@ test.describe('online', () => {
     await expect(toast.getByText(/^Your food/)).toBeVisible();
     await expect(toast.getByTestId('draft-kcal')).toHaveText('125 kcal');
 
-    await drafts.getByRole('button', { name: 'Remove Butter' }).click();
+    // shots.spec.ts logs its own Overnight oats to today's breakfast, so this one stays out of the diary.
+    await drafts.getByRole('button', { name: 'Remove Overnight oats' }).click();
     await expect(drafts.getByRole('listitem')).toHaveCount(3);
-    await expect(review.getByTestId('preview-kcal')).toHaveText(String(143 + 125 + 380));
+    await expect(review.getByTestId('preview-kcal')).toHaveText(String(143 + 125 + 50));
 
     await review.getByRole('radio', { name: 'Breakfast' }).click();
     await review.getByRole('button', { name: 'Log 3 items to Breakfast' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Logged 3 items to Breakfast' })).toBeVisible();
     const breakfast = page.getByRole('region', { name: 'Breakfast' });
-    for (const name of ['Egg', 'Sourdough toast', 'Overnight oats']) await expect(breakfast.getByText(name, { exact: true }).first()).toBeVisible();
+    for (const name of ['Egg', 'Sourdough toast', 'Butter']) await expect(breakfast.getByText(name, { exact: true }).first()).toBeVisible();
 
     await expect
       .poll(() => stored('entry').filter((e) => e.food.origin.kind === 'food' && e.food.origin.id === sourdough.id).length, { timeout: 15_000 })
       .toBe(1);
-    const logged = stored('entry').filter((e) => ['Egg', 'Sourdough toast', 'Overnight oats'].includes(e.food.name));
+    const logged = stored('entry').filter((e) => ['Egg', 'Sourdough toast', 'Butter'].includes(e.food.name));
     const commit = logged.toSorted((a, b) => a.loggedAt - b.loggedAt).slice(-3);
     expect(commit.map((e) => e.loggedAt - (commit[0]?.loggedAt ?? 0))).toEqual([0, 1, 2]);
   });
