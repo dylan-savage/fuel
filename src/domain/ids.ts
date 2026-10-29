@@ -33,3 +33,9 @@ export type RecipeId = z.infer<typeof RecipeId>;
 
 export const SavedMealId = z.uuid().brand<'SavedMealId'>();
 export type SavedMealId = z.infer<typeof SavedMealId>;
+
+export const WaterId = z.uuid().brand<'WaterId'>();
+export type WaterId = z.infer<typeof WaterId>;
+
+export const FastId = z.uuid().brand<'FastId'>();
+export type FastId = z.infer<typeof FastId>;

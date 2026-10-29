@@ -72,6 +72,8 @@ const GoalFields = z.looseObject({
   /** Replaces the computed daily target when set. */
   kcalOverride: z.number().positive().max(20_000).optional(),
   macros: MacroTarget,
+  /** The daily water goal, stored in ml. Goals saved before water existed have none. */
+  waterMl: z.number().positive().max(10_000).optional(),
 });
 
 /**
