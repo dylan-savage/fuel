@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { z } from 'zod';
 import { KindName, parseDoc } from '../domain/kinds.js';
-import type { Millis } from '../domain/ids.js';
+import { Millis } from '../domain/ids.js';
 import { Rev, type DocRecord, type Rejection, type SyncRequest, type SyncResponse, type WireMutation } from '../protocol.js';
 
 const SCHEMA_SQL = /* sql */ `
@@ -42,11 +42,36 @@ CREATE TABLE IF NOT EXISTS rejection (
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+
+-- Open Food Facts and USDA answers exactly as received (HTTP status and JSON body). They are
+-- parsed on every read, so a parser fix reaches cached foods too.
+CREATE TABLE IF NOT EXISTS lookup_cache (
+  source     TEXT    NOT NULL,
+  key        TEXT    NOT NULL,
+  fetched_at INTEGER NOT NULL,
+  status     INTEGER NOT NULL,
+  body       TEXT    NOT NULL,
+  PRIMARY KEY (source, key)
+) STRICT;
 `;
 
 const PULL_PAGE = 1000;
 
+/** An external source's raw answer and when it arrived. */
+export interface CachedAnswer {
+  readonly status: number;
+  readonly body: unknown;
+  readonly fetchedAt: Millis;
+}
+
+/** One answer per (source, key); a put replaces the previous one. */
+export interface LookupCache {
+  get(source: string, key: string): CachedAnswer | null;
+  put(source: string, key: string, answer: CachedAnswer): void;
+}
+
 export interface DocStore {
+  readonly lookupCache: LookupCache;
   /**
    * One round of the sync protocol in one IMMEDIATE transaction: apply the mutations this
    * client has not sent before, in order, then return everything above the cursor.
@@ -68,6 +93,7 @@ const DocRow = z.object({ kind: KindName, id: z.string(), rev: Rev, body: z.stri
 const ClientRow = z.object({ last_mutation_id: z.number().int().nonnegative() });
 const MaxRow = z.object({ rev: Rev });
 const MetaRow = z.object({ value: z.string() });
+const CacheRow = z.object({ fetched_at: Millis, status: z.number().int(), body: z.string() });
 
 const ZERO = Rev.parse(0);
 
@@ -122,6 +148,12 @@ export function openStore(path: string, opts: { readonly pageSize?: number } = {
       VALUES (?, ?, ?, ?, ?)`),
     doc: db.prepare('SELECT kind, id, rev, body FROM doc WHERE kind = ? AND id = ?'),
     changes: db.prepare('SELECT kind, id, rev, body FROM doc WHERE rev > ? ORDER BY rev LIMIT ?'),
+    cached: db.prepare('SELECT fetched_at, status, body FROM lookup_cache WHERE source = ? AND key = ?'),
+    cache: db.prepare(`
+      INSERT INTO lookup_cache (source, key, fetched_at, status, body)
+      VALUES (@source, @key, @fetchedAt, @status, @body)
+      ON CONFLICT (source, key) DO UPDATE SET
+        fetched_at = excluded.fetched_at, status = excluded.status, body = excluded.body`),
   };
 
   const readEpoch = (): string => MetaRow.parse(q.epoch.get()).value;
@@ -173,7 +205,20 @@ export function openStore(path: string, opts: { readonly pageSize?: number } = {
     };
   });
 
+  const lookupCache: LookupCache = {
+    get: (source, key) => {
+      const found = q.cached.get(source, key);
+      if (found === undefined) return null;
+      const row = CacheRow.parse(found);
+      return { status: row.status, body: parseJson(row.body), fetchedAt: row.fetched_at };
+    },
+    put: (source, key, { status, body, fetchedAt }) => {
+      q.cache.run({ source, key, fetchedAt, status, body: JSON.stringify(body) });
+    },
+  };
+
   return {
+    lookupCache,
     sync: (req, ctx) => sync.immediate(req, ctx.now, ctx.userAgent),
     stats: () => ({ epoch: readEpoch(), rev: readRev() }),
     backup: async (destination) => {

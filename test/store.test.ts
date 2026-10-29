@@ -131,3 +131,21 @@ describe('DocStore.sync', () => {
     expect(reopened.sync(request(newClientId(), []), ctx).changes.map((c) => c.doc)).toEqual([doc]);
   });
 });
+
+describe('DocStore.lookupCache', () => {
+  it('returns the answer put for a source and key, and null for any other', () => {
+    const { lookupCache } = open();
+    const answer = { status: 200, body: { status: 1, product: { product_name: 'Oats' } }, fetchedAt: at(5) };
+    lookupCache.put('off', '0049000000443', answer);
+    expect(lookupCache.get('off', '0049000000443')).toEqual(answer);
+    expect(lookupCache.get('usda', '0049000000443')).toBeNull();
+    expect(lookupCache.get('off', '3017620422003')).toBeNull();
+  });
+
+  it('replaces the previous answer for the same source and key', () => {
+    const { lookupCache } = open();
+    lookupCache.put('off', '0049000000443', { status: 404, body: { status: 0 }, fetchedAt: at(1) });
+    lookupCache.put('off', '0049000000443', { status: 200, body: { status: 1 }, fetchedAt: at(2) });
+    expect(lookupCache.get('off', '0049000000443')).toEqual({ status: 200, body: { status: 1 }, fetchedAt: at(2) });
+  });
+});
