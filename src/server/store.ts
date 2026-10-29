@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS rejection (
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 `;
 
-export const PULL_PAGE = 1000;
+const PULL_PAGE = 1000;
 
 export interface DocStore {
   /**

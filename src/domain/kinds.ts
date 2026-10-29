@@ -34,7 +34,7 @@ export type DatedKind = { [K in Kind]: (typeof DEFS)[K]['dated'] extends true ? 
 /** The same registry, typed per key so `KINDS[kind].schema` parses to `DocOf<typeof kind>`. */
 export const KINDS: { readonly [K in Kind]: KindDef<z.ZodType<DocOf<K>>, (typeof DEFS)[K]['dated']> } = DEFS;
 
-export function isKind(value: unknown): value is Kind {
+function isKind(value: unknown): value is Kind {
   return typeof value === 'string' && Object.hasOwn(KINDS, value);
 }
 

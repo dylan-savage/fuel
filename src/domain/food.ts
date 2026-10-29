@@ -131,17 +131,12 @@ export function completeFood(candidate: FoodCandidate, id: FoodId): Completion {
   return { ok: true, food: { ...candidate, id, nutrients: nutrients.data, archived: false } };
 }
 
-export function snapshotOf(food: Food): FoodSnapshot {
-  const { id, name, brand, unit, nutrients, servings } = food;
-  return { name, ...(brand === undefined ? {} : { brand }), unit, nutrients, servings, origin: { kind: 'food', id } };
-}
-
 /** A food plus how much of it: what logging takes. */
 export const Ingredient = z.object({ food: FoodSnapshot, quantity: Quantity });
 export type Ingredient = z.infer<typeof Ingredient>;
 
 /** Amount of a quantity in the food's unit. */
-export function baseAmount(q: Quantity): number {
+function baseAmount(q: Quantity): number {
   switch (q.kind) {
     case 'amount':
       return q.amount;
