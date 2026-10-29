@@ -2,10 +2,14 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { Healthz, SyncResponse } from '../src/protocol.js';
+import { Healthz, LookupResponse, SearchResponse, SyncResponse } from '../src/protocol.js';
+import { createFoodSources } from '../src/server/foods.js';
+import { createOffClient } from '../src/server/off.js';
 import { buildApp } from '../src/server/routes.js';
-import { openStore } from '../src/server/store.js';
+import { openStore, type DocStore } from '../src/server/store.js';
+import type { Fetch } from '../src/server/upstream.js';
 import { at, entry, newClientId, newEntryId, putEntry, request } from './fixtures.js';
+import { recording, replay } from './recordings.js';
 
 const staticDir = mkdtempSync(join(tmpdir(), 'fuel-static-'));
 writeFileSync(join(staticDir, 'index.html'), '<!doctype html><title>fuel</title>');
@@ -13,9 +17,34 @@ writeFileSync(join(staticDir, 'sw.js'), 'self.skipWaiting()');
 mkdirSync(join(staticDir, 'assets'));
 writeFileSync(join(staticDir, 'assets', 'index-abc123.js'), 'console.log(1)');
 
-const store = openStore(':memory:');
-const app = buildApp({ store, staticDir, now: () => at(1) });
-afterAll(() => store.close());
+const cokeRecording = recording('off', 'coca-cola');
+const searchRecording = recording('off', 'search-greek-yogurt');
+const recorded = replay(cokeRecording, recording('off', 'unknown'), searchRecording);
+const USER_AGENT = 'fuel/test (single-user calorie tracker)';
+
+const stores: DocStore[] = [];
+afterAll(() => {
+  for (const s of stores) s.close();
+});
+
+/** The app with Open Food Facts reached through `fetch` and USDA not configured. */
+function appOver(fetch: Fetch) {
+  const store = openStore(':memory:');
+  stores.push(store);
+  const off = createOffClient({
+    productUrl: new URL(cokeRecording.request).origin,
+    searchUrl: new URL(searchRecording.request).origin,
+    userAgent: USER_AGENT,
+    fetch,
+    now: () => at(1),
+  });
+  const foods = createFoodSources({ off, usda: null, cache: store.lookupCache, now: () => at(1) });
+  return { store, app: buildApp({ store, foods, staticDir, now: () => at(1) }) };
+}
+
+const { store, app } = appOver(recorded.fetch);
+const unreachable: Fetch = () => Promise.reject(new TypeError('fetch failed'));
+const overloaded: Fetch = () => Promise.resolve(new Response('busy', { status: 503 }));
 
 const post = (body: unknown) =>
   app.request('/api/sync', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -37,6 +66,54 @@ describe('POST /api/sync', () => {
   it('answers 400 to mutation ids out of order', async () => {
     const res = await post(request(newClientId(), [putEntry(2, entry(newEntryId(), 1)), putEntry(1, entry(newEntryId(), 2))]));
     expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /api/foods/lookup/:ref', () => {
+  it('answers found with the candidate, asking Open Food Facts as fuel', async () => {
+    const res = await app.request('/api/foods/lookup/gtin:0049000000443');
+    expect(res.status).toBe(200);
+    expect(LookupResponse.parse(await res.json())).toMatchObject({ kind: 'found', candidate: { name: 'Coca-Cola', unit: 'ml' } });
+    expect(recorded.sent.at(-1)?.headers['User-Agent']).toBe(USER_AGENT);
+  });
+
+  it('answers not_found for a product Open Food Facts does not know', async () => {
+    const res = await app.request('/api/foods/lookup/gtin:0028400999991');
+    expect(res.status).toBe(200);
+    expect(LookupResponse.parse(await res.json())).toEqual({ kind: 'not_found' });
+  });
+
+  it.each(['gtin:123', 'gtin:0049000000444', 'usda:abc', 'nope'])('answers 400 to the ref %s', async (ref) => {
+    expect((await app.request(`/api/foods/lookup/${ref}`)).status).toBe(400);
+  });
+});
+
+describe('GET /api/foods/search', () => {
+  it('answers the hits as a SearchResponse', async () => {
+    const res = await app.request('/api/foods/search?q=greek%20yogurt');
+    expect(res.status).toBe(200);
+    const { hits } = SearchResponse.parse(await res.json());
+    expect(hits).toHaveLength(20);
+    expect(hits[0]?.candidate).toMatchObject({ name: 'Nonfat Greek Yogurt', brand: 'Chobani' });
+  });
+
+  it.each(['', '?q=', '?q=%20%20', `?q=${'x'.repeat(101)}`])('answers 400 to the query "%s"', async (query) => {
+    expect((await app.request(`/api/foods/search${query}`)).status).toBe(400);
+  });
+});
+
+describe.each([
+  ['unreachable', unreachable],
+  ['answering 503', overloaded],
+])('with Open Food Facts %s', (_, fetch) => {
+  const failing = appOver(fetch).app;
+
+  it('answers a lookup with 502', async () => {
+    expect((await failing.request('/api/foods/lookup/gtin:0049000000443')).status).toBe(502);
+  });
+
+  it('answers a search with 502', async () => {
+    expect((await failing.request('/api/foods/search?q=greek%20yogurt')).status).toBe(502);
   });
 });
 

@@ -1,5 +1,5 @@
 /** Process entry point, run by launchd through scripts/run.sh. */
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,9 +7,12 @@ import { serve } from '@hono/node-server';
 import { z } from 'zod';
 import { Millis } from '../domain/ids.js';
 import { scheduleBackups } from './backup.js';
+import { createFoodSources } from './foods.js';
 import { log } from './log.js';
+import { createOffClient } from './off.js';
 import { buildApp } from './routes.js';
 import { openStore } from './store.js';
+import { createUsdaClient } from './usda.js';
 
 /** Env is parsed here and nowhere else. */
 const Config = z.object({
@@ -19,17 +22,36 @@ const Config = z.object({
   FUEL_BACKUP_DIR: z.string().min(1).default(join(homedir(), 'Library/Mobile Documents/com~apple~CloudDocs/fuel-backups')),
   FUEL_BACKUP_KEEP: z.coerce.number().int().positive().default(30),
   FUEL_STATIC_DIR: z.string().min(1).default(fileURLToPath(new URL('../client', import.meta.url))),
+  /** Optional. Unset or empty means search is Open Food Facts only. Never logged. */
+  USDA_API_KEY: z
+    .string()
+    .trim()
+    .optional()
+    .transform((key) => (key === undefined || key === '' ? null : key)),
+  FUEL_OFF_URL: z.url().default('https://world.openfoodfacts.org'),
+  FUEL_OFF_SEARCH_URL: z.url().default('https://search.openfoodfacts.org'),
+  FUEL_USDA_URL: z.url().default('https://api.nal.usda.gov/fdc'),
 });
 
+const Package = z.object({ version: z.string().min(1) });
+
 const config = Config.parse(process.env);
+const { version } = Package.parse(JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')));
+const userAgent = `fuel/${version} (single-user calorie tracker)`;
+const now = () => Millis.parse(Date.now());
+
 mkdirSync(config.FUEL_DATA_DIR, { recursive: true });
 const store = openStore(join(config.FUEL_DATA_DIR, 'fuel.db'));
-const app = buildApp({ store, staticDir: config.FUEL_STATIC_DIR, now: () => Millis.parse(Date.now()) });
+const off = createOffClient({ productUrl: config.FUEL_OFF_URL, searchUrl: config.FUEL_OFF_SEARCH_URL, userAgent, fetch, now });
+const usda =
+  config.USDA_API_KEY === null ? null : createUsdaClient({ baseUrl: config.FUEL_USDA_URL, apiKey: config.USDA_API_KEY, userAgent, fetch });
+const foods = createFoodSources({ off, usda, cache: store.lookupCache, now });
+const app = buildApp({ store, foods, staticDir: config.FUEL_STATIC_DIR, now });
 const backups = scheduleBackups({ store, dir: config.FUEL_BACKUP_DIR, keep: config.FUEL_BACKUP_KEEP });
 
 // Loopback only: `tailscale serve` terminates HTTPS and is the only way in from the network.
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.FUEL_PORT }, (info) => {
-  log('listening', { port: info.port, dataDir: config.FUEL_DATA_DIR, staticDir: config.FUEL_STATIC_DIR });
+  log('listening', { port: info.port, dataDir: config.FUEL_DATA_DIR, staticDir: config.FUEL_STATIC_DIR, usda: usda !== null });
 });
 
 const shutdown = (signal: string) => {

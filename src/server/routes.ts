@@ -1,25 +1,36 @@
-/** The HTTP surface. Each handler parses its input, calls the store, and serializes the result. */
+/** The HTTP surface. Each handler parses its input, calls the store or the food sources, and serializes the result. */
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import type { Millis } from '../domain/ids.js';
-import { SyncRequest, type Healthz } from '../protocol.js';
+import { parseRef, SyncRequest, type Healthz, type LookupResponse, type SearchResponse } from '../protocol.js';
+import type { FoodSources } from './foods.js';
 import { log } from './log.js';
 import type { DocStore } from './store.js';
+import { UpstreamError } from './upstream.js';
 
 export interface AppDeps {
   readonly store: DocStore;
+  readonly foods: FoodSources;
   /** The built PWA. Same origin as the API, so there is no CORS and the service worker scope is '/'. */
   readonly staticDir: string;
   readonly now: () => Millis;
 }
 
-export function buildApp({ store, staticDir, now }: AppDeps): Hono {
+const SEARCH_LIMIT = 20;
+const SearchQuery = z.string().trim().min(1).max(100);
+
+export function buildApp({ store, foods, staticDir, now }: AppDeps): Hono {
   const app = new Hono();
 
   app.onError((err, c) => {
-    log('request_failed', { method: c.req.method, path: c.req.path, error: err.message });
+    const fields = { method: c.req.method, path: c.req.path, error: err.message };
+    if (err instanceof UpstreamError) {
+      log('upstream_failed', fields);
+      return c.json({ error: 'food source unavailable' }, 502);
+    }
+    log('request_failed', fields);
     return c.json({ error: 'internal error' }, 500);
   });
 
@@ -28,6 +39,18 @@ export function buildApp({ store, staticDir, now }: AppDeps): Hono {
     const req = SyncRequest.safeParse(body);
     if (!req.success) return c.json({ error: z.prettifyError(req.error) }, 400);
     return c.json(store.sync(req.data, { now: now(), userAgent: c.req.header('user-agent') ?? null }));
+  });
+
+  app.get('/api/foods/lookup/:ref', async (c) => {
+    const ref = parseRef(c.req.param('ref'));
+    if (ref === null) return c.json({ error: 'expected gtin:<13 digits> or usda:<fdcId>' }, 400);
+    return c.json((await foods.lookup(ref)) satisfies LookupResponse);
+  });
+
+  app.get('/api/foods/search', async (c) => {
+    const q = SearchQuery.safeParse(c.req.query('q') ?? '');
+    if (!q.success) return c.json({ error: 'q must be 1 to 100 characters' }, 400);
+    return c.json({ hits: await foods.search(q.data, SEARCH_LIMIT) } satisfies SearchResponse);
   });
 
   app.get('/healthz', (c) => c.json({ ok: true, ...store.stats() } satisfies Healthz));
