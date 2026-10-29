@@ -23,11 +23,11 @@ export const Gtin = z
   .brand<'Gtin'>();
 export type Gtin = z.infer<typeof Gtin>;
 
-/** The symbologies printed on retail food. */
+/** The symbologies printed on retail food, named as BarcodeDetector reports them. */
 export const RetailFormat = z.enum(['ean_13', 'upc_a', 'ean_8', 'upc_e']);
 export type RetailFormat = z.infer<typeof RetailFormat>;
 
-/** UPC-E is a zero-suppressed UPC-A, so it expands rather than pads. */
+/** An 8-digit UPC-E is a zero-suppressed UPC-A, so it expands rather than pads. */
 function expandUpcE(upcE: string): string | null {
   if (!/^[01]\d{7}$/.test(upcE)) return null;
   const [ns, d1, d2, d3, d4, d5, d6, check] = upcE;
@@ -42,12 +42,15 @@ function expandUpcE(upcE: string): string | null {
   return `${ns}${body}${check}`;
 }
 
-const DIGITS: Readonly<Record<Exclude<RetailFormat, 'upc_e'>, number>> = { ean_13: 13, upc_a: 12, ean_8: 8 };
-
-/** Null for anything that is not a valid code of the reported format. */
-export function parseGtin(format: RetailFormat, raw: string): Gtin | null {
-  const digits = format === 'upc_e' ? expandUpcE(raw) : raw.length === DIGITS[format] ? raw : null;
-  if (digits === null || !/^\d+$/.test(digits)) return null;
+/**
+ * Normalizes a decoded retail barcode. Decoders disagree on the digits they report (zxing
+ * gives UPC-A and UPC-E as 13 digits; others give 12 and 8), so any length a GTIN can
+ * take is accepted and the check digit decides. Null for anything else.
+ */
+export function parseGtin(format: string, raw: string): Gtin | null {
+  if (!RetailFormat.safeParse(format).success || !/^\d+$/.test(raw)) return null;
+  const digits = format === 'upc_e' && raw.length === 8 ? expandUpcE(raw) : raw;
+  if (digits === null || ![8, 12, 13].includes(digits.length)) return null;
   const parsed = Gtin.safeParse(digits.padStart(13, '0'));
   return parsed.success ? parsed.data : null;
 }

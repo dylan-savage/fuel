@@ -100,8 +100,14 @@ describe('parseGtin', () => {
     expect(parseGtin('ean_13', '4006381333932')).toBeNull();
   });
 
-  it('rejects a length that does not match the format', () => {
-    expect(parseGtin('ean_13', '049000000443')).toBeNull();
+  it('accepts the 13-digit forms zxing reports for UPC-A and UPC-E', () => {
+    expect(parseGtin('ean_13', '0049000000443')).toBe('0049000000443');
+    expect(parseGtin('upc_e', '0012345000065')).toBe('0012345000065');
+  });
+
+  it('rejects non-digits, impossible lengths and non-retail formats', () => {
     expect(parseGtin('upc_a', 'abcdefghijkl')).toBeNull();
+    expect(parseGtin('ean_13', '12345')).toBeNull();
+    expect(parseGtin('qr_code', '4006381333931')).toBeNull();
   });
 });
