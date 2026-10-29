@@ -1,13 +1,16 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Anthropic from '@anthropic-ai/sdk';
 import { afterAll, describe, expect, it } from 'vitest';
-import { Healthz, LookupResponse, SearchResponse, SyncResponse } from '../src/protocol.js';
+import { AiAnswer, AiError, Healthz, LookupResponse, SearchResponse, SyncResponse, type AiParseRequest } from '../src/protocol.js';
+import { createAiParser, type AiParser } from '../src/server/ai.js';
 import { createFoodSources } from '../src/server/foods.js';
 import { createOffClient } from '../src/server/off.js';
 import { buildApp } from '../src/server/routes.js';
 import { openStore, type DocStore } from '../src/server/store.js';
 import type { Fetch } from '../src/server/upstream.js';
+import { BREAKFAST, breakfastReply, message, stubMessages } from './ai-replies.js';
 import { at, entry, newClientId, newEntryId, putEntry, request } from './fixtures.js';
 import { recording, replay } from './recordings.js';
 
@@ -27,8 +30,8 @@ afterAll(() => {
   for (const s of stores) s.close();
 });
 
-/** The app with Open Food Facts reached through `fetch` and USDA not configured. */
-function appOver(fetch: Fetch) {
+/** The app with Open Food Facts reached through `fetch`, USDA not configured, and AI as given. */
+function appOver(fetch: Fetch, ai: AiParser | null = null) {
   const store = openStore(':memory:');
   stores.push(store);
   const off = createOffClient({
@@ -39,7 +42,7 @@ function appOver(fetch: Fetch) {
     now: () => at(1),
   });
   const foods = createFoodSources({ off, usda: null, cache: store.lookupCache, now: () => at(1) });
-  return { store, app: buildApp({ store, foods, staticDir, now: () => at(1) }) };
+  return { store, app: buildApp({ store, foods, ai, staticDir, now: () => at(1) }) };
 }
 
 const { store, app } = appOver(recorded.fetch);
@@ -114,6 +117,52 @@ describe.each([
 
   it('answers a search with 502', async () => {
     expect((await failing.request('/api/foods/search?q=greek%20yogurt')).status).toBe(502);
+  });
+});
+
+describe('POST /api/ai/parse', () => {
+  const parse = (target: typeof app, body: unknown) =>
+    target.request('/api/ai/parse', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const withModel = (reply: Parameters<typeof stubMessages>[0]) =>
+    appOver(recorded.fetch, createAiParser({ messages: stubMessages(reply), model: 'claude-opus-5-5' })).app;
+  const breakfast: AiParseRequest = { kind: 'text', text: BREAKFAST, foods: [] };
+
+  it('answers 503 ai_unconfigured without an API key, whatever the body', async () => {
+    for (const body of [breakfast, { nope: true }]) {
+      const res = await parse(app, body);
+      expect(res.status).toBe(503);
+      expect(AiError.parse(await res.json())).toEqual({ error: 'ai_unconfigured' });
+    }
+  });
+
+  it('answers the drafts as an AiAnswer', async () => {
+    const res = await parse(withModel(breakfastReply(null)), breakfast);
+    expect(res.status).toBe(200);
+    expect(AiAnswer.parse(await res.json())).toMatchObject({ kind: 'drafts', drafts: [{ name: 'Egg' }, { name: 'Sourdough toast' }, { name: 'Butter' }, { name: 'Overnight oats' }] });
+  });
+
+  it('answers a refusal and a timeout with their reasons', async () => {
+    const refused = message({ stop_reason: 'refusal' });
+    const timedOut = () => {
+      throw new Anthropic.APIConnectionTimeoutError();
+    };
+    for (const [reply, status, error] of [
+      [refused, 422, 'ai_refused'],
+      [timedOut, 504, 'ai_timeout'],
+    ] as const) {
+      const res = await parse(withModel(reply), breakfast);
+      expect(res.status).toBe(status);
+      expect(AiError.parse(await res.json())).toEqual({ error });
+    }
+  });
+
+  it('answers 400 to a body that is not an AiParseRequest, without calling the model', async () => {
+    const messages = stubMessages(breakfastReply(null));
+    const configured = appOver(recorded.fetch, createAiParser({ messages, model: 'claude-opus-5-5' })).app;
+    for (const body of [{ kind: 'text', text: 'x', foods: [] }, { kind: 'photo', subject: 'menu', mediaType: 'image/jpeg', base64: 'AA', foods: [] }]) {
+      expect((await parse(configured, body)).status).toBe(400);
+    }
+    expect(messages.sent).toEqual([]);
   });
 });
 

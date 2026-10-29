@@ -3,9 +3,11 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Anthropic from '@anthropic-ai/sdk';
 import { serve } from '@hono/node-server';
 import { z } from 'zod';
 import { Millis } from '../domain/ids.js';
+import { createAiParser } from './ai.js';
 import { scheduleBackups } from './backup.js';
 import { createFoodSources } from './foods.js';
 import { log } from './log.js';
@@ -28,6 +30,18 @@ const Config = z.object({
     .trim()
     .optional()
     .transform((key) => (key === undefined || key === '' ? null : key)),
+  /** Optional. Unset or empty means AI quick log answers 503 ai_unconfigured. Never logged. */
+  ANTHROPIC_API_KEY: z
+    .string()
+    .trim()
+    .optional()
+    .transform((key) => (key === undefined || key === '' ? null : key)),
+  /**
+   * The current Opus, run at low effort (src/server/ai.ts): structured extraction like this
+   * keeps its quality at low effort, which is the quickest setting. Set a Haiku or Sonnet id
+   * here to compare latency with scripts/ai-smoke.mjs.
+   */
+  FUEL_AI_MODEL: z.string().trim().min(1).default('claude-opus-5-5'),
   FUEL_OFF_URL: z.url().default('https://world.openfoodfacts.org'),
   FUEL_OFF_SEARCH_URL: z.url().default('https://search.openfoodfacts.org'),
   FUEL_USDA_URL: z.url().default('https://api.nal.usda.gov/fdc'),
@@ -46,12 +60,22 @@ const off = createOffClient({ productUrl: config.FUEL_OFF_URL, searchUrl: config
 const usda =
   config.USDA_API_KEY === null ? null : createUsdaClient({ baseUrl: config.FUEL_USDA_URL, apiKey: config.USDA_API_KEY, userAgent, fetch });
 const foods = createFoodSources({ off, usda, cache: store.lookupCache, now });
-const app = buildApp({ store, foods, staticDir: config.FUEL_STATIC_DIR, now });
+const ai =
+  config.ANTHROPIC_API_KEY === null
+    ? null
+    : createAiParser({ messages: new Anthropic({ apiKey: config.ANTHROPIC_API_KEY }).beta.messages, model: config.FUEL_AI_MODEL });
+const app = buildApp({ store, foods, ai, staticDir: config.FUEL_STATIC_DIR, now });
 const backups = scheduleBackups({ store, dir: config.FUEL_BACKUP_DIR, keep: config.FUEL_BACKUP_KEEP });
 
 // Loopback only: `tailscale serve` terminates HTTPS and is the only way in from the network.
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.FUEL_PORT }, (info) => {
-  log('listening', { port: info.port, dataDir: config.FUEL_DATA_DIR, staticDir: config.FUEL_STATIC_DIR, usda: usda !== null });
+  log('listening', {
+    port: info.port,
+    dataDir: config.FUEL_DATA_DIR,
+    staticDir: config.FUEL_STATIC_DIR,
+    usda: usda !== null,
+    ai: ai === null ? null : config.FUEL_AI_MODEL,
+  });
 });
 
 const shutdown = (signal: string) => {

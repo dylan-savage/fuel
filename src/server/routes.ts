@@ -1,10 +1,22 @@
-/** The HTTP surface. Each handler parses its input, calls the store or the food sources, and serializes the result. */
+/** The HTTP surface. Each handler parses its input, calls the store, the food sources or the AI parser, and serializes the result. */
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { z } from 'zod';
 import type { Millis } from '../domain/ids.js';
-import { parseRef, SyncRequest, type Healthz, type LookupResponse, type SearchResponse } from '../protocol.js';
+import {
+  AiParseRequest,
+  parseRef,
+  SyncRequest,
+  type AiAnswer,
+  type AiError,
+  type AiFailure,
+  type Healthz,
+  type LookupResponse,
+  type SearchResponse,
+} from '../protocol.js';
+import type { AiParser } from './ai.js';
 import type { FoodSources } from './foods.js';
 import { log } from './log.js';
 import type { DocStore } from './store.js';
@@ -13,6 +25,8 @@ import { UpstreamError } from './upstream.js';
 export interface AppDeps {
   readonly store: DocStore;
   readonly foods: FoodSources;
+  /** Null when ANTHROPIC_API_KEY is unset: AI quick log answers 503 ai_unconfigured. */
+  readonly ai: AiParser | null;
   /** The built PWA. Same origin as the API, so there is no CORS and the service worker scope is '/'. */
   readonly staticDir: string;
   readonly now: () => Millis;
@@ -21,7 +35,18 @@ export interface AppDeps {
 const SEARCH_LIMIT = 20;
 const SearchQuery = z.string().trim().min(1).max(100);
 
-export function buildApp({ store, foods, staticDir, now }: AppDeps): Hono {
+const AI_STATUS = {
+  ai_unconfigured: 503,
+  ai_unavailable: 502,
+  ai_timeout: 504,
+  ai_refused: 422,
+  ai_unreadable: 502,
+  ai_nothing_found: 422,
+} as const satisfies Readonly<Record<AiFailure, ContentfulStatusCode>>;
+
+const aiError = (error: AiFailure): AiError => ({ error });
+
+export function buildApp({ store, foods, ai, staticDir, now }: AppDeps): Hono {
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -51,6 +76,15 @@ export function buildApp({ store, foods, staticDir, now }: AppDeps): Hono {
     const q = SearchQuery.safeParse(c.req.query('q') ?? '');
     if (!q.success) return c.json({ error: 'q must be 1 to 100 characters' }, 400);
     return c.json({ hits: await foods.search(q.data, SEARCH_LIMIT) } satisfies SearchResponse);
+  });
+
+  app.post('/api/ai/parse', bodyLimit({ maxSize: 6 * 1024 * 1024 }), async (c) => {
+    if (ai === null) return c.json(aiError('ai_unconfigured'), AI_STATUS.ai_unconfigured);
+    const body: unknown = await c.req.json().catch(() => undefined);
+    const req = AiParseRequest.safeParse(body);
+    if (!req.success) return c.json({ error: z.prettifyError(req.error) }, 400);
+    const outcome = await ai.parse(req.data);
+    return outcome.ok ? c.json(outcome.answer satisfies AiAnswer) : c.json(aiError(outcome.reason), AI_STATUS[outcome.reason]);
   });
 
   app.get('/healthz', (c) => c.json({ ok: true, ...store.stats() } satisfies Healthz));

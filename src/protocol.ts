@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { FdcId, FoodCandidate, Gtin, SearchHit, type ExternalRef } from './domain/food.js';
 import { KindName } from './domain/kinds.js';
+import { Draft, FoodHint, MAX_HINTS } from './domain/quicklog.js';
 
 /** Server-assigned, strictly increasing per applied mutation. The only order sync trusts. */
 export const Rev = z.number().int().nonnegative().brand<'Rev'>();
@@ -118,3 +119,52 @@ export type LookupResponse = z.infer<typeof LookupResponse>;
 /** GET /api/foods/search?q=. Generic USDA foods first, then branded products. */
 export const SearchResponse = z.object({ hits: z.array(SearchHit) });
 export type SearchResponse = z.infer<typeof SearchResponse>;
+
+/** The phone downscales a photo before sending it, to a few hundred KB; this is the ceiling. */
+export const MAX_PHOTO_BASE64 = 4_000_000;
+export const PhotoType = z.enum(['image/jpeg', 'image/png', 'image/webp']);
+export type PhotoType = z.infer<typeof PhotoType>;
+
+const Hints = z.array(FoodHint).max(MAX_HINTS);
+
+/**
+ * POST /api/ai/parse. `foods` are Dylan's foods for the model to match drafts against; a
+ * label becomes a new food, so it sends none.
+ */
+export const AiParseRequest = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('text'), text: z.string().trim().min(2).max(1000), foods: Hints }),
+  z.object({
+    kind: z.literal('photo'),
+    subject: z.enum(['label', 'plate']),
+    mediaType: PhotoType,
+    base64: z.string().min(1).max(MAX_PHOTO_BASE64),
+    foods: Hints,
+  }),
+]);
+export type AiParseRequest = z.infer<typeof AiParseRequest>;
+
+/** What the model made of it: drafts to review for text and plates, a food to confirm for a label. Nothing is written. */
+export const AiAnswer = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('drafts'), drafts: z.array(Draft).min(1) }),
+  z.object({ kind: z.literal('label'), candidate: FoodCandidate }),
+]);
+export type AiAnswer = z.infer<typeof AiAnswer>;
+
+/** Why /api/ai/parse has no answer, in the body of its error status. */
+export const AiFailure = z.enum([
+  /** No ANTHROPIC_API_KEY on the mini. */
+  'ai_unconfigured',
+  /** The API could not be reached, or answered with an error. */
+  'ai_unavailable',
+  'ai_timeout',
+  /** The model declined. */
+  'ai_refused',
+  /** The model's reply did not fit the schema, or was cut off. */
+  'ai_unreadable',
+  /** No food in the text or photo, or no nutrition label in the photo. */
+  'ai_nothing_found',
+]);
+export type AiFailure = z.infer<typeof AiFailure>;
+
+export const AiError = z.object({ error: AiFailure });
+export type AiError = z.infer<typeof AiError>;
