@@ -12,10 +12,11 @@ import { describe, expect, it } from 'vitest';
 import { openReplica, type Replica, type SyncPort } from '../src/client/replica.js';
 import { syncRounds, type Transport } from '../src/client/sync.js';
 import { PROFILE_ID, goalId } from '../src/domain/goals.js';
-import { FastEndId, FastId, FoodId, LocalDate, RecipeId, SavedMealId, WaterId } from '../src/domain/ids.js';
+import { weighInId } from '../src/domain/body.js';
+import { FastEndId, FastId, FoodId, LocalDate, RecipeId, SavedMealId, WaterId, WorkoutId } from '../src/domain/ids.js';
 import { KIND_NAMES, type Mutation } from '../src/domain/kinds.js';
 import { openStore, type DocStore } from '../src/server/store.js';
-import { at, entry, fast, fastEnd, food, goal, newClientId, newEntryId, profile, recipe, request, savedMeal, water } from './fixtures.js';
+import { at, entry, fast, fastEnd, food, goal, newClientId, newEntryId, profile, recipe, request, savedMeal, water, weighIn, workout } from './fixtures.js';
 
 const ENTRY_IDS = Array.from({ length: 4 }, newEntryId);
 const FOOD_IDS = [FoodId.parse('0f0e0d0c-0b0a-4908-8706-050403020100'), FoodId.parse('1f1e1d1c-1b1a-4918-9716-151413121110')];
@@ -27,6 +28,9 @@ const WATER_IDS = [WaterId.parse('4f4e4d4c-4b4a-4948-8746-454443424140'), WaterI
 const FAST_ID = FastId.parse('6f6e6d6c-6b6a-4968-a766-656463626160');
 /** Two phones ending the same fast. */
 const FAST_END_IDS = [FastEndId.parse('7f7e7d7c-7b7a-4978-b776-757473727170'), FastEndId.parse('8f8e8d8c-8b8a-4988-8786-858483828180')];
+/** Weigh-ins have one id per day, so phones weighing in on the same day write the same document. */
+const WEIGH_IN_DATES = ['2026-10-27', '2026-10-28'];
+const WORKOUT_IDS = [WorkoutId.parse('9f9e9d9c-9b9a-4998-9796-959493929190'), WorkoutId.parse('afaeadac-abaa-49a8-a7a6-a5a4a3a2a1a0')];
 
 /** Small pages and batches so every schedule exercises multi-round pushes and pulls. */
 const PULL_PAGE = 3;
@@ -64,6 +68,16 @@ const SLOT_WRITES: readonly ((w: WriteOp) => Mutation)[] = [
     (id) =>
       (w: WriteOp): Mutation =>
         w.op === 'put' ? { op: 'put', kind: 'fastEnd', doc: fastEnd(id, FAST_ID, w.kcal) } : { op: 'delete', kind: 'fastEnd', id },
+  ),
+  ...WEIGH_IN_DATES.map(
+    (date) =>
+      (w: WriteOp): Mutation =>
+        w.op === 'put' ? { op: 'put', kind: 'weighIn', doc: weighIn(date, 40 + w.kcal / 100) } : { op: 'delete', kind: 'weighIn', id: weighInId(LocalDate.parse(date)) },
+  ),
+  ...WORKOUT_IDS.map(
+    (id) =>
+      (w: WriteOp): Mutation =>
+        w.op === 'put' ? { op: 'put', kind: 'workout', doc: workout(id, 40 + w.kcal / 100) } : { op: 'delete', kind: 'workout', id },
   ),
 ];
 const SLOTS = SLOT_WRITES.length;
