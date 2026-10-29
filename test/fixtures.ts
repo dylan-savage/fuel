@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { Entry } from '../src/domain/diary.js';
+import { itemOf, type Entry } from '../src/domain/diary.js';
 import type { Food } from '../src/domain/food.js';
 import { goalId, type Goal, type Profile } from '../src/domain/goals.js';
-import { EntryId, FoodId, LocalDate, Millis } from '../src/domain/ids.js';
+import { EntryId, FoodId, LocalDate, Millis, type RecipeId, type SavedMealId } from '../src/domain/ids.js';
+import type { Recipe, SavedMeal } from '../src/domain/reuse.js';
 import { ClientId, MutationId, Rev, type SyncRequest, type WireMutation } from '../src/protocol.js';
 
 export const newEntryId = (): EntryId => EntryId.parse(randomUUID());
@@ -44,6 +45,22 @@ export function goal(date: LocalDate, kcal: number): Goal {
     kcalOverride: kcal,
     macros: { kind: 'grams', protein: 150, carbs: 200, fat: 60 },
   };
+}
+
+/** A one-ingredient recipe whose ingredient amount tells versions apart. */
+export function recipe(id: RecipeId, grams: number): Recipe {
+  const oats = food();
+  return {
+    id,
+    name: 'Overnight oats',
+    ingredients: [{ food: { ...oats, origin: { kind: 'food', id: oats.id } }, quantity: { kind: 'amount', amount: grams } }],
+    yield: { servings: 2 },
+    archived: false,
+  };
+}
+
+export function savedMeal(id: SavedMealId, kcal: number): SavedMeal {
+  return { id, name: 'Usual breakfast', items: [itemOf(entry(newEntryId(), kcal))], archived: false };
 }
 
 export function profile(weightKg: number): Profile {

@@ -12,22 +12,47 @@ import { describe, expect, it } from 'vitest';
 import { openReplica, type Replica, type SyncPort } from '../src/client/replica.js';
 import { syncRounds, type Transport } from '../src/client/sync.js';
 import { PROFILE_ID, goalId } from '../src/domain/goals.js';
-import { FoodId, LocalDate } from '../src/domain/ids.js';
+import { FoodId, LocalDate, RecipeId, SavedMealId } from '../src/domain/ids.js';
 import { KIND_NAMES, type Mutation } from '../src/domain/kinds.js';
 import { openStore, type DocStore } from '../src/server/store.js';
-import { at, entry, food, goal, newClientId, newEntryId, profile, request } from './fixtures.js';
+import { at, entry, food, goal, newClientId, newEntryId, profile, recipe, request, savedMeal } from './fixtures.js';
 
 const ENTRY_IDS = Array.from({ length: 4 }, newEntryId);
 const FOOD_IDS = [FoodId.parse('0f0e0d0c-0b0a-4908-8706-050403020100'), FoodId.parse('1f1e1d1c-1b1a-4918-9716-151413121110')];
 /** Goals and the profile have fixed ids, so every phone writes the same documents. */
 const GOAL_DATES = [LocalDate.parse('2026-10-01'), LocalDate.parse('2026-10-28')];
-const SLOTS = ENTRY_IDS.length + FOOD_IDS.length + GOAL_DATES.length + 1;
+const RECIPE_ID = RecipeId.parse('2f2e2d2c-2b2a-4928-a726-252423222120');
+const MEAL_ID = SavedMealId.parse('3f3e3d3c-3b3a-4938-b736-353433323130');
 
 /** Small pages and batches so every schedule exercises multi-round pushes and pulls. */
 const PULL_PAGE = 3;
 const PUSH_BATCH = 4;
 
 type WriteOp = { readonly op: 'put'; readonly slot: number; readonly kcal: number } | { readonly op: 'delete'; readonly slot: number };
+
+/** One document per slot, of every kind, so random writes collide on the same ids across phones. */
+const SLOT_WRITES: readonly ((w: WriteOp) => Mutation)[] = [
+  ...ENTRY_IDS.map(
+    (id) =>
+      (w: WriteOp): Mutation =>
+        w.op === 'put' ? { op: 'put', kind: 'entry', doc: entry(id, w.kcal) } : { op: 'delete', kind: 'entry', id },
+  ),
+  ...FOOD_IDS.map(
+    (id) =>
+      (w: WriteOp): Mutation =>
+        w.op === 'put' ? { op: 'put', kind: 'food', doc: { ...food(id), name: `Food ${w.kcal}` } } : { op: 'delete', kind: 'food', id },
+  ),
+  ...GOAL_DATES.map(
+    (date) =>
+      (w: WriteOp): Mutation =>
+        w.op === 'put' ? { op: 'put', kind: 'goal', doc: goal(date, w.kcal) } : { op: 'delete', kind: 'goal', id: goalId(date) },
+  ),
+  (w) => (w.op === 'put' ? { op: 'put', kind: 'profile', doc: profile(40 + w.kcal / 100) } : { op: 'delete', kind: 'profile', id: PROFILE_ID }),
+  (w) => (w.op === 'put' ? { op: 'put', kind: 'recipe', doc: recipe(RECIPE_ID, w.kcal) } : { op: 'delete', kind: 'recipe', id: RECIPE_ID }),
+  (w) => (w.op === 'put' ? { op: 'put', kind: 'savedMeal', doc: savedMeal(MEAL_ID, w.kcal) } : { op: 'delete', kind: 'savedMeal', id: MEAL_ID }),
+];
+const SLOTS = SLOT_WRITES.length;
+
 type Fate = 'deliver' | 'drop-request' | 'drop-response' | 'deliver-twice';
 type Step =
   | { readonly kind: 'write'; readonly replica: number; readonly ops: readonly WriteOp[] }
@@ -44,21 +69,9 @@ type Step =
   | { readonly kind: 'restore' };
 
 function toMutation(w: WriteOp): Mutation {
-  const entryId = ENTRY_IDS[w.slot];
-  if (entryId !== undefined) {
-    return w.op === 'put' ? { op: 'put', kind: 'entry', doc: entry(entryId, w.kcal) } : { op: 'delete', kind: 'entry', id: entryId };
-  }
-  const foodId = FOOD_IDS[w.slot - ENTRY_IDS.length];
-  if (foodId !== undefined) {
-    return w.op === 'put'
-      ? { op: 'put', kind: 'food', doc: { ...food(foodId), name: `Food ${w.kcal}` } }
-      : { op: 'delete', kind: 'food', id: foodId };
-  }
-  const date = GOAL_DATES[w.slot - ENTRY_IDS.length - FOOD_IDS.length];
-  if (date !== undefined) {
-    return w.op === 'put' ? { op: 'put', kind: 'goal', doc: goal(date, w.kcal) } : { op: 'delete', kind: 'goal', id: goalId(date) };
-  }
-  return w.op === 'put' ? { op: 'put', kind: 'profile', doc: profile(40 + w.kcal / 100) } : { op: 'delete', kind: 'profile', id: PROFILE_ID };
+  const write = SLOT_WRITES[w.slot];
+  if (write === undefined) throw new Error(`no slot ${w.slot}`);
+  return write(w);
 }
 
 const writeOp: fc.Arbitrary<WriteOp> = fc.oneof(
