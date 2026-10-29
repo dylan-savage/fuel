@@ -102,11 +102,13 @@ export interface GoalView {
   readonly goal: Goal | undefined;
   /** Every weigh-in, for BMR from today's trend. */
   readonly weighIns: readonly WeighIn[];
+  /** Today's trend weight, once there is a weigh-in. */
+  readonly trendKg: number | undefined;
 }
 
 export async function goalView(r: ReplicaReader, today: LocalDate): Promise<GoalView> {
   const [profile, goals, weighIns] = await Promise.all([r.get('profile', PROFILE_ID), r.all('goal'), r.all('weighIn')]);
-  return { profile, goal: goalOn(goals, today), weighIns };
+  return { profile, goal: goalOn(goals, today), weighIns, trendKg: trendSeries(weighIns, today).at(-1)?.trendKg };
 }
 
 export interface WaterView {

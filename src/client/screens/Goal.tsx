@@ -1,7 +1,9 @@
 import { useState } from 'preact/hooks';
+import type { WeighIn } from '../../domain/body.js';
 import {
   ACTIVITY,
   ActivityLevel,
+  BASELINE_MULTIPLIER,
   CM_PER_INCH,
   GoalDraft,
   KG_PER_LB,
@@ -10,18 +12,20 @@ import {
   ageOn,
   budgetFor,
   goalId,
+  type Budget,
+  type BudgetPolicy,
   type Goal,
   type MacroTarget,
   type Profile,
   type Sex,
 } from '../../domain/goals.js';
-import type { WeighIn } from '../../domain/body.js';
 import { DEFAULT_WATER_ML, ML_PER_FL_OZ } from '../../domain/habits.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { KCAL_PER_GRAM, MACROS, type Macro } from '../../domain/nutrients.js';
 import { goalView, useIntents, useLive } from '../views.js';
-import { amount, flOz, kcal, parseNumber } from './format.js';
+import { amount, flOz, kcal, lb as pounds, parseNumber } from './format.js';
 import { Icon, NumberField, Segmented, Sheet, TitleBar, useToast } from './ui.js';
+import { WeightSheet } from './Weight.js';
 
 const MACRO_LABEL: Readonly<Record<Macro, string>> = { protein: 'Protein', carbs: 'Carbs', fat: 'Fat' };
 const RATES_LB = [-2, -1.5, -1, -0.5, 0, 0.5, 1] as const;
@@ -87,7 +91,7 @@ function ProfileSheet({ profile, today, onClose }: { readonly profile: Profile |
         </div>
         <NumberField label="Weight" unit="lb" value={lb} onInput={setLb} placeholder="180" />
       </div>
-      <p class="hint">Used for your resting burn (Mifflin-St Jeor). Weight is stored in kg and shown in lb.</p>
+      <p class="hint">Used for your resting burn (Mifflin-St Jeor). This weight counts until your first weigh-in; after that your trend weight takes over.</p>
       <div class="sheet-actions">
         <button
           type="button"
@@ -112,11 +116,53 @@ function profileSummary(profile: Profile, today: LocalDate): string {
 
 const macroTexts = (m: MacroTarget): Readonly<Record<Macro, string>> => ({ protein: amount(m.protein), carbs: amount(m.carbs), fat: amount(m.fat) });
 
-function GoalForm({ goal, profile, weighIns, today }: { readonly goal: Goal | undefined; readonly profile: Profile | undefined; readonly weighIns: readonly WeighIn[]; readonly today: LocalDate }) {
+const POLICY_LABEL: Readonly<Record<BudgetPolicy['kind'], string>> = { 'activity-level': 'Activity level', 'eat-back-workouts': 'Eat back workouts' };
+
+/** One plain sentence on what the budget choice does with logged workouts. */
+function policySentence(kind: BudgetPolicy['kind'], percent: number | null): string {
+  switch (kind) {
+    case 'activity-level':
+      return 'Your activity level already counts your exercise, so workouts you log are recorded but never change your target.';
+    case 'eat-back-workouts':
+      return `Your target starts from a desk-job day (BMR × ${BASELINE_MULTIPLIER}), and each workout you log adds ${percent === null ? 'a share' : `${amount(percent)}%`} of its calories to that day.`;
+  }
+}
+
+function targetDetail(budget: Budget | null, kind: BudgetPolicy['kind'], rateLb: number): string {
+  if (budget === null) return 'Add your details to calculate a target, or set a custom one.';
+  const workouts = kind === 'eat-back-workouts' ? ', plus workouts each day' : '';
+  if (budget.basis.kind === 'manual') return `Custom target${workouts}`;
+  const { bmr, multiplier, tdee, rate } = budget.basis;
+  return `BMR ${kcal(bmr)} × ${multiplier} = ${kind === 'activity-level' ? 'TDEE ' : ''}${kcal(tdee)}${rateDetail(rate, rateLb)}${workouts}`;
+}
+
+function weightBasis(budget: Budget | null): string | null {
+  if (budget?.basis.kind !== 'computed') return null;
+  const { weight } = budget.basis;
+  return weight.source === 'trend' ? `BMR uses your ${pounds(weight.kg)} lb trend weight.` : `BMR uses your profile weight, ${pounds(weight.kg)} lb, until your first weigh-in.`;
+}
+
+function GoalForm({
+  goal,
+  profile,
+  weighIns,
+  trendKg,
+  today,
+}: {
+  readonly goal: Goal | undefined;
+  readonly profile: Profile | undefined;
+  readonly weighIns: readonly WeighIn[];
+  readonly trendKg: number | undefined;
+  readonly today: LocalDate;
+}) {
   const intents = useIntents();
   const toast = useToast();
   const [editingProfile, setEditingProfile] = useState(false);
+  const [showingWeight, setShowingWeight] = useState(false);
+  const [policyKind, setPolicyKind] = useState<BudgetPolicy['kind']>(goal?.policy.kind ?? 'activity-level');
   const [level, setLevel] = useState<ActivityLevel>(goal?.policy.kind === 'activity-level' ? goal.policy.level : 'moderate');
+  const [percentText, setPercentText] = useState(goal?.policy.kind === 'eat-back-workouts' ? amount(goal.policy.fraction * 100) : '100');
+  const [goalWeightText, setGoalWeightText] = useState(goal?.goalWeightKg === undefined ? '' : pounds(goal.goalWeightKg));
   const [rateLb, setRateLb] = useState(goal === undefined ? -1 : Math.round((goal.kgPerWeek / KG_PER_LB) * 4) / 4);
   const [custom, setCustom] = useState(goal?.kcalOverride !== undefined);
   const [customText, setCustomText] = useState(goal?.kcalOverride === undefined ? '' : String(goal.kcalOverride));
@@ -129,9 +175,15 @@ function GoalForm({ goal, profile, weighIns, today }: { readonly goal: Goal | un
   const waterMl = waterOz === null ? null : waterOz * ML_PER_FL_OZ;
   const waterValid = GoalDraft.shape.waterMl.safeParse(waterMl).success;
   const macroValues = { protein: parseNumber(macros.protein), carbs: parseNumber(macros.carbs), fat: parseNumber(macros.fat) };
+  const percent = parseNumber(percentText);
+  const percentValid = percent !== null && percent >= 0 && percent <= 100;
+  const goalWeightLb = parseNumber(goalWeightText);
+  const goalWeightKg = goalWeightLb === null ? null : goalWeightLb * KG_PER_LB;
+  const goalWeightValid = goalWeightText.trim() === '' || GoalDraft.shape.goalWeightKg.safeParse(goalWeightKg).success;
   const draft = GoalDraft.safeParse({
-    policy: { kind: 'activity-level', level },
+    policy: policyKind === 'activity-level' ? { kind: 'activity-level', level } : { kind: 'eat-back-workouts', fraction: percent === null ? null : percent / 100 },
     kgPerWeek: rateLb * KG_PER_LB,
+    ...(goalWeightText.trim() === '' ? {} : { goalWeightKg }),
     ...(custom ? { kcalOverride: override } : {}),
     macros: { kind: macroKind, ...macroValues },
     waterMl,
@@ -160,6 +212,10 @@ function GoalForm({ goal, profile, weighIns, today }: { readonly goal: Goal | un
           {profile === undefined ? 'Add your details' : profileSummary(profile, today)}
           <Icon name="chevronRight" />
         </button>
+        <button type="button" class="row-button disclosure" onClick={() => setShowingWeight(true)}>
+          {trendKg === undefined ? 'Weight and weigh-ins' : `Weight · ${pounds(trendKg)} lb trend`}
+          <Icon name="chevronRight" />
+        </button>
       </div>
 
       <div class="card target">
@@ -167,34 +223,47 @@ function GoalForm({ goal, profile, weighIns, today }: { readonly goal: Goal | un
         <p class="summary-big">
           <strong data-testid="goal-kcal">{budget === null ? '–' : kcal(budget.kcal)}</strong> kcal
         </p>
-        <p class="target-detail">
-          {budget === null
-            ? 'Add your details to calculate a target, or set a custom one.'
-            : budget.basis.kind === 'manual'
-              ? 'Custom target'
-              : `BMR ${kcal(budget.basis.bmr)} × ${budget.basis.multiplier} = TDEE ${kcal(budget.basis.tdee)}${rateDetail(budget.basis.rate, rateLb)}`}
-        </p>
+        <p class="target-detail">{targetDetail(budget, policyKind, rateLb)}</p>
+        {weightBasis(budget) !== null && <p class="target-detail">{weightBasis(budget)}</p>}
         {budget !== null && (
           <p class="target-macros">{MACROS.map((m) => `${MACRO_LABEL[m]} ${amount(budget.macros[m])} g`).join(' · ')}</p>
         )}
       </div>
 
-      <h2 class="section-title">Activity level</h2>
-      <div class="group" role="radiogroup" aria-label="Activity level">
-        {ActivityLevel.options.map((option) => (
-          <button type="button" role="radio" aria-checked={option === level} class="choice" key={option} onClick={() => setLevel(option)}>
-            <span>{ACTIVITY[option].label}</span>
-            <span class="choice-detail">
-              {ACTIVITY[option].detail} · ×{ACTIVITY[option].multiplier}
-            </span>
-            {option === level && (
-              <span class="check" aria-hidden="true">
-                ✓
+      <h2 class="section-title">Workouts and your target</h2>
+      <Segmented
+        label="Workouts and your target"
+        options={(['activity-level', 'eat-back-workouts'] as const).map((kind) => ({ value: kind, label: POLICY_LABEL[kind] }))}
+        value={policyKind}
+        onChange={setPolicyKind}
+      />
+      <p class="hint policy-sentence" data-testid="policy-sentence">
+        {policySentence(policyKind, percentValid ? percent : null)}
+      </p>
+      {policyKind === 'activity-level' ? (
+        <div class="group policy-detail" role="radiogroup" aria-label="Activity level">
+          {ActivityLevel.options.map((option) => (
+            <button type="button" role="radio" aria-checked={option === level} class="choice" key={option} onClick={() => setLevel(option)}>
+              <span>{ACTIVITY[option].label}</span>
+              <span class="choice-detail">
+                {ACTIVITY[option].detail} · ×{ACTIVITY[option].multiplier}
               </span>
-            )}
-          </button>
-        ))}
-      </div>
+              {option === level && (
+                <span class="check" aria-hidden="true">
+                  ✓
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div class="group policy-detail">
+            <NumberField label="Workouts counted" unit="%" value={percentText} onInput={setPercentText} invalid={!percentValid} />
+          </div>
+          {!percentValid && <p class="hint warn">Count from 0% to 100% of each workout.</p>}
+        </>
+      )}
 
       <h2 class="section-title">Weekly goal</h2>
       <div class="group">
@@ -213,6 +282,7 @@ function GoalForm({ goal, profile, weighIns, today }: { readonly goal: Goal | un
           <input type="checkbox" role="switch" checked={custom} onChange={(event) => setCustom(event.currentTarget.checked)} />
         </label>
         {custom && <NumberField label="Target" unit="kcal" value={customText} onInput={setCustomText} placeholder="2000" invalid={override === null || override <= 0} />}
+        <NumberField label="Goal weight" unit="lb" value={goalWeightText} onInput={setGoalWeightText} placeholder="Optional" invalid={!goalWeightValid} />
       </div>
 
       <h2 class="section-title">Macros</h2>
@@ -259,6 +329,7 @@ function GoalForm({ goal, profile, weighIns, today }: { readonly goal: Goal | un
         </button>
       </div>
       {editingProfile && <ProfileSheet profile={profile} today={today} onClose={() => setEditingProfile(false)} />}
+      {showingWeight && <WeightSheet today={today} onClose={() => setShowingWeight(false)} onGoal={() => setShowingWeight(false)} />}
     </>
   );
 }
@@ -268,7 +339,7 @@ export function GoalScreen({ today }: { readonly today: LocalDate }) {
   return (
     <section class="screen goal">
       <TitleBar title="Goal" />
-      {view !== undefined && <GoalForm key={view.goal?.id ?? 'none'} goal={view.goal} profile={view.profile} weighIns={view.weighIns} today={today} />}
+      {view !== undefined && <GoalForm key={view.goal?.id ?? 'none'} goal={view.goal} profile={view.profile} weighIns={view.weighIns} trendKg={view.trendKg} today={today} />}
     </section>
   );
 }
