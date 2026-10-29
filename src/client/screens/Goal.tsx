@@ -223,7 +223,7 @@ function GoalForm({
         <p class="summary-big">
           <strong data-testid="goal-kcal">{budget === null ? '–' : kcal(budget.kcal)}</strong> kcal
         </p>
-        <p class="target-detail">{targetDetail(budget, policyKind, rateLb)}</p>
+        <p class="target-detail">{draft.success ? targetDetail(budget, policyKind, rateLb) : 'Fix the fields marked in red to see your target.'}</p>
         {weightBasis(budget) !== null && <p class="target-detail">{weightBasis(budget)}</p>}
         {budget !== null && (
           <p class="target-macros">{MACROS.map((m) => `${MACRO_LABEL[m]} ${amount(budget.macros[m])} g`).join(' · ')}</p>

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { ACTIVITY_GROUPS, MET_ACTIVITIES, MET_ACTIVITY_IDS, WorkoutDraft, metDraft, netKcal, type Workout, type WorkoutSource } from '../../domain/burn.js';
+import { ACTIVITY_GROUPS, MET_ACTIVITIES, MET_ACTIVITY_IDS, Workout, WorkoutDraft, metDraft, netKcal, type WorkoutSource } from '../../domain/burn.js';
 import type { BudgetPolicy } from '../../domain/goals.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { useIntents, useLive, workoutLoggerView } from '../views.js';
@@ -118,9 +118,11 @@ export function WorkoutSheet({ date, editing, onClose }: { readonly date: LocalD
   const parsed = WorkoutDraft.safeParse({ name: choice.kind === 'met' ? choice.name : nameText.trim(), minutes: parseNumber(minutesText), source });
   const draft = parsed.success ? parsed.data : null;
   const burn = draft === null || kg === undefined ? null : Math.round(netKcal(draft, kg));
+  /** The mini rejects a burn its schema would not store, and a rejected write is dropped, so check the same rule here. */
+  const storable = burn !== null && Workout.shape.kcal.safeParse(burn).success;
 
   const save = () => {
-    if (draft === null) return;
+    if (draft === null || !storable) return;
     onClose();
     if (editing === undefined) {
       void intents.logWorkout(draft, date).then((undo) => {
@@ -164,8 +166,9 @@ export function WorkoutSheet({ date, editing, onClose }: { readonly date: LocalD
           {kg === undefined ? 'Weigh in or add your details on the Goal screen to work out the burn.' : `Worked out at ${lb(kg)} lb${editing === undefined ? '' : ', your weight when you logged it'}.`}
         </p>
       </div>
+      {burn !== null && !storable && <p class="hint warn">That is more than one workout can burn. Check the minutes.</p>}
       <div class="sheet-actions">
-        <button type="button" class="primary" disabled={burn === null} onClick={save}>
+        <button type="button" class="primary" disabled={!storable} onClick={save}>
           {editing === undefined ? 'Log workout' : 'Save workout'}
         </button>
         {editing !== undefined && (
