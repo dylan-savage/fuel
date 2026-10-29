@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { makeEntry, summarizeDay, type Entry, type Meal } from '../src/domain/diary.js';
-import { quickAddItem, snapshotOf, type Food, type Quantity } from '../src/domain/food.js';
+import { FdcId, Gtin, quickAddItem, snapshotOf, type Food, type Quantity, type SearchHit } from '../src/domain/food.js';
 import { EntryId, FoodId, LocalDate, Millis } from '../src/domain/ids.js';
-import { recents, searchLocal, type Library } from '../src/domain/library.js';
+import { inLibrary, libraryRefs, rankByName, recents, searchLocal, type Library } from '../src/domain/library.js';
 import { food, newEntryId } from './fixtures.js';
 
 const DAY = 86_400_000;
@@ -64,6 +64,61 @@ describe('searchLocal', () => {
       ['Crème fraîche', grams(30)],
       ['Rolled oats', undefined],
     ]);
+  });
+});
+
+const named = (...names: string[]) => names.map((name) => ({ candidate: { name } }));
+const ranked = (query: string, ...names: string[]) => rankByName(named(...names), query).map((h) => h.candidate.name);
+
+describe('rankByName', () => {
+  it('puts the plain food above longer variants of it', () => {
+    expect(ranked('banana', 'Bananas, dehydrated, or banana powder', 'Bananas, raw', 'Bananas, overripe, raw')).toEqual([
+      'Bananas, raw',
+      'Bananas, overripe, raw',
+      'Bananas, dehydrated, or banana powder',
+    ]);
+  });
+
+  it('prefers a name that leads with the query over one that only mentions it', () => {
+    expect(ranked('banana', 'Melon, banana (Navajo)', 'Bananas, raw')).toEqual(['Bananas, raw', 'Melon, banana (Navajo)']);
+  });
+
+  it('puts names that match every query word first', () => {
+    expect(ranked('chicken breast', 'Chicken, thigh', 'Lunchmeat, chicken breast, sliced')).toEqual(['Lunchmeat, chicken breast, sliced', 'Chicken, thigh']);
+  });
+
+  it('lets a plural query find a singular name', () => {
+    expect(ranked('eggs', 'Omelet mix', 'Egg, whole, raw')).toEqual(['Egg, whole, raw', 'Omelet mix']);
+  });
+
+  it("keeps the source's order between equal matches", () => {
+    expect(ranked('rice', 'Rice, brown', 'Rice, white')).toEqual(['Rice, brown', 'Rice, white']);
+  });
+});
+
+describe('inLibrary', () => {
+  const fdc = FdcId.parse(173944);
+  const coke = Gtin.parse('0049000000443');
+  const usdaBanana = { ...oats, name: 'Bananas, raw', source: { kind: 'usda' as const, fdcId: fdc } };
+  const bottle = { ...creme, barcodes: [coke] };
+  const hit = (ref: SearchHit['ref'], barcodes: Gtin[] = []): SearchHit => ({
+    ref,
+    candidate: { name: 'x', unit: 'g', nutrients: {}, servings: [], barcodes, source: { kind: 'user' } },
+  });
+
+  it('knows a USDA food Dylan imported, by its USDA id', () => {
+    expect(inLibrary(hit({ kind: 'usda', fdcId: fdc }), libraryRefs([usdaBanana]))).toBe(true);
+    expect(inLibrary(hit({ kind: 'usda', fdcId: FdcId.parse(1) }), libraryRefs([usdaBanana]))).toBe(false);
+  });
+
+  it('knows a product by barcode, whether the hit is keyed by barcode or carries it', () => {
+    const refs = libraryRefs([bottle]);
+    expect(inLibrary(hit({ kind: 'gtin', gtin: coke }), refs)).toBe(true);
+    expect(inLibrary(hit({ kind: 'usda', fdcId: fdc }, [coke]), refs)).toBe(true);
+  });
+
+  it('forgets archived foods, so their products can be found again', () => {
+    expect(inLibrary(hit({ kind: 'gtin', gtin: coke }), libraryRefs([{ ...bottle, archived: true }]))).toBe(false);
   });
 });
 

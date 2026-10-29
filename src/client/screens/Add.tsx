@@ -2,7 +2,7 @@ import { useMemo, useState } from 'preact/hooks';
 import type { Meal, Slot } from '../../domain/diary.js';
 import { defaultQuantity, snapshotOf, type FoodSnapshot, type Ingredient, type Quantity } from '../../domain/food.js';
 import type { LocalDate } from '../../domain/ids.js';
-import { foodKey, matches, searchLocal, type LocalHit } from '../../domain/library.js';
+import { foodKey, libraryRefs, matches, searchLocal, type LocalHit } from '../../domain/library.js';
 import { MAX_HINTS, foodHints } from '../../domain/quicklog.js';
 import { itemsNutrients, recipeSnapshot, type SavedMeal } from '../../domain/reuse.js';
 import { now } from '../clock.js';
@@ -75,7 +75,7 @@ export function Add({
         .toSorted((a, b) => a.name.localeCompare(b.name)),
     [library],
   );
-  const known = useMemo(() => new Set((library?.foods ?? []).flatMap((f) => f.barcodes)), [library]);
+  const known = useMemo(() => libraryRefs(library?.foods ?? []), [library]);
   const hints = useMemo(() => foodHints({ recents: recentList ?? [], library: library ?? { foods: [], recipes: [] }, limit: MAX_HINTS }), [recentList, library]);
 
   const logNow = (name: string, items: readonly Ingredient[]) =>

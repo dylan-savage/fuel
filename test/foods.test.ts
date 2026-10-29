@@ -4,7 +4,7 @@ import { createFoodSources } from '../src/server/foods.js';
 import { parseOffSearch, type OffClient } from '../src/server/off.js';
 import { openStore, type DocStore } from '../src/server/store.js';
 import { UpstreamError, type Answer } from '../src/server/upstream.js';
-import type { UsdaClient, UsdaHits } from '../src/server/usda.js';
+import { parseUsdaSearch, type UsdaClient, type UsdaHits } from '../src/server/usda.js';
 import { at } from './fixtures.js';
 import { answerOf, recording } from './recordings.js';
 
@@ -138,6 +138,14 @@ describe('FoodSources.search', () => {
     expect(hits.slice(0, 2)).toEqual([...usdaHits.generic, ...usdaHits.branded]);
     expect(hits.slice(2)).toEqual(offHits().filter((h) => !h.candidate.barcodes.includes(chobani)));
     expect(hits.filter((h) => h.candidate.barcodes.includes(chobani))).toHaveLength(1);
+  });
+
+  it('ranks real USDA whole foods by how well their names match', async () => {
+    const banana = parseUsdaSearch(recording('usda', 'search-banana').body);
+    const { foods } = setup({ usda: usdaClient({ search: () => Promise.resolve(banana) }), offSearch: () => Promise.resolve([]) });
+    const names = (await foods.search('banana', 20)).map((h) => h.candidate.name);
+    expect(names[0]).toBe('Bananas, raw');
+    expect(names.indexOf('Bananas, raw')).toBeLessThan(names.indexOf('Bananas, dehydrated, or banana powder'));
   });
 
   it("returns USDA's hits when Open Food Facts fails", async () => {

@@ -1,6 +1,7 @@
 /** Food rows and online search, shared by the Add screen and the recipe ingredient picker. */
 import { useEffect, useState } from 'preact/hooks';
-import { nutrientsFor, type Food, type FoodCandidate, type FoodSnapshot, type Gtin, type Quantity, type SearchHit } from '../../domain/food.js';
+import { nutrientsFor, type Food, type FoodCandidate, type FoodSnapshot, type Quantity, type SearchHit } from '../../domain/food.js';
+import { inLibrary } from '../../domain/library.js';
 import { lookupFood, searchFoods, type Online } from '../api.js';
 import { foodWithBarcode, useRead } from '../views.js';
 import { BASIS_LABEL, amount, brandOf, kcal, quantityLabel } from './format.js';
@@ -78,8 +79,8 @@ export type Opened = { readonly kind: 'food'; readonly food: Food } | { readonly
 const hitKey = (hit: SearchHit, i: number) => `${hit.ref.kind}:${hit.ref.kind === 'gtin' ? hit.ref.gtin : hit.ref.fdcId}:${i}`;
 
 /**
- * The "Online" section for a query: results from the mini, minus barcodes already in the
- * library. A tap resolves the hit, looking it up for the servings search leaves out.
+ * The "Online" section for a query: results from the mini, minus foods already in the
+ * library (they show above, with the amount last logged). A tap resolves the hit, looking it up for the servings search leaves out.
  */
 export function OnlineSection({
   query,
@@ -87,13 +88,13 @@ export function OnlineSection({
   onOpen,
 }: {
   readonly query: string;
-  readonly known: ReadonlySet<Gtin>;
+  readonly known: ReadonlySet<string>;
   readonly onOpen: (opened: Opened) => void;
 }) {
   const online = useOnlineSearch(query);
   const read = useRead();
   const [opening, setOpening] = useState<string | null>(null);
-  const external = online.kind === 'done' ? online.hits.filter((hit) => hit.ref.kind !== 'gtin' || !known.has(hit.ref.gtin)) : [];
+  const external = online.kind === 'done' ? online.hits.filter((hit) => !inLibrary(hit, known)) : [];
 
   const open = async (hit: SearchHit, key: string) => {
     if (hit.ref.kind === 'gtin') {

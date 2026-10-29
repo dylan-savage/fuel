@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'preact/hooks';
 import { defaultQuantity, nutrientsFor, snapshotOf, type FoodCandidate, type FoodSnapshot, type Ingredient, type Quantity } from '../../domain/food.js';
 import type { RecipeId } from '../../domain/ids.js';
-import { foodKey, matches, offers } from '../../domain/library.js';
+import { foodKey, libraryRefs, matches, offers } from '../../domain/library.js';
 import { RecipeDraft, perServing, type Recipe } from '../../domain/reuse.js';
 import { libraryView, useIntents, useLive } from '../views.js';
 import { ConfirmSheet, type Confirmed } from './ConfirmSheet.js';
@@ -77,7 +77,7 @@ function IngredientPicker({
     [library, excluding],
   );
   const shown = trimmed === '' ? choices : choices.filter((food) => matches(food, trimmed));
-  const known = useMemo(() => new Set((library?.foods ?? []).flatMap((f) => f.barcodes)), [library]);
+  const known = useMemo(() => libraryRefs(library?.foods ?? []), [library]);
 
   return (
     <Sheet title="Add ingredient" onClose={onClose}>

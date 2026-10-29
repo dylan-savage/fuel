@@ -1,5 +1,5 @@
 import type { Entry, Meal } from './diary.js';
-import { defaultQuantity, snapshotOf, type Food, type FoodSnapshot, type Quantity } from './food.js';
+import { defaultQuantity, snapshotOf, type ExternalRef, type Food, type FoodCandidate, type FoodSnapshot, type Quantity, type SearchHit } from './food.js';
 import type { FoodId, Millis, RecipeId } from './ids.js';
 import { recipeSnapshot, type Recipe } from './reuse.js';
 
@@ -120,13 +120,63 @@ export function recents(input: {
     .map(({ recent }) => recent);
 }
 
+const wordsOf = (text: string): string[] => normalize(text).split(/[^\p{L}\p{N}]+/u).filter((word) => word !== '');
+
 /** Every query word starts a word of the name or brand. */
 export function matches(food: Pick<FoodSnapshot, 'name' | 'brand'>, query: string): boolean {
-  const words = normalize(`${food.name} ${food.brand ?? ''}`).split(/[^\p{L}\p{N}]+/u);
-  return normalize(query)
-    .split(/\s+/)
-    .filter((word) => word !== '')
-    .every((word) => words.some((w) => w.startsWith(word)));
+  const words = wordsOf(`${food.name} ${food.brand ?? ''}`);
+  return wordsOf(query).every((word) => words.some((w) => w.startsWith(word)));
+}
+
+/** "bananas" also finds "banana": a plural query should not miss a singular name. */
+const singular = (word: string): string => (word.length > 3 && word.endsWith('s') ? word.slice(0, -1) : word);
+
+const compareKeys = (a: readonly number[], b: readonly number[]): number => {
+  for (let i = 0; i < a.length; i++) {
+    const d = (a[i] ?? 0) - (b[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+};
+
+/**
+ * Hits best match first: every query word found, then a name that leads with the first query
+ * word, then fewer words, so "Bananas, raw" beats "Bananas, dehydrated, or banana powder".
+ * Ties keep the source's order.
+ */
+export function rankByName<T extends { readonly candidate: Pick<FoodCandidate, 'name'> }>(hits: readonly T[], query: string): T[] {
+  const terms = wordsOf(query).map(singular);
+  const first = terms[0];
+  return hits
+    .map((hit, index) => {
+      const words = wordsOf(hit.candidate.name);
+      const missing = terms.filter((term) => !words.some((w) => w.startsWith(term))).length;
+      const leads = first !== undefined && words[0]?.startsWith(first) === true ? 0 : 1;
+      return { hit, key: [missing, leads, words.length, index] };
+    })
+    .toSorted((a, b) => compareKeys(a.key, b.key))
+    .map(({ hit }) => hit);
+}
+
+const refKey = (ref: ExternalRef): string => (ref.kind === 'gtin' ? `gtin:${ref.gtin}` : `usda:${ref.fdcId}`);
+
+/**
+ * The external refs Dylan's live foods already hold: their barcodes and USDA ids. Archived
+ * foods are left out, so their products can be found and imported again.
+ */
+export function libraryRefs(foods: readonly Food[]): ReadonlySet<string> {
+  const refs = new Set<string>();
+  for (const food of foods) {
+    if (food.archived) continue;
+    for (const gtin of food.barcodes) refs.add(refKey({ kind: 'gtin', gtin }));
+    if (food.source.kind === 'usda') refs.add(refKey({ kind: 'usda', fdcId: food.source.fdcId }));
+  }
+  return refs;
+}
+
+/** An online hit Dylan already has as a food, by its ref or any of its barcodes. */
+export function inLibrary(hit: SearchHit, refs: ReadonlySet<string>): boolean {
+  return refs.has(refKey(hit.ref)) || hit.candidate.barcodes.some((gtin) => refs.has(refKey({ kind: 'gtin', gtin })));
 }
 
 /** Recent then library foods and recipes matching the query, recents in use order. Instant and offline. */

@@ -5,6 +5,7 @@
  */
 import type { ExternalRef, FoodCandidate, SearchHit } from '../domain/food.js';
 import type { Millis } from '../domain/ids.js';
+import { rankByName } from '../domain/library.js';
 import type { LookupResponse } from '../protocol.js';
 import { log } from './log.js';
 import { parseOffProduct, type OffClient } from './off.js';
@@ -20,7 +21,8 @@ export interface FoodSources {
   lookup(ref: ExternalRef): Promise<LookupResponse>;
   /**
    * Up to `limit` hits from each source: USDA generic foods, then USDA branded foods, then
-   * Open Food Facts, keeping the first hit per GTIN. One source failing leaves the other's
+   * Open Food Facts, keeping the first hit per GTIN. Each USDA group is ranked by how well its
+   * names match `q`; Open Food Facts keeps its own relevance order. One source failing leaves the other's
    * hits; every configured source failing throws UpstreamError.
    */
   search(q: string, limit: number): Promise<SearchHit[]>;
@@ -105,7 +107,7 @@ export function createFoodSources({ off, usda, cache, now }: FoodSourcesDeps): F
       const offHits = fromOff.status === 'fulfilled' ? fromOff.value : null;
       if (usdaHits === null && offHits === null) throw new UpstreamError(`every food source failed: ${failures.join('; ')}`);
       if (failures.length > 0) log('food_search_degraded', { failures });
-      return uniqueByGtin([...(usdaHits?.generic ?? []), ...(usdaHits?.branded ?? []), ...(offHits ?? [])]);
+      return uniqueByGtin([...rankByName(usdaHits?.generic ?? [], q), ...rankByName(usdaHits?.branded ?? [], q), ...(offHits ?? [])]);
     },
   };
 }
