@@ -8,8 +8,9 @@ import { useCallback, useContext, useEffect, useState } from 'preact/hooks';
 import { summarizeDay, type DaySummary } from '../domain/diary.js';
 import type { Food, Gtin } from '../domain/food.js';
 import { PROFILE_ID, budgetOn, goalOn, type Budget, type Goal, type Profile } from '../domain/goals.js';
-import { addDays, type LocalDate, type Millis } from '../domain/ids.js';
+import { addDays, type FoodId, type LocalDate, type Millis } from '../domain/ids.js';
 import { RECENT_DAYS, recents, type Library, type RecentFood } from '../domain/library.js';
+import { refreshFor, type Recipe, type Refresh, type SavedMeal } from '../domain/reuse.js';
 import type { Intents } from './intents.js';
 import type { Replica, ReplicaReader, Subscribable } from './replica.js';
 import type { SyncState } from './sync.js';
@@ -34,6 +35,22 @@ export async function recentsView(r: ReplicaReader, at: { readonly today: LocalD
 export async function libraryView(r: ReplicaReader): Promise<Library> {
   const [foods, recipes] = await Promise.all([r.all('food'), r.all('recipe')]);
   return { foods, recipes };
+}
+
+const byName = (a: { readonly name: string }, b: { readonly name: string }) => a.name.localeCompare(b.name);
+
+export async function recipesView(r: ReplicaReader): Promise<Recipe[]> {
+  return (await r.all('recipe')).filter((recipe) => !recipe.archived).toSorted(byName);
+}
+
+export async function savedMealsView(r: ReplicaReader): Promise<SavedMeal[]> {
+  return (await r.all('savedMeal')).filter((meal) => !meal.archived).toSorted(byName);
+}
+
+/** The recipes and saved meals that the food's current version would update. */
+export async function foodUsesView(r: ReplicaReader, id: FoodId): Promise<Refresh> {
+  const [food, recipes, meals] = await Promise.all([r.get('food', id), r.all('recipe'), r.all('savedMeal')]);
+  return food === undefined ? { recipes: [], meals: [] } : refreshFor(food, { recipes, meals });
 }
 
 /** The library food a scanned barcode names, if any. Archived foods still answer a scan. */
