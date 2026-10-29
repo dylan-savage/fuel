@@ -122,7 +122,7 @@ test("copies yesterday's breakfast into today", async ({ page }) => {
   await expect.poll(() => stored('entry').filter((e) => e.food.name.startsWith('Yesterday ')).length, { timeout: 15_000 }).toBe(4);
 });
 
-test('asks before updating recipes and saved meals after a food edit, and never changes the diary', async ({ page }) => {
+test('asks before updating recipes and the saved meals holding them after a food edit, and never changes the diary', async ({ page }) => {
   await page.goto('/');
   await expect(meal(page, 'Dinner').getByText('Chili')).toBeVisible();
   await tab(page, 'Add').click();
@@ -136,13 +136,16 @@ test('asks before updating recipes and saved meals after a food edit, and never 
   await editor.getByLabel('Calories').fill('200');
   await editor.getByRole('button', { name: 'Save food' }).click();
 
-  const ask = page.getByRole('alertdialog', { name: 'Also update 1 recipe?' });
+  const ask = page.getByRole('alertdialog', { name: 'Also update 1 recipe and 1 saved meal?' });
   await ask.getByRole('button', { name: 'Update' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Saved Ground beef and updated 1 recipe' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved Ground beef and updated 1 recipe and 1 saved meal' })).toBeVisible();
   const beefKcal = () =>
     stored('recipe')
       .find((r) => r.name === 'Chili')
       ?.ingredients.find((i) => i.food.name === 'Ground beef')?.food.nutrients.kcal;
   await expect.poll(beefKcal, { timeout: 15_000 }).toBe(200);
+  // The saved meal holds a serving of the chili, so the new beef reaches it through the recipe: (1000 + 508) kcal per 1600 g.
+  const chiliNight = stored('savedMeal').find((m) => m.name === 'Chili night');
+  expect(chiliNight?.items.find((i) => i.food.name === 'Chili')?.food.nutrients.kcal).toBeCloseTo(1508 / 16);
   expect(stored('entry').find((e) => e.food.name === 'Chili')?.food.nutrients.kcal).toBeCloseTo(1758 / 16);
 });

@@ -1,11 +1,11 @@
 import { useState } from 'preact/hooks';
 import { FoodDraft, type Food, type Gtin } from '../../domain/food.js';
 import { NUTRIENTS, type NutrientKey, type PartialNutrients } from '../../domain/nutrients.js';
-import type { Refresh } from '../../domain/reuse.js';
 import { BASIS, type FoodUnit } from '../../domain/units.js';
-import { foodUsesView, useIntents, useRead } from '../views.js';
-import { BASIS_LABEL, UNIT_LABEL, count, parseNumber } from './format.js';
-import { Alert, NumberField, Segmented, Sheet, TextField, useToast } from './ui.js';
+import { useIntents } from '../views.js';
+import { BASIS_LABEL, UNIT_LABEL, parseNumber } from './format.js';
+import { NumberField, Segmented, Sheet, TextField, useToast } from './ui.js';
+import { useUpdatePrompt } from './UpdatePrompt.js';
 
 interface ServingRow {
   readonly label: string;
@@ -18,29 +18,14 @@ export type EditorSeed = { readonly kind: 'new'; readonly barcodes: readonly Gti
 const precise = (n: number) => String(Math.round(n * 100) / 100);
 const UNITS: readonly FoodUnit[] = ['g', 'ml', 'portion'];
 
-/** "2 recipes and 1 saved meal". */
-function usesText(uses: Refresh): string {
-  return [
-    ...(uses.recipes.length > 0 ? [count(uses.recipes.length, 'recipe')] : []),
-    ...(uses.meals.length > 0 ? [count(uses.meals.length, 'saved meal')] : []),
-  ].join(' and ');
-}
-
-/** A saved edit waiting on "also update these?", with what it would update. */
-interface Asking {
-  readonly food: Food;
-  readonly uses: Refresh;
-}
-
 /**
  * Create or edit a library food by hand. Labels print values per serving, so the values can
  * be typed per serving and are stored per 100 g or ml, the food's one basis.
  */
 export function FoodEditor({ seed, onSaved, onClose }: { readonly seed: EditorSeed; readonly onSaved: (food: Food) => void; readonly onClose: () => void }) {
   const intents = useIntents();
-  const read = useRead();
   const toast = useToast();
-  const [asking, setAsking] = useState<Asking | null>(null);
+  const { saved, prompt } = useUpdatePrompt();
   const existing = seed.kind === 'edit' ? seed.food : undefined;
   const [name, setName] = useState(existing?.name ?? '');
   const [brand, setBrand] = useState(existing?.brand ?? '');
@@ -82,28 +67,11 @@ export function FoodEditor({ seed, onSaved, onClose }: { readonly seed: EditorSe
     ...servings.flatMap((row, i) => (row.label.trim() === '' ? [] : [{ value: String(i), label: row.label.trim() }])),
   ];
 
-  const done = (food: Food) => {
-    toast({ text: `Saved ${food.name}` });
-    onSaved(food);
-  };
-
   /** After an edit, recipes and saved meals holding the old snapshot update only if Dylan says so. */
   const save = async () => {
     if (!draft.success) return;
-    if (existing === undefined) {
-      done(await intents.createFood(draft.data));
-      return;
-    }
-    const food = await intents.updateFood(existing.id, draft.data);
-    const uses = await read((r) => foodUsesView(r, food.id));
-    if (uses.recipes.length + uses.meals.length === 0) done(food);
-    else setAsking({ food, uses });
-  };
-
-  const updateUses = async ({ food, uses }: Asking) => {
-    const { undo } = await intents.updateUsesOf(food.id);
-    toast({ text: `Saved ${food.name} and updated ${usesText(uses)}`, undo });
-    onSaved(food);
+    const food = existing === undefined ? await intents.createFood(draft.data) : await intents.updateFood(existing.id, draft.data);
+    await saved({ kind: 'food', id: food.id }, food.name, () => onSaved(food));
   };
 
   return (
@@ -188,17 +156,7 @@ export function FoodEditor({ seed, onSaved, onClose }: { readonly seed: EditorSe
           </button>
         )}
       </div>
-      {asking !== null && (
-        <Alert
-          title={`Also update ${usesText(asking.uses)}?`}
-          message={`They still use the old ${asking.food.name}. Days you already logged stay as they are.`}
-          actions={[
-            { label: 'Update', preferred: true, onClick: () => void updateUses(asking) },
-            { label: 'Not now', onClick: () => done(asking.food) },
-          ]}
-          onCancel={() => done(asking.food)}
-        />
-      )}
+      {prompt}
     </Sheet>
   );
 }

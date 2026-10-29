@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { Ingredient, nutrientsFor, snapshotOf, type Food, type FoodSnapshot, type Serving } from './food.js';
-import { RecipeId, SavedMealId } from './ids.js';
+import { Ingredient, nutrientsFor, snapshotOf, type Food, type FoodSnapshot, type Origin, type Serving } from './food.js';
+import { RecipeId, SavedMealId, type FoodId } from './ids.js';
 import { NUTRIENTS, combine, scale, type Nutrients } from './nutrients.js';
 import { BASIS } from './units.js';
 
@@ -80,42 +80,80 @@ export function sameSnapshot(a: FoodSnapshot, b: FoodSnapshot): boolean {
   );
 }
 
-/**
- * The items with the food's current snapshot, or null when none would change. An item of the
- * food measured in another unit keeps its snapshot, because its amount would change meaning:
- * 200 g is not 200 portions.
- */
-function refreshItems(items: readonly Ingredient[], food: Food): Ingredient[] | null {
-  const fresh = snapshotOf(food);
-  let changed = false;
-  const next = items.map((item) => {
-    const { origin } = item.food;
-    if (origin.kind !== 'food' || origin.id !== food.id || item.food.unit !== food.unit || sameSnapshot(item.food, fresh)) return item;
-    changed = true;
-    return { ...item, food: fresh };
-  });
-  return changed ? next : null;
-}
+/** A food or recipe just saved, whose older snapshots elsewhere may now be stale. */
+export type Edited = { readonly kind: 'food'; readonly food: Food } | { readonly kind: 'recipe'; readonly recipe: Recipe };
 
-/** Recipes and saved meals that an edited food would update, as they would be after. */
+/** Which food or recipe was edited, by id. */
+export type EditedRef = { readonly kind: 'food'; readonly id: FoodId } | { readonly kind: 'recipe'; readonly id: RecipeId };
+
+/** Recipes and saved meals that an edit would update, as they would be after. */
 export interface Refresh {
   readonly recipes: readonly Recipe[];
   readonly meals: readonly SavedMeal[];
 }
 
 /**
- * What "also update 2 recipes and 1 saved meal?" offers after a food edit: the live recipes
- * and saved meals holding an older snapshot of the food, re-snapshotted. Diary entries are
- * never part of it, so past days never change.
+ * What "also update 2 recipes and 1 saved meal?" offers after a food or recipe edit: every
+ * live recipe and saved meal holding an older snapshot of it, re-snapshotted. The change
+ * carries through recipes held in other recipes and saved meals, so a saved meal of chili
+ * updates when the beef in the chili does. Each recipe is worked out once, so recipes that
+ * hold each other's older snapshots cannot loop. An item now measured in another unit keeps
+ * its snapshot, because its amount would change meaning: 200 g is not 200 portions. Diary
+ * entries are never part of it, so past days never change.
  */
-export function refreshFor(food: Food, uses: { readonly recipes: readonly Recipe[]; readonly meals: readonly SavedMeal[] }): Refresh {
+export function refreshFor(edited: Edited, uses: { readonly recipes: readonly Recipe[]; readonly meals: readonly SavedMeal[] }): Refresh {
+  const live = new Map(uses.recipes.filter((r) => !r.archived).map((r) => [r.id, r]));
+  if (edited.kind === 'recipe') live.set(edited.recipe.id, edited.recipe);
+  const isEdited = (id: RecipeId) => edited.kind === 'recipe' && edited.recipe.id === id;
+  const resolved = new Map<RecipeId, Recipe>();
+  const visiting = new Set<RecipeId>();
+
+  /** The snapshot an item of this origin should now hold, or null when this edit does not change it. */
+  const freshFor = (origin: Origin): FoodSnapshot | null => {
+    switch (origin.kind) {
+      case 'adhoc':
+        return null;
+      case 'food':
+        return edited.kind === 'food' && edited.food.id === origin.id ? snapshotOf(edited.food) : null;
+      case 'recipe': {
+        const recipe = resolve(origin.id);
+        return recipe !== undefined && (isEdited(origin.id) || recipe !== live.get(origin.id)) ? recipeSnapshot(recipe) : null;
+      }
+    }
+  };
+
+  const refreshItems = (items: readonly Ingredient[]): Ingredient[] | null => {
+    let changed = false;
+    const next = items.map((item) => {
+      const fresh = freshFor(item.food.origin);
+      if (fresh === null || fresh.unit !== item.food.unit || sameSnapshot(item.food, fresh)) return item;
+      changed = true;
+      return { ...item, food: fresh };
+    });
+    return changed ? next : null;
+  };
+
+  /** The recipe as this edit leaves it. A recipe met again while it is being worked out is taken as it was. */
+  function resolve(id: RecipeId): Recipe | undefined {
+    const recipe = live.get(id);
+    if (recipe === undefined || isEdited(id) || visiting.has(id)) return recipe;
+    const known = resolved.get(id);
+    if (known !== undefined) return known;
+    visiting.add(id);
+    const ingredients = refreshItems(recipe.ingredients);
+    visiting.delete(id);
+    const result = ingredients === null ? recipe : { ...recipe, ingredients };
+    resolved.set(id, result);
+    return result;
+  }
+
   return {
-    recipes: uses.recipes.flatMap((recipe) => {
-      const ingredients = recipe.archived ? null : refreshItems(recipe.ingredients, food);
-      return ingredients === null ? [] : [{ ...recipe, ingredients }];
+    recipes: [...live.keys()].flatMap((id) => {
+      const recipe = resolve(id);
+      return recipe === undefined || recipe === live.get(id) ? [] : [recipe];
     }),
     meals: uses.meals.flatMap((meal) => {
-      const items = meal.archived ? null : refreshItems(meal.items, food);
+      const items = meal.archived ? null : refreshItems(meal.items);
       return items === null ? [] : [{ ...meal, items }];
     }),
   };

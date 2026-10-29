@@ -91,7 +91,7 @@ describe('refreshFor', () => {
     const recipe = chili();
     const other = { ...chili(), ingredients: [grams(beans, 400)] };
     const gone = { ...chili(), archived: true };
-    const { recipes, meals } = refreshFor(leaner, { recipes: [recipe, other, gone], meals: [breakfast] });
+    const { recipes, meals } = refreshFor({ kind: 'food', food: leaner }, { recipes: [recipe, other, gone], meals: [breakfast] });
     expect(recipes.map((r) => r.id)).toEqual([recipe.id]);
     expect(recipes[0]?.ingredients.map((i) => i.food.nutrients.kcal)).toEqual([200, 127]);
     expect(recipes[0]?.ingredients.map((i) => i.quantity)).toEqual(recipe.ingredients.map((i) => i.quantity));
@@ -100,11 +100,45 @@ describe('refreshFor', () => {
 
   it('offers nothing when the edit leaves the snapshot as it was, such as adding a barcode', () => {
     const barcodeOnly = { ...beef, barcodes: [Gtin.parse('0049000000443')] };
-    expect(refreshFor(barcodeOnly, { recipes: [chili()], meals: [breakfast] })).toEqual({ recipes: [], meals: [] });
+    expect(refreshFor({ kind: 'food', food: barcodeOnly }, { recipes: [chili()], meals: [breakfast] })).toEqual({ recipes: [], meals: [] });
   });
 
   it('keeps an item measured in another unit, since its amount would change meaning', () => {
     const asPortion = { ...leaner, unit: 'portion' as const };
-    expect(refreshFor(asPortion, { recipes: [chili()], meals: [] }).recipes).toEqual([]);
+    expect(refreshFor({ kind: 'food', food: asPortion }, { recipes: [chili()], meals: [] }).recipes).toEqual([]);
+  });
+
+  const serving = (recipe: Recipe): Ingredient => {
+    const food = recipeSnapshot(recipe);
+    const [one] = food.servings;
+    if (one === undefined) throw new Error('a recipe has a serving');
+    return { food, quantity: { kind: 'serving', serving: one, count: 1 } };
+  };
+
+  it('carries a food edit through a recipe into the saved meals and recipes that hold that recipe', () => {
+    const recipe = chili();
+    const night: SavedMeal = { id: SavedMealId.parse(randomUUID()), name: 'Chili night', items: [serving(recipe)], archived: false };
+    const bowl: Recipe = { ...chili(), name: 'Chili bowl', ingredients: [{ ...serving(recipe), quantity: { kind: 'amount', amount: 2 } }, grams(beans, 100)] };
+    const { recipes, meals } = refreshFor({ kind: 'food', food: leaner }, { recipes: [recipe, bowl], meals: [night] });
+    // 500 g at 200 kcal + 400 g beans at 127 kcal, in 4 servings.
+    expect(meals[0]?.items[0]?.food.nutrients.kcal).toBeCloseTo((1000 + 508) / 4);
+    expect(recipes.find((r) => r.id === bowl.id)?.ingredients[0]?.food.nutrients.kcal).toBeCloseTo((1000 + 508) / 4);
+  });
+
+  it('offers the same update after a recipe edit, keeping items whose unit the edit changed', () => {
+    const recipe = chili();
+    const night: SavedMeal = { id: SavedMealId.parse(randomUUID()), name: 'Chili night', items: [serving(recipe)], archived: false };
+    const fewer = { ...recipe, yield: { servings: 3 } };
+    expect(refreshFor({ kind: 'recipe', recipe: fewer }, { recipes: [fewer], meals: [night] }).meals[0]?.items[0]?.food.nutrients.kcal).toBeCloseTo(1758 / 3);
+    const weighed = { ...recipe, yield: { servings: 4, cookedGrams: 1600 } };
+    expect(refreshFor({ kind: 'recipe', recipe: weighed }, { recipes: [weighed], meals: [night] })).toEqual({ recipes: [], meals: [] });
+  });
+
+  it('ends when two recipes hold older snapshots of each other', () => {
+    const a = chili();
+    const b: Recipe = { ...chili(), name: 'Chili mac', ingredients: [serving(a), grams(beef, 100)] };
+    const aWithB: Recipe = { ...a, ingredients: [...a.ingredients, serving(b)] };
+    const { recipes } = refreshFor({ kind: 'food', food: leaner }, { recipes: [aWithB, b], meals: [] });
+    expect(recipes.map((r) => r.name).toSorted()).toEqual(['Chili', 'Chili mac']);
   });
 });

@@ -9,6 +9,7 @@ import { FoodHeading, NutritionPreview, useQuantityPicker } from './FoodSheet.js
 import { brandOf, kcal, parseNumber, quantityLabel } from './format.js';
 import { FoodRow, OnlineSection } from './search.js';
 import { Icon, NumberField, Sheet, TextField, useToast } from './ui.js';
+import { useUpdatePrompt } from './UpdatePrompt.js';
 
 export type RecipeSeed = { readonly kind: 'new' } | { readonly kind: 'edit'; readonly recipe: Recipe };
 
@@ -129,6 +130,7 @@ export function RecipeBuilder({
 }) {
   const intents = useIntents();
   const toast = useToast();
+  const { saved, prompt } = useUpdatePrompt();
   const existing = seed.kind === 'edit' ? seed.recipe : undefined;
   const [name, setName] = useState(existing?.name ?? '');
   const [servings, setServings] = useState(existing === undefined ? '' : precise(existing.yield.servings));
@@ -159,8 +161,7 @@ export function RecipeBuilder({
   const save = async () => {
     if (!draft.success) return;
     const recipe = existing === undefined ? await intents.createRecipe(draft.data) : await intents.updateRecipe(existing.id, draft.data);
-    toast({ text: `Saved ${recipe.name}` });
-    onSaved(recipe);
+    await saved({ kind: 'recipe', id: recipe.id }, recipe.name, () => onSaved(recipe));
   };
 
   let over = null;
@@ -274,6 +275,7 @@ export function RecipeBuilder({
             </button>
           )}
         </div>
+        {prompt}
       </Sheet>
       {over}
     </>

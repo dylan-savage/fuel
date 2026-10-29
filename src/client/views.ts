@@ -21,9 +21,9 @@ import {
   type Streak,
   type Water,
 } from '../domain/habits.js';
-import { addDays, type FoodId, type LocalDate, type Millis } from '../domain/ids.js';
+import { addDays, type LocalDate, type Millis } from '../domain/ids.js';
 import { RECENT_DAYS, recents, type Library, type RecentFood } from '../domain/library.js';
-import { refreshFor, type Recipe, type Refresh, type SavedMeal } from '../domain/reuse.js';
+import { refreshFor, type EditedRef, type Recipe, type Refresh, type SavedMeal } from '../domain/reuse.js';
 import { localDate } from './clock.js';
 import type { Intents } from './intents.js';
 import type { Replica, ReplicaReader, Subscribable } from './replica.js';
@@ -61,10 +61,16 @@ export async function savedMealsView(r: ReplicaReader): Promise<SavedMeal[]> {
   return (await r.all('savedMeal')).filter((meal) => !meal.archived).toSorted(byName);
 }
 
-/** The recipes and saved meals that the food's current version would update. */
-export async function foodUsesView(r: ReplicaReader, id: FoodId): Promise<Refresh> {
-  const [food, recipes, meals] = await Promise.all([r.get('food', id), r.all('recipe'), r.all('savedMeal')]);
-  return food === undefined ? { recipes: [], meals: [] } : refreshFor(food, { recipes, meals });
+/** The recipes and saved meals that the edited food's or recipe's current version would update. */
+export async function usesView(r: ReplicaReader, ref: EditedRef): Promise<Refresh> {
+  const [recipes, meals, edited] = await Promise.all([
+    r.all('recipe'),
+    r.all('savedMeal'),
+    ref.kind === 'food'
+      ? r.get('food', ref.id).then((food) => food && { kind: 'food' as const, food })
+      : r.get('recipe', ref.id).then((recipe) => recipe && { kind: 'recipe' as const, recipe }),
+  ]);
+  return edited === undefined ? { recipes: [], meals: [] } : refreshFor(edited, { recipes, meals });
 }
 
 /** The library food a scanned barcode names, if any. Archived foods still answer a scan. */

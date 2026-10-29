@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createIntents, type Intents } from '../src/client/intents.js';
 import { openReplica, type Replica, type SyncPort } from '../src/client/replica.js';
 import { syncRounds } from '../src/client/sync.js';
-import { dayView, fastView, foodUsesView, foodWithBarcode, goalView, recentsView, recipesView, savedMealsView, waterView } from '../src/client/views.js';
+import { dayView, fastView, foodWithBarcode, goalView, recentsView, recipesView, savedMealsView, usesView, waterView } from '../src/client/views.js';
 import { itemOf } from '../src/domain/diary.js';
 import { Gtin, defaultQuantity, quickAddItem, snapshotOf, type FoodCandidate } from '../src/domain/food.js';
 import { KG_PER_LB, type GoalDraft } from '../src/domain/goals.js';
@@ -312,16 +312,16 @@ describe('after a food edit', () => {
 
     const { id: _id, archived: _archived, ...draft } = oats;
     await intents.updateFood(oats.id, { ...draft, nutrients: { ...oats.nutrients, kcal: 400 } });
-    const offer = await foodUsesView(replica.read, oats.id);
+    const offer = await usesView(replica.read, { kind: 'food', id: oats.id });
     expect([offer.recipes.length, offer.meals.length]).toEqual([1, 1]);
     expect((await replica.read.get('recipe', recipe.id))?.ingredients[0]?.food.nutrients.kcal).toBe(380);
 
-    const updated = await intents.updateUsesOf(oats.id);
+    const updated = await intents.updateUsesOf({ kind: 'food', id: oats.id });
     expect([updated.recipes, updated.meals]).toEqual([1, 1]);
     expect((await replica.read.get('recipe', recipe.id))?.ingredients[0]?.food.nutrients.kcal).toBe(400);
     expect((await replica.read.get('savedMeal', meal.id))?.items[0]?.food.nutrients.kcal).toBe(400);
     expect((await dayView(replica.read, today)).summary.totals.sum.kcal).toBe(304);
-    expect(await foodUsesView(replica.read, oats.id)).toEqual({ recipes: [], meals: [] });
+    expect(await usesView(replica.read, { kind: 'food', id: oats.id })).toEqual({ recipes: [], meals: [] });
 
     await updated.undo();
     expect((await replica.read.get('recipe', recipe.id))?.ingredients[0]?.food.nutrients.kcal).toBe(380);
@@ -361,7 +361,29 @@ describe('water', () => {
   });
 });
 
+describe('after a recipe edit', () => {
+  it('updates the saved meals holding the recipe only when asked', async () => {
+    const { replica, intents } = await setup();
+    const oats = await intents.createFood({ ...food(), barcodes: [] });
+    const recipe = await intents.createRecipe({
+      name: 'Overnight oats',
+      ingredients: [{ food: snapshotOf(oats), quantity: { kind: 'amount', amount: 80 } }],
+      yield: { servings: 2 },
+    });
+    const snapshot = recipeSnapshot(recipe);
+    const meal = await intents.saveMeal({ name: 'Oats', items: [{ food: snapshot, quantity: defaultQuantity(snapshot) }] });
+    const { id: _id, archived: _archived, ...draft } = recipe;
+    await intents.updateRecipe(recipe.id, { ...draft, yield: { servings: 4 } });
+
+    expect((await usesView(replica.read, { kind: 'recipe', id: recipe.id })).meals.map((m) => m.id)).toEqual([meal.id]);
+    expect((await replica.read.get('savedMeal', meal.id))?.items[0]?.food.nutrients.kcal).toBe(152);
+    await intents.updateUsesOf({ kind: 'recipe', id: recipe.id });
+    expect((await replica.read.get('savedMeal', meal.id))?.items[0]?.food.nutrients.kcal).toBe(76);
+  });
+});
+
 describe('fasting', () => {
+
   it('starts once, keeps the tap as its start, changes target, ends and undoes the end', async () => {
     const { replica, intents } = await setup();
     await intents.startFast(16);

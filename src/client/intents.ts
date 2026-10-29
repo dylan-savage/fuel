@@ -19,8 +19,9 @@ import { endAt, fastState, openFasts, withEnds, type Fast, type FastEnd, type Wa
 import { EntryId, FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, type LocalDate } from '../domain/ids.js';
 import type { Mutation } from '../domain/kinds.js';
 import type { CoreKey } from '../domain/nutrients.js';
-import { Recipe, refreshFor, type RecipeDraft, type SavedMeal, type SavedMealDraft } from '../domain/reuse.js';
+import { Recipe, type EditedRef, type RecipeDraft, type SavedMeal, type SavedMealDraft } from '../domain/reuse.js';
 import type { Replica } from './replica.js';
+import { usesView } from './views.js';
 
 /** Restores what an intent changed. Offered in the undo toast. */
 export type Undo = () => Promise<void>;
@@ -65,10 +66,11 @@ export interface Intents {
   /** Foods are archived, never deleted, so entries keep meaningful provenance. */
   archiveFood(id: FoodId): Promise<Undo>;
   /**
-   * Gives the recipes and saved meals that use this food its current snapshot, after Dylan
-   * accepts the prompt that follows a food edit. Diary entries never change.
+   * Gives the recipes and saved meals that hold an older snapshot of this food or recipe its
+   * current one, after Dylan accepts the prompt that follows the edit. Diary entries never
+   * change.
    */
-  updateUsesOf(id: FoodId): Promise<UsesUpdated>;
+  updateUsesOf(ref: EditedRef): Promise<UsesUpdated>;
   createRecipe(draft: RecipeDraft): Promise<Recipe>;
   updateRecipe(id: RecipeId, draft: RecipeDraft): Promise<Recipe>;
   archiveRecipe(id: RecipeId): Promise<Undo>;
@@ -183,10 +185,8 @@ export function createIntents(replica: Pick<Replica, 'read' | 'commit'>, clock: 
       return () => replica.commit([{ op: 'put', kind: 'food', doc: before }]);
     },
 
-    updateUsesOf: async (id) => {
-      const [food, recipes, meals] = await Promise.all([replica.read.get('food', id), replica.read.all('recipe'), replica.read.all('savedMeal')]);
-      if (food === undefined) return { recipes: 0, meals: 0, undo: nothingToUndo };
-      const next = refreshFor(food, { recipes, meals });
+    updateUsesOf: async (ref) => {
+      const [next, recipes, meals] = await Promise.all([usesView(replica.read, ref), replica.read.all('recipe'), replica.read.all('savedMeal')]);
       const changed = new Set<string>([...next.recipes, ...next.meals].map((d) => d.id));
       const before: Mutation[] = [
         ...recipes.filter((r) => changed.has(r.id)).map((doc): Mutation => ({ op: 'put', kind: 'recipe', doc })),
