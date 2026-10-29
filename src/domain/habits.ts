@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Goal } from './goals.js';
-import { FastId, LocalDate, Millis, WaterId, addDays } from './ids.js';
+import { FastEndId, FastId, LocalDate, Millis, WaterId, addDays } from './ids.js';
 
 export const ML_PER_FL_OZ = 29.5735295625;
 export const HOUR_MS = 3_600_000;
@@ -30,49 +30,81 @@ export function waterGoalMl(goal: Goal | undefined): number {
 }
 
 /**
- * An intermittent fast, open until it has an end. The start is the phone's clock when Dylan
- * tapped Start, so a fast started offline keeps its real start. Synced document kind 'fast'.
+ * An intermittent fast. The start is the phone's clock when Dylan tapped Start, so a fast
+ * started offline keeps its real start. Its end is a separate document. Synced document
+ * kind 'fast'.
  */
-export const Fast = z
-  .looseObject({
-    id: FastId,
-    startedAt: Millis,
-    endedAt: Millis.optional(),
-    targetHours: z.number().positive().max(168),
-  })
-  .refine((fast) => fast.endedAt === undefined || fast.endedAt >= fast.startedAt, 'a fast ends after it starts');
+export const Fast = z.looseObject({
+  id: FastId,
+  startedAt: Millis,
+  targetHours: z.number().positive().max(168),
+});
 export type Fast = z.infer<typeof Fast>;
+
+/**
+ * The end of a fast, written once and never rewritten. It is not a field of the fast because
+ * a phone holding an older copy of a fast may write that copy back, such as when changing
+ * its target, and must not reopen a fast another phone ended. Two phones that end the same
+ * fast offline leave two ends, and the earliest counts. Synced document kind 'fastEnd'.
+ */
+export const FastEnd = z.looseObject({
+  id: FastEndId,
+  fastId: FastId,
+  endedAt: Millis,
+});
+export type FastEnd = z.infer<typeof FastEnd>;
+
+/** A fast with its end, once any phone has recorded one. What the timer and history read. */
+export type TimedFast = Fast & { readonly endedAt?: Millis };
+
+/** Each fast with its earliest recorded end, never before its start. */
+export function withEnds(fasts: readonly Fast[], ends: readonly FastEnd[]): TimedFast[] {
+  const earliest = new Map<FastId, Millis>();
+  for (const end of ends) {
+    const known = earliest.get(end.fastId);
+    if (known === undefined || end.endedAt < known) earliest.set(end.fastId, end.endedAt);
+  }
+  return fasts.map((fast) => {
+    const endedAt = earliest.get(fast.id);
+    return endedAt === undefined ? fast : { ...fast, endedAt: Millis.parse(Math.max(endedAt, fast.startedAt)) };
+  });
+}
 
 /** 16:8, until Dylan picks another target. */
 export const DEFAULT_FAST_HOURS = 16;
 
 /**
- * Whether Dylan is fasting, derived from the fast documents, so no stored flag can drift.
+ * Whether Dylan is fasting, derived from the documents, so no stored flag can drift.
  * `overlap` is two phones each starting a fast while offline. It shows the earliest, and
  * ending the fast ends them all.
  */
 export type FastState =
   | { readonly kind: 'idle' }
-  | { readonly kind: 'fasting'; readonly fast: Fast }
-  | { readonly kind: 'overlap'; readonly open: readonly [Fast, Fast, ...Fast[]] };
+  | { readonly kind: 'fasting'; readonly fast: TimedFast }
+  | { readonly kind: 'overlap'; readonly open: readonly [TimedFast, TimedFast, ...TimedFast[]] };
 
-export function fastState(fasts: readonly Fast[]): FastState {
+export function fastState(fasts: readonly TimedFast[]): FastState {
   const [first, second, ...rest] = fasts.filter((f) => f.endedAt === undefined).toSorted((a, b) => a.startedAt - b.startedAt);
   if (first === undefined) return { kind: 'idle' };
   if (second === undefined) return { kind: 'fasting', fast: first };
   return { kind: 'overlap', open: [first, second, ...rest] };
 }
 
-/** The fast a timer shows: the only open one, or the earliest of an overlap. */
-export function runningFast(state: FastState): Fast | undefined {
+/** Every fast still open: none, the one running, or each of an overlap. */
+export function openFasts(state: FastState): readonly TimedFast[] {
   switch (state.kind) {
     case 'idle':
-      return undefined;
+      return [];
     case 'fasting':
-      return state.fast;
+      return [state.fast];
     case 'overlap':
-      return state.open[0];
+      return state.open;
   }
+}
+
+/** The fast a timer shows: the only open one, or the earliest of an overlap. */
+export function runningFast(state: FastState): TimedFast | undefined {
+  return openFasts(state)[0];
 }
 
 /** The target the next fast starts with: the latest fast's, so a changed target sticks. */
@@ -81,9 +113,9 @@ export function nextTargetHours(fasts: readonly Fast[]): number {
   return latest?.targetHours ?? DEFAULT_FAST_HOURS;
 }
 
-/** Every open fast, ended at `now`. A start from a phone whose clock runs ahead ends where it began. */
-export function endOpen(fasts: readonly Fast[], now: Millis): Fast[] {
-  return fasts.filter((f) => f.endedAt === undefined).map((f) => ({ ...f, endedAt: Millis.parse(Math.max(now, f.startedAt)) }));
+/** When "End fast" ends a fast: now, or its start if the phone that started it had a clock running ahead. */
+export function endAt(fast: Fast, now: Millis): Millis {
+  return Millis.parse(Math.max(now, fast.startedAt));
 }
 
 export interface FastProgress {
@@ -93,7 +125,7 @@ export interface FastProgress {
   readonly reached: boolean;
 }
 
-export function fastProgress(fast: Pick<Fast, 'startedAt' | 'endedAt' | 'targetHours'>, now: Millis): FastProgress {
+export function fastProgress(fast: Pick<TimedFast, 'startedAt' | 'endedAt' | 'targetHours'>, now: Millis): FastProgress {
   const elapsedMs = Math.max(0, (fast.endedAt ?? now) - fast.startedAt);
   const targetMs = fast.targetHours * HOUR_MS;
   return { elapsedMs, targetMs, remainingMs: Math.max(0, targetMs - elapsedMs), reached: elapsedMs >= targetMs };
@@ -110,7 +142,7 @@ export interface FastSession {
  * Finished fasts, newest first. Fasts whose times overlap, the two-phone case, count as one
  * session from the first start to the last end, with the first one's target.
  */
-export function fastHistory(fasts: readonly Fast[]): FastSession[] {
+export function fastHistory(fasts: readonly TimedFast[]): FastSession[] {
   const sessions: FastSession[] = [];
   for (const fast of fasts.toSorted((a, b) => a.startedAt - b.startedAt)) {
     if (fast.endedAt === undefined) continue;

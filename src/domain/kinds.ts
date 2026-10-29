@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { Entry } from './diary.js';
 import { Food } from './food.js';
 import { Goal, Profile } from './goals.js';
-import { Fast, Water } from './habits.js';
+import { Fast, FastEnd, Water } from './habits.js';
 import type { LocalDate } from './ids.js';
 import { Recipe, SavedMeal } from './reuse.js';
 
@@ -39,6 +39,7 @@ const DEFS = {
   savedMeal: doc(SavedMeal),
   water: datedDoc(Water),
   fast: doc(Fast),
+  fastEnd: doc(FastEnd),
 } as const;
 
 export type Kind = keyof typeof DEFS;
@@ -114,6 +115,19 @@ export const SCHEMA_HISTORY: readonly DexieSpec[] = [
     savedMeal: 'id',
     water: 'id, doc.date',
     fast: 'id',
+    outbox: '++mutationId',
+    meta: 'key',
+  },
+  {
+    food: 'id, *doc.barcodes',
+    entry: 'id, doc.date',
+    profile: 'id',
+    goal: 'id',
+    recipe: 'id',
+    savedMeal: 'id',
+    water: 'id, doc.date',
+    fast: 'id',
+    fastEnd: 'id',
     outbox: '++mutationId',
     meta: 'key',
   },

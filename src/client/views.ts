@@ -14,6 +14,7 @@ import {
   fastStreak,
   nextTargetHours,
   waterGoalMl,
+  withEnds,
   waterTotalMl,
   type FastSession,
   type FastState,
@@ -105,10 +106,11 @@ export interface FastView {
 
 /** The fasting timer's state, history and streak. Streak days are this phone's calendar days. */
 export async function fastView(r: ReplicaReader, today: LocalDate): Promise<FastView> {
-  const fasts = await r.all('fast');
-  const history = fastHistory(fasts);
+  const [fasts, ends] = await Promise.all([r.all('fast'), r.all('fastEnd')]);
+  const timed = withEnds(fasts, ends);
+  const history = fastHistory(timed);
   return {
-    state: fastState(fasts),
+    state: fastState(timed),
     history,
     streak: fastStreak(history, { today, dayOf: (at) => localDate(new Date(at)) }),
     nextTargetHours: nextTargetHours(fasts),

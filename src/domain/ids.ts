@@ -39,3 +39,6 @@ export type WaterId = z.infer<typeof WaterId>;
 
 export const FastId = z.uuid().brand<'FastId'>();
 export type FastId = z.infer<typeof FastId>;
+
+export const FastEndId = z.uuid().brand<'FastEndId'>();
+export type FastEndId = z.infer<typeof FastEndId>;

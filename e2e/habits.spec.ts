@@ -6,6 +6,12 @@
 import { expect, test } from '@playwright/test';
 import { openOffline, stored } from './app.js';
 
+/** Fasts in fuel.db that no phone has ended. */
+function openOnServer() {
+  const ended = new Set(stored('fastEnd').map((end) => end.fastId));
+  return stored('fast').filter((fast) => !ended.has(fast.id));
+}
+
 test('adds water offline and still shows it after reconnecting', async ({ page, context }) => {
   await openOffline(page, context);
   const water = page.getByRole('region', { name: 'Water' });
@@ -34,19 +40,18 @@ test('starts a fast offline and ends it online, keeping the real start time', as
   await tile.getByRole('button', { name: 'Start fast' }).click();
   await expect(tile.getByTestId('fast-elapsed')).toHaveText(/^0:00:0[2-9]$/, { timeout: 10_000 });
   await expect(page.getByText('1 waiting')).toBeVisible();
-  expect(stored('fast').filter((f) => f.endedAt === undefined)).toEqual([]);
+  expect(openOnServer()).toEqual([]);
 
   await context.setOffline(false);
   const reconnected = Date.now();
   await expect(page.getByText(/\d+ waiting/)).toBeHidden({ timeout: 15_000 });
-  const [synced, ...others] = stored('fast').filter((f) => f.endedAt === undefined);
+  const [synced, ...others] = openOnServer();
   expect(others).toEqual([]);
   expect(synced?.startedAt).toBeGreaterThanOrEqual(tapped);
   expect(synced?.startedAt).toBeLessThan(reconnected - 1500);
 
   await tile.getByRole('button', { name: 'End fast' }).click();
   await expect(tile.getByRole('button', { name: 'Start fast' })).toBeVisible();
-  const ended = () => stored('fast').find((f) => f.id === synced?.id);
-  await expect.poll(() => ended()?.endedAt, { timeout: 15_000 }).toBeGreaterThanOrEqual(reconnected);
-  expect(ended()?.startedAt).toBe(synced?.startedAt);
+  await expect.poll(() => stored('fastEnd').find((end) => end.fastId === synced?.id)?.endedAt, { timeout: 15_000 }).toBeGreaterThanOrEqual(reconnected);
+  expect(stored('fast').find((f) => f.id === synced?.id)?.startedAt).toBe(synced?.startedAt);
 });

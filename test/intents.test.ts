@@ -8,7 +8,7 @@ import { dayView, fastView, foodUsesView, foodWithBarcode, goalView, recentsView
 import { itemOf } from '../src/domain/diary.js';
 import { Gtin, defaultQuantity, quickAddItem, snapshotOf, type FoodCandidate } from '../src/domain/food.js';
 import { KG_PER_LB, type GoalDraft } from '../src/domain/goals.js';
-import { DEFAULT_WATER_ML, runningFast } from '../src/domain/habits.js';
+import { DEFAULT_WATER_ML, HOUR_MS, runningFast } from '../src/domain/habits.js';
 import { LocalDate, type Millis } from '../src/domain/ids.js';
 import { recipeSnapshot } from '../src/domain/reuse.js';
 import { openStore } from '../src/server/store.js';
@@ -412,6 +412,33 @@ describe('two phones offline', () => {
       const settled = await fastView(a.replica.read, today);
       expect(settled.state).toEqual({ kind: 'idle' });
       expect(settled.history).toHaveLength(1);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('never reopen a fast one phone ended, nor move its end, when the other changes its target and ends it late', async () => {
+    const server = openStore(':memory:');
+    const sync = (port: SyncPort) => syncRounds(port, (req) => Promise.resolve(server.sync(req, { now: NOW, userAgent: null })), 50);
+    let aNow = NOW;
+    const a = await phone('a', () => aNow);
+    const b = await phone('b', () => at(NOW + 3 * HOUR_MS));
+    try {
+      await a.intents.startFast(16);
+      for (const p of [a, b]) await sync(p.port);
+
+      aNow = at(NOW + 2 * HOUR_MS);
+      await a.intents.endFast();
+      await sync(a.port);
+      await b.intents.setFastTarget(18);
+      await b.intents.endFast();
+      for (const p of [b, a, b]) await sync(p.port);
+
+      for (const p of [a, b]) {
+        const view = await fastView(p.replica.read, today);
+        expect(view.state).toEqual({ kind: 'idle' });
+        expect(view.history.map((s) => s.endedAt)).toEqual([at(NOW + 2 * HOUR_MS)]);
+      }
     } finally {
       server.close();
     }

@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { itemOf, type Entry } from '../src/domain/diary.js';
 import type { Food } from '../src/domain/food.js';
 import { goalId, type Goal, type Profile } from '../src/domain/goals.js';
-import type { Fast, Water } from '../src/domain/habits.js';
-import { EntryId, FoodId, LocalDate, Millis, type FastId, type RecipeId, type SavedMealId, type WaterId } from '../src/domain/ids.js';
+import type { Fast, FastEnd, Water } from '../src/domain/habits.js';
+import { EntryId, FoodId, LocalDate, Millis, type FastEndId, type FastId, type RecipeId, type SavedMealId, type WaterId } from '../src/domain/ids.js';
 import type { Recipe, SavedMeal } from '../src/domain/reuse.js';
 import { ClientId, MutationId, Rev, type SyncRequest, type WireMutation } from '../src/protocol.js';
 
@@ -68,10 +68,13 @@ export function water(id: WaterId, ml: number): Water {
   return { id, date: LocalDate.parse('2026-10-28'), ml, loggedAt: Millis.parse(1_800_000_000_000) };
 }
 
-/** Odd values leave the fast open, even ones end it, so the simulation writes both states. */
-export function fast(id: FastId, n: number): Fast {
-  const startedAt = Millis.parse(1_800_000_000_000 + n);
-  return { id, startedAt, ...(n % 2 === 0 ? { endedAt: Millis.parse(startedAt + 16 * 3_600_000) } : {}), targetHours: 16 };
+/** `hours` tells versions apart, as a changed target would. */
+export function fast(id: FastId, hours: number): Fast {
+  return { id, startedAt: Millis.parse(1_800_000_000_000), targetHours: hours };
+}
+
+export function fastEnd(id: FastEndId, fastId: FastId, n: number): FastEnd {
+  return { id, fastId, endedAt: Millis.parse(1_800_000_000_000 + n * 60_000) };
 }
 
 export function profile(weightKg: number): Profile {

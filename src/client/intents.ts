@@ -15,8 +15,8 @@ import {
   type Quantity,
 } from '../domain/food.js';
 import { Goal, PROFILE_ID, Profile, goalId, type GoalDraft, type ProfileDraft } from '../domain/goals.js';
-import { endOpen, fastState, type Fast, type Water } from '../domain/habits.js';
-import { EntryId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, type LocalDate } from '../domain/ids.js';
+import { endAt, fastState, openFasts, withEnds, type Fast, type FastEnd, type Water } from '../domain/habits.js';
+import { EntryId, FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, type LocalDate } from '../domain/ids.js';
 import type { Mutation } from '../domain/kinds.js';
 import type { CoreKey } from '../domain/nutrients.js';
 import { Recipe, refreshFor, type RecipeDraft, type SavedMeal, type SavedMealDraft } from '../domain/reuse.js';
@@ -82,9 +82,12 @@ export interface Intents {
   deleteWater(id: WaterId): Promise<Undo>;
   /** Starts a fast now, unless one is already open. Started offline, it keeps the moment of the tap. */
   startFast(targetHours: number): Promise<Undo>;
-  /** Ends every open fast, which also settles two phones' overlapping fasts. */
+  /**
+   * Records an end for every open fast, which also settles two phones' overlapping fasts.
+   * An end is never rewritten, so a fast another phone ended keeps its earlier end.
+   */
   endFast(): Promise<Undo>;
-  /** Changes the target of the open fast, or of every one in an overlap. */
+  /** Changes the target of the open fast, or of every one in an overlap. Ended fasts are left alone. */
   setFastTarget(hours: number): Promise<void>;
 }
 
@@ -120,6 +123,8 @@ export function createIntents(replica: Pick<Replica, 'read' | 'commit'>, clock: 
     await replica.commit([{ op: 'put', kind: 'food', doc: food }]);
     return food;
   };
+
+  const fastNow = async () => fastState(withEnds(await replica.read.all('fast'), await replica.read.all('fastEnd')));
 
   const putRecipe = async (id: RecipeId, draft: RecipeDraft): Promise<Recipe> => {
     const before = await replica.read.get('recipe', id);
@@ -242,24 +247,23 @@ export function createIntents(replica: Pick<Replica, 'read' | 'commit'>, clock: 
     },
 
     startFast: async (targetHours) => {
-      if (fastState(await replica.read.all('fast')).kind !== 'idle') return nothingToUndo;
+      if ((await fastNow()).kind !== 'idle') return nothingToUndo;
       const fast: Fast = { id: FastId.parse(clock.newId()), startedAt: clock.now(), targetHours };
       await replica.commit([{ op: 'put', kind: 'fast', doc: fast }]);
       return () => replica.commit([{ op: 'delete', kind: 'fast', id: fast.id }]);
     },
 
     endFast: async () => {
-      const fasts = await replica.read.all('fast');
-      const ended = endOpen(fasts, clock.now());
-      if (ended.length === 0) return nothingToUndo;
-      const open = fasts.filter((f) => f.endedAt === undefined);
-      await replica.commit(ended.map((doc) => ({ op: 'put', kind: 'fast', doc })));
-      return () => replica.commit(open.map((doc) => ({ op: 'put', kind: 'fast', doc })));
+      const now = clock.now();
+      const ends = openFasts(await fastNow()).map((fast): FastEnd => ({ id: FastEndId.parse(clock.newId()), fastId: fast.id, endedAt: endAt(fast, now) }));
+      if (ends.length === 0) return nothingToUndo;
+      await replica.commit(ends.map((doc) => ({ op: 'put', kind: 'fastEnd', doc })));
+      return () => replica.commit(ends.map((end) => ({ op: 'delete', kind: 'fastEnd', id: end.id })));
     },
 
     setFastTarget: async (hours) => {
-      const open = (await replica.read.all('fast')).filter((f) => f.endedAt === undefined);
-      await replica.commit(open.map((f) => ({ op: 'put', kind: 'fast', doc: { ...f, targetHours: hours } })));
+      const open = openFasts(await fastNow());
+      await replica.commit(open.map((fast) => ({ op: 'put', kind: 'fast', doc: { ...fast, targetHours: hours } })));
     },
   };
 }

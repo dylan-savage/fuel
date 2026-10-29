@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_WATER_ML,
   HOUR_MS,
-  endOpen,
+  endAt,
   fastHistory,
   fastProgress,
   fastState,
@@ -12,10 +12,12 @@ import {
   runningFast,
   waterGoalMl,
   waterTotalMl,
-  type Fast,
+  withEnds,
+  type FastEnd,
+  type TimedFast,
   type Water,
 } from '../src/domain/habits.js';
-import { FastId, LocalDate, Millis, WaterId } from '../src/domain/ids.js';
+import { FastEndId, FastId, LocalDate, Millis, WaterId } from '../src/domain/ids.js';
 import { goal } from './fixtures.js';
 
 const today = LocalDate.parse('2026-10-28');
@@ -24,7 +26,7 @@ const NOW = Millis.parse(Date.parse('2026-10-28T20:00:00Z'));
 const ms = (iso: string) => Millis.parse(Date.parse(iso));
 const utcDay = (at: Millis) => LocalDate.parse(new Date(at).toISOString().slice(0, 10));
 
-function fast(startedAt: string, endedAt?: string, targetHours = 16): Fast {
+function fast(startedAt: string, endedAt?: string, targetHours = 16): TimedFast {
   return { id: FastId.parse(randomUUID()), startedAt: ms(startedAt), ...(endedAt === undefined ? {} : { endedAt: ms(endedAt) }), targetHours };
 }
 
@@ -60,17 +62,10 @@ describe('fast state', () => {
     expect(runningFast(state)).toBe(laptop);
   });
 
-  it('ends every open fast, which settles the overlap back to idle', () => {
-    const fasts = [fast('2026-10-28T12:00Z'), fast('2026-10-28T10:00Z'), fast('2026-10-27T10:00Z', '2026-10-28T02:00Z')];
-    const ended = endOpen(fasts, NOW);
-    expect(ended.map((f) => f.endedAt)).toEqual([NOW, NOW]);
-    const byId = new Map([...fasts, ...ended].map((f) => [f.id, f]));
-    expect(fastState([...byId.values()])).toEqual({ kind: 'idle' });
-  });
-
   it('ends a fast started by a phone with a fast clock where it began, never before', () => {
+    expect(endAt(fast('2026-10-27T12:00Z'), NOW)).toBe(NOW);
     const ahead = fast('2026-10-28T21:00Z');
-    expect(endOpen([ahead], NOW)[0]?.endedAt).toBe(ahead.startedAt);
+    expect(endAt(ahead, NOW)).toBe(ahead.startedAt);
   });
 
   it('times elapsed and remaining against the target', () => {
@@ -82,6 +77,27 @@ describe('fast state', () => {
   it('starts the next fast with the latest target, 16 hours before any', () => {
     expect(nextTargetHours([])).toBe(16);
     expect(nextTargetHours([fast('2026-10-26T20:00Z', '2026-10-27T14:00Z', 18), fast('2026-10-27T20:00Z', '2026-10-28T10:00Z', 14)])).toBe(14);
+  });
+});
+
+describe('fast ends', () => {
+  const end = (fastId: FastId, at: string): FastEnd => ({ id: FastEndId.parse(randomUUID()), fastId, endedAt: ms(at) });
+
+  it('close a fast, and an end for every open fast settles the overlap back to idle', () => {
+    const [a, b] = [fast('2026-10-28T12:00Z'), fast('2026-10-28T10:00Z')];
+    expect(fastState(withEnds([a, b], [end(a.id, '2026-10-28T20:00Z')])).kind).toBe('fasting');
+    expect(fastState(withEnds([a, b], [end(a.id, '2026-10-28T20:00Z'), end(b.id, '2026-10-28T20:00Z')]))).toEqual({ kind: 'idle' });
+  });
+
+  it('keep the earliest when two phones end the same fast, so a later end never moves it', () => {
+    const f = fast('2026-10-28T02:00Z');
+    const [timed] = withEnds([f], [end(f.id, '2026-10-28T19:00Z'), end(f.id, '2026-10-28T18:00Z')]);
+    expect(timed?.endedAt).toBe(ms('2026-10-28T18:00Z'));
+  });
+
+  it('never put the end before the start', () => {
+    const f = fast('2026-10-28T12:00Z');
+    expect(withEnds([f], [end(f.id, '2026-10-28T11:00Z')])[0]?.endedAt).toBe(f.startedAt);
   });
 });
 
@@ -106,7 +122,7 @@ describe('fast streaks', () => {
     const end = ms(`${day}T12:00:00Z`);
     return { id: FastId.parse(randomUUID()), startedAt: Millis.parse(end - hours * HOUR_MS), endedAt: end, targetHours: 16 };
   };
-  const streak = (fasts: Fast[]) => fastStreak(fastHistory(fasts), { today, dayOf: utcDay });
+  const streak = (fasts: TimedFast[]) => fastStreak(fastHistory(fasts), { today, dayOf: utcDay });
 
   it('counts days in a row that finished a fast on target', () => {
     expect(streak(['2026-10-26', '2026-10-27', '2026-10-28'].map((d) => endingOn(d)))).toEqual({ current: 3, best: 3 });

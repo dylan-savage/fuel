@@ -7,8 +7,8 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { localDate } from '../src/client/clock.js';
 import { snapshotOf, type Food, type Ingredient, type Serving } from '../src/domain/food.js';
-import { HOUR_MS, ML_PER_FL_OZ, type Fast } from '../src/domain/habits.js';
-import { FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId } from '../src/domain/ids.js';
+import { HOUR_MS, ML_PER_FL_OZ, type Fast, type FastEnd } from '../src/domain/habits.js';
+import { FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import type { Recipe, SavedMeal } from '../src/domain/reuse.js';
 import { seed, setGoal, stored, tab, typeBarcode } from './app.js';
@@ -62,6 +62,7 @@ function habitDocs(): Mutation[] {
   const today = localDate();
   const cleared = [
     ...stored('fast').map((f): Mutation => ({ op: 'delete', kind: 'fast', id: f.id })),
+    ...stored('fastEnd').map((e): Mutation => ({ op: 'delete', kind: 'fastEnd', id: e.id })),
     ...stored('water').map((w): Mutation => ({ op: 'delete', kind: 'water', id: w.id })),
   ];
   const drinks = [16, 8, 16, 12].map((oz, i): Mutation => ({
@@ -70,14 +71,16 @@ function habitDocs(): Mutation[] {
     doc: { id: WaterId.parse(randomUUID()), date: today, ml: oz * ML_PER_FL_OZ, loggedAt: Millis.parse(now - (4 - i) * HOUR_MS) },
   }));
   const start = now - 13.4 * HOUR_MS;
-  const past = [16.5, 17.2, 16.1, 16.8, 14.6, 18.3, 16.2].map((hours, i): Fast => ({
-    id: FastId.parse(randomUUID()),
-    startedAt: Millis.parse(start - (i + 1) * 24 * HOUR_MS),
-    endedAt: Millis.parse(start - (i + 1) * 24 * HOUR_MS + hours * HOUR_MS),
-    targetHours: 16,
-  }));
+  const past = [16.5, 17.2, 16.1, 16.8, 14.6, 18.3, 16.2].flatMap((hours, i): Mutation[] => {
+    const fast: Fast = { id: FastId.parse(randomUUID()), startedAt: Millis.parse(start - (i + 1) * 24 * HOUR_MS), targetHours: 16 };
+    const end: FastEnd = { id: FastEndId.parse(randomUUID()), fastId: fast.id, endedAt: Millis.parse(fast.startedAt + hours * HOUR_MS) };
+    return [
+      { op: 'put', kind: 'fast', doc: fast },
+      { op: 'put', kind: 'fastEnd', doc: end },
+    ];
+  });
   const open: Fast = { id: FastId.parse(randomUUID()), startedAt: Millis.parse(start), targetHours: 16 };
-  return [...cleared, ...drinks, ...[open, ...past].map((doc): Mutation => ({ op: 'put', kind: 'fast', doc }))];
+  return [...cleared, ...drinks, { op: 'put', kind: 'fast', doc: open }, ...past];
 }
 
 test('seeds a day worth photographing', async ({ page, request }) => {
