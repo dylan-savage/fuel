@@ -182,6 +182,7 @@ export function NumberField({
   unit,
   placeholder,
   invalid = false,
+  autoFocus = false,
 }: {
   readonly label: string;
   readonly value: string;
@@ -189,12 +190,14 @@ export function NumberField({
   readonly unit?: string;
   readonly placeholder?: string;
   readonly invalid?: boolean;
+  readonly autoFocus?: boolean;
 }) {
   return (
     <label class={invalid ? 'field invalid' : 'field'}>
       <span class="field-label">{label}</span>
       <input
         inputMode="decimal"
+        autoFocus={autoFocus}
         autoComplete="off"
         value={value}
         placeholder={placeholder ?? ''}
@@ -283,6 +286,8 @@ const ICONS = {
   more: 'M6 12h.01M12 12h.01M18 12h.01',
   drop: 'M12 3.5c3.3 4.2 5.5 7.4 5.5 10.3a5.5 5.5 0 0 1-11 0c0-2.9 2.2-6.1 5.5-10.3Z',
   timer: 'M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM12 9v4l2.5 2M10 2.5h4',
+  scale: 'M7 4h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3ZM8.5 10a5 5 0 0 1 7 0M12 12.5l1.6-2.6',
+  flame: 'M12 21c3.6 0 6-2.4 6-5.8 0-3.4-2.6-5.6-4-9.2-.9 2.1-2 3.2-3.3 3.8.2-1.8-.3-3.5-1.4-5.3C8.3 7.6 6 10.4 6 15.2 6 18.6 8.4 21 12 21Z',
 } as const;
 
 export function Icon({ name }: { readonly name: keyof typeof ICONS }) {

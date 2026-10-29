@@ -11,6 +11,7 @@ import { MEAL_LABEL, amount, brandOf, dayTitle, kcal, quantityLabel } from './fo
 import { Icon, useToast } from './ui.js';
 import { Waiting } from './Waiting.js';
 import { WaterTile } from './Water.js';
+import { WeightTile } from './Weight.js';
 
 const MACRO_LABEL: Readonly<Record<Macro, string>> = { protein: 'Protein', carbs: 'Carbs', fat: 'Fat' };
 
@@ -126,6 +127,7 @@ export function Diary({
           <div class="habits">
             <WaterTile date={date} today={today} />
             {date === today && <FastTile today={today} />}
+            <WeightTile date={date} today={today} onGoal={onGoal} />
           </div>
           {MEALS.map((meal) => {
             const { entries, totals } = day.summary.meals[meal];

@@ -1,5 +1,6 @@
 import type { Meal } from '../../domain/diary.js';
 import type { FoodSnapshot, Quantity, Serving } from '../../domain/food.js';
+import { KG_PER_LB } from '../../domain/goals.js';
 import { ML_PER_FL_OZ } from '../../domain/habits.js';
 import { addDays, type LocalDate } from '../../domain/ids.js';
 import type { FoodUnit } from '../../domain/units.js';
@@ -107,4 +108,26 @@ export function timeOfDay(at: number): string {
 /** A fasting target the way it is usually named: "16:8", or "24 h" for a whole day. */
 export function fastLabel(hours: number): string {
   return hours < 24 && Number.isInteger(hours) ? `${hours}:${24 - hours}` : `${amount(hours)} h`;
+}
+
+const TENTHS = { minimumFractionDigits: 1, maximumFractionDigits: 1 } as const;
+
+/** Body weight is stored in kg and shown in lb, to a tenth: "178.4". */
+export function lb(kg: number): string {
+  return (kg / KG_PER_LB).toLocaleString('en-US', TENTHS);
+}
+
+/** A weekly change as it reads on screen: "−1.2 lb a week", "+0.4 lb a week". */
+export function lbPerWeek(kgPerWeek: number): string {
+  const pounds = Math.abs(kgPerWeek / KG_PER_LB).toLocaleString('en-US', TENTHS);
+  return `${kgPerWeek < 0 ? '−' : '+'}${pounds} lb a week`;
+}
+
+const SHORT_DATE = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const FULL_DATE = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+
+/** "Oct 27", with the year when it is not this year's: "Mar 4, 2027". */
+export function shortDate(date: LocalDate, today: LocalDate): string {
+  const at = new Date(`${date}T00:00:00Z`);
+  return date.slice(0, 4) === today.slice(0, 4) ? SHORT_DATE.format(at) : FULL_DATE.format(at);
 }

@@ -16,6 +16,8 @@
   --fat: #af52de;
   --water: #32ade6;
   --fast: #5856d6;
+  --goal-line: #248a3d;
+  --scale-dot: #8e8e93;
   --bar: rgba(120, 120, 128, 0.16);
   --tabbar: rgba(249, 249, 249, 0.94);
   --toast: rgba(28, 28, 30, 0.96);
@@ -40,6 +42,7 @@
     --fat: #bf5af2;
     --water: #64d2ff;
     --fast: #5e5ce6;
+    --goal-line: #34a853;
     --bar: rgba(120, 120, 128, 0.32);
     --tabbar: rgba(22, 22, 23, 0.94);
     --toast: rgba(58, 58, 60, 0.98);
@@ -1340,3 +1343,192 @@ main {
     transition: none !important;
   }
 }
+
+/* Weight */
+
+/* An odd tile out, such as Weight beside Water and Fasting on today, takes the whole row. */
+.habits > .tile:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 0;
+}
+
+.habits > .tile:last-child:nth-child(odd) .pills {
+  min-width: 108px;
+}
+
+.tile-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--fill);
+  color: var(--tint);
+}
+
+.spark {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  max-width: 120px;
+  height: 32px;
+  margin-left: auto;
+}
+
+.habits > .tile:last-child:nth-child(odd) .spark {
+  display: block;
+}
+
+.spark path {
+  fill: none;
+  stroke: var(--tint);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.weight-hero {
+  display: grid;
+  justify-items: center;
+  margin: 4px 0 12px;
+}
+
+.chart-card {
+  padding: 12px 12px 10px;
+}
+
+.weight-chart {
+  margin: 0;
+}
+
+.weight-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: pan-y;
+  overflow: visible;
+}
+
+.chart-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 0 4px 8px;
+  font-size: 15px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-readout strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.chart-readout-date {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.chart-grid line {
+  stroke: var(--separator);
+  stroke-width: 1;
+}
+
+.chart-grid text,
+.chart-axis text {
+  fill: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-goal line {
+  stroke: var(--goal-line);
+  stroke-width: 1.5;
+}
+
+.chart-dot {
+  fill: var(--scale-dot);
+  stroke: var(--card);
+  stroke-width: 2;
+  paint-order: stroke;
+}
+
+.chart-trend {
+  fill: none;
+  stroke: var(--tint);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart-cursor {
+  stroke: var(--text);
+  stroke-width: 1;
+  opacity: 0.35;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 6px 4px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.key-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--scale-dot);
+}
+
+.key-line {
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--tint);
+}
+
+.key-line.goal {
+  background: var(--goal-line);
+}
+
+.chart-empty {
+  text-align: center;
+  padding: 40px 16px;
+}
+
+.body-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 12px 16px;
+}
+
+.body-stats dt {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.body-stats dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.text-button.inline {
+  padding: 0 16px;
+}
+
