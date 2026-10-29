@@ -3,12 +3,14 @@ import type { Meal, Slot } from '../../domain/diary.js';
 import { defaultQuantity, snapshotOf, type FoodSnapshot, type Ingredient, type Quantity } from '../../domain/food.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { foodKey, matches, searchLocal, type LocalHit } from '../../domain/library.js';
+import { MAX_HINTS, foodHints } from '../../domain/quicklog.js';
 import { itemsNutrients, recipeSnapshot, type SavedMeal } from '../../domain/reuse.js';
 import { now } from '../clock.js';
 import { libraryView, recentsView, savedMealsView, useIntents, useLive } from '../views.js';
 import { useLogFlow, type OnLogged } from './flow.js';
 import { MEAL_LABEL, count, dayTitle, kcal } from './format.js';
 import { MealPicker } from './FoodSheet.js';
+import { QuickLog } from './QuickLog.js';
 import { FoodRow, OnlineSection } from './search.js';
 import { Icon, Segmented, TitleBar, useToast } from './ui.js';
 
@@ -74,6 +76,7 @@ export function Add({
     [library],
   );
   const known = useMemo(() => new Set((library?.foods ?? []).flatMap((f) => f.barcodes)), [library]);
+  const hints = useMemo(() => foodHints({ recents: recentList ?? [], library: library ?? { foods: [], recipes: [] }, limit: MAX_HINTS }), [recentList, library]);
 
   const logNow = (name: string, items: readonly Ingredient[]) =>
     void intents.logItems(items, slot).then(({ undo }) => toast({ text: `Logged ${name} to ${MEAL_LABEL[slot.meal]}`, undo }));
@@ -108,6 +111,7 @@ export function Add({
 
       {trimmed === '' ? (
         <>
+          <QuickLog foods={hints} onDrafts={(drafts) => flow.open({ kind: 'review', drafts })} onLabel={(candidate) => flow.open({ kind: 'confirm', candidate })} />
           <div class="actions-row">
             <button type="button" onClick={() => flow.open({ kind: 'quick-add' })}>
               Quick add

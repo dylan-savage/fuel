@@ -5,6 +5,7 @@ import { lookupFood } from '../api.js';
 import { decodePhoto, scanCamera } from '../scanner.js';
 import { foodWithBarcode, useRead } from '../views.js';
 import { useLogFlow, type OnLogged } from './flow.js';
+import { AiStatus, PhotoButton, useAi } from './QuickLog.js';
 import { TitleBar } from './ui.js';
 
 type ScanState =
@@ -42,6 +43,7 @@ export function Scan({ slot, onLogged }: ScanProps) {
   const camera = useRef<AbortController | null>(null);
   const flow = useLogFlow(slot, onLogged);
   const read = useRead();
+  const ai = useAi();
 
   useEffect(() => () => camera.current?.abort(), []);
 
@@ -94,8 +96,15 @@ export function Scan({ slot, onLogged }: ScanProps) {
     }
   };
 
+  /** The product the barcode missed, read from its label; its barcode comes along so the next scan finds it. */
+  const photographLabel = async (barcode: Gtin, file: File) => {
+    const answer = await ai.askPhoto('label', file, []);
+    if (answer?.kind === 'label') flow.open({ kind: 'confirm', candidate: { ...answer.candidate, barcodes: [barcode] } });
+  };
+
   const typedValue = typedGtin(typed);
   const gtin = 'gtin' in state ? state.gtin : null;
+  const aiReachable = ai.reachable && !(state.kind === 'unknown' && state.why === 'offline');
 
   return (
     <section class="screen scan">
@@ -151,7 +160,17 @@ export function Scan({ slot, onLogged }: ScanProps) {
         <div class="card unknown">
           <p>{UNKNOWN_TEXT[state.why]}</p>
           <div class="actions-row">
-            <button type="button" class="primary" onClick={() => flow.open({ kind: 'editor', seed: { kind: 'new', barcodes: [state.gtin] } })}>
+            <PhotoButton
+              label="Photograph the label"
+              primary
+              capture
+              disabled={!aiReachable || ai.busy}
+              onPhoto={(file) => void photographLabel(state.gtin, file)}
+            />
+          </div>
+          <AiStatus state={ai.state} reachable={aiReachable} />
+          <div class="actions-row">
+            <button type="button" onClick={() => flow.open({ kind: 'editor', seed: { kind: 'new', barcodes: [state.gtin] } })}>
               Create food
             </button>
             <button type="button" onClick={() => flow.open({ kind: 'quick-add' })}>

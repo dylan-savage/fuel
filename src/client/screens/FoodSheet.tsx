@@ -15,8 +15,9 @@ interface UnitChoice {
 /**
  * The amount picker: a number and a unit, where the units are the food's named servings plus
  * its base unit. A serving the food no longer lists still shows when the quantity carries it.
+ * `onChange` hears each edit, for a list that totals several pickers.
  */
-export function useQuantityPicker(food: Pick<FoodSnapshot, 'unit' | 'servings'>, initial: Quantity) {
+export function useQuantityPicker(food: Pick<FoodSnapshot, 'unit' | 'servings'>, initial: Quantity, onChange?: (quantity: Quantity | null) => void) {
   const units = useMemo((): UnitChoice[] => {
     const servings = [...food.servings];
     if (initial.kind === 'serving' && !servings.some((s) => sameServing(s, initial.serving))) servings.unshift(initial.serving);
@@ -30,9 +31,12 @@ export function useQuantityPicker(food: Pick<FoodSnapshot, 'unit' | 'servings'>,
   const [unit, setUnit] = useState(initialUnit);
   const [text, setText] = useState(editable(initial.kind === 'serving' ? initial.count : initial.amount));
 
-  const n = parseNumber(text);
-  const choice = units[unit];
-  const quantity = choice !== undefined && n !== null && n > 0 ? choice.quantity(n) : null;
+  const quantityOf = (unitIndex: number, value: string): Quantity | null => {
+    const n = parseNumber(value);
+    const choice = units[unitIndex];
+    return choice !== undefined && n !== null && n > 0 ? choice.quantity(n) : null;
+  };
+  const quantity = quantityOf(unit, text);
 
   const picker = (
     <div class="quantity-picker">
@@ -42,11 +46,23 @@ export function useQuantityPicker(food: Pick<FoodSnapshot, 'unit' | 'servings'>,
         inputMode="decimal"
         autoComplete="off"
         value={text}
-        onInput={(event) => setText(event.currentTarget.value)}
+        onInput={(event) => {
+          setText(event.currentTarget.value);
+          onChange?.(quantityOf(unit, event.currentTarget.value));
+        }}
       />
       <div class="chips" role="radiogroup" aria-label="Unit">
         {units.map((u, i) => (
-          <button type="button" role="radio" key={u.label} aria-checked={i === unit} onClick={() => setUnit(i)}>
+          <button
+            type="button"
+            role="radio"
+            key={u.label}
+            aria-checked={i === unit}
+            onClick={() => {
+              setUnit(i);
+              onChange?.(quantityOf(i, text));
+            }}
+          >
             {u.label}
           </button>
         ))}

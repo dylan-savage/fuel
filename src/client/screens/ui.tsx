@@ -283,6 +283,7 @@ const ICONS = {
   chevronLeft: 'M15 5l-7 7 7 7',
   chevronRight: 'M9 5l7 7-7 7',
   plus: 'M12 6v12M6 12h12',
+  close: 'M8 8l8 8M16 8l-8 8',
   more: 'M6 12h.01M12 12h.01M18 12h.01',
   drop: 'M12 3.5c3.3 4.2 5.5 7.4 5.5 10.3a5.5 5.5 0 0 1-11 0c0-2.9 2.2-6.1 5.5-10.3Z',
   timer: 'M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM12 9v4l2.5 2M10 2.5h4',
