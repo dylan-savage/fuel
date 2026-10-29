@@ -1,6 +1,6 @@
 # fuel design
 
-Status: approved 2026-10-28 (phone-first). Wearable burn import deferred the same day. Open questions are in [open-questions.md](open-questions.md).
+Status: approved 2026-10-28 (phone-first). Wearable burn import deferred the same day. Phases 1, 2, 3 and 6 are built. Open questions are in [open-questions.md](open-questions.md).
 
 ## Problem
 
@@ -65,10 +65,26 @@ The phone's IndexedDB version is derived, not hand-bumped. `SCHEMA_HISTORY` is a
 - **Servings** are named amounts in the food's unit ("1 large egg" is 50 g). A `Quantity` is `{ amount }` or `{ serving, count }` with the serving copied in, so it never needs a lookup.
 - **Required nutrients.** A library food must have kcal, protein, carbs and fat. Fiber, sugar and sodium are optional, and unknown is never zero. External data (Open Food Facts, USDA, AI) arrives as a `FoodCandidate` with partial nutrients. `completeFood()` either returns a `Food` or names the missing fields, and the confirm sheet asks for them. An incomplete import cannot reach the diary. (Graft from server-authoritative.)
 - **Quick add** entries need only kcal. Totals list them as incomplete for macros ("protein: at least 92 g").
-- **History is stable.** Entries, recipe ingredients and saved-meal items hold a `FoodSnapshot` by value. Editing a food never changes a past day. A recipe can never contain itself, because it holds values, not references. After a food edit the app offers "also update 2 recipes and 1 saved meal?".
-- **Recipe nutrients.** An optional nutrient in a recipe is known only when every ingredient reports it. (Fix from the judge's review. The local-first sketch summed missing values as zero.)
+- **History is stable.** Entries, recipe ingredients and saved-meal items hold a `FoodSnapshot` by value. Editing a food never changes a past day. A recipe can never contain itself, because it holds values, not references. After a food or recipe edit the app asks "also update 2 recipes and 1 saved meal?" and re-snapshots them only on yes, in one commit with an undo. The update carries through recipes held in other recipes and saved meals, so a saved meal of chili updates when the beef in the chili does. Each recipe is worked out once, so recipes holding each other's older snapshots cannot loop. An item now measured in another unit keeps its old snapshot, because its amount would change meaning (200 g is not 200 portions). Diary entries are never re-snapshotted.
+- **Recipe nutrients.** An optional nutrient in a recipe is known only when every ingredient reports it. (Fix from the judge's review. The local-first sketch summed missing values as zero.) The core four are always known, because library foods require them.
+- **Recipes log as snapshots.** A recipe has ingredients, a number of servings and an optional cooked weight. It logs as a snapshot whose origin is the recipe. With a cooked weight it is measured in grams of the cooked dish, with "1 serving" being the weight shared by the servings. Without one it is measured in portions, one portion being one serving. Recents and search offer a recipe's current version, like a library food's.
+- **One way into the diary.** Recipes, saved meals and copied meals all become `Ingredient[]` and go through `intents.logItems`. Only two intents make entries otherwise: `importAndLog` logs the food it imports in the same commit, and `copyDay` keeps each copy's own meal.
 - **Barcodes** normalize to 13 digits with a verified check digit.
 - **Units.** Body weight is stored in kg and shown in lb. Open Food Facts and USDA unit quirks are normalized in their adapters only.
+
+### Water and fasting
+
+Water is one `water` document per drink, so drinks added offline on two phones both count. The daily goal is a field of the effective-dated goal, stored in ml and shown in fl oz like weight in lb, and saved from the Goal screen. Goals without one use 64 fl oz.
+
+A `fast` document holds a start and a target. Its start is the phone's clock at the tap, so a fast started offline keeps its real start. Its end is a separate `fastEnd` document, written once and never rewritten. Per separate-before-serializing-shared-state, a phone holding an older open copy of a fast can rewrite the fast, such as when changing its target, but never its end, so a finished fast cannot reopen. Two phones that end the same fast offline leave two ends, and the earliest counts. The server still stores documents without editing them. The fasting state is derived from the documents with no stored flag:
+
+```
+idle      no open fast
+fasting   one open fast
+overlap   two or more open fasts, from two phones that each started one offline
+```
+
+The timer runs from the earliest open start. "End fast" writes an end for every open fast, which settles an overlap, and its undo deletes only those ends. History merges fasts whose times overlap into one session. A streak counts local days that finished a fast on target, by the day it ended, and today does not break it before it is over. The next fast starts with the latest fast's target, 16 hours before any.
 
 ### Who writes what
 
@@ -116,7 +132,7 @@ Importing measured burn is out of scope until Dylan has a wearable he trusts (de
 
 ```
 src/domain/     pure; compiled with no DOM and no Node types
-  ids.ts units.ts nutrients.ts food.ts diary.ts library.ts goals.ts body.ts burn.ts habits.ts kinds.ts
+  ids.ts units.ts nutrients.ts food.ts diary.ts library.ts reuse.ts goals.ts body.ts burn.ts habits.ts kinds.ts
 src/protocol.ts zod schemas for every HTTP body
 src/server/     main.ts routes.ts store.ts foods.ts off.ts usda.ts upstream.ts ai.ts backup.ts
 src/client/     main.tsx replica.ts sync.ts intents.ts views.ts api.ts scanner.ts screens/
@@ -124,7 +140,9 @@ test/           domain units, adapter fixtures, routes, sync simulation, schema 
 scripts/        run.sh, com.dylansavage.fuel.plist, restore.sh
 ```
 
-Logging a recent food traces `screens/Diary.tsx` to `intents.ts` to `replica.ts`, with the math in `domain/diary.ts`. The server side is `routes.ts` to `store.ts`.
+Logging a recent food traces `screens/Diary.tsx` to `intents.ts` to `replica.ts`, with the math in `domain/diary.ts`. The server side is `routes.ts` to `store.ts`. Recipes, saved meals and the food-edit refresh live in `domain/reuse.ts`, and water and fasts in `domain/habits.ts`.
+
+The tab bar keeps four tabs: Diary, Add, Scan and Goal. Recipes and saved meals are shelves inside Add, beside Recent, where logging starts. Water and the fast timer are tiles on the Diary under the day's summary. The fasting tile shows only on today.
 
 ### HTTP surface
 
@@ -165,10 +183,10 @@ Each phase ends with a check on the real phone.
 
 1. **Scaffold.** Repo, lint, tests, Hono serving a placeholder PWA, launchd, `tailscale serve`, Add to Home Screen. A device spike for camera access in standalone mode. Done when the Home Screen app opens in airplane mode and scans a barcode to digits on screen.
 2. **MVP.** Foods, entries, goals, profile. Sync and its simulation. Diary with meals, totals and remaining. Recents, library search, quick add, edit and delete with undo, create a food, scan to Open Food Facts to log, USDA search, the goal calculator (BMR, TDEE, rate, macro split), nightly backups. Done when Dylan logs a real day, including one entry made in airplane mode that reaches `fuel.db`.
-3. **Reuse.** Recipes, saved meals, copy meal and copy day, the food-edit update prompt.
+3. **Reuse.** Recipes, saved meals, copy meal and copy day, the food-edit update prompt. Built 2026-10-28.
 4. **AI quick log.** Text first, then label photo (which also fills the "barcode not found" gap), then plate photo.
 5. **Body and workouts.** Weigh-ins, trend chart, weekly rate, projected goal date, MET workouts, the budget policy.
-6. **Water and fasting.**
+6. **Water and fasting.** Built 2026-10-28.
 7. **Refinements.** Adaptive TDEE suggestion once weeks of data exist, an inbox for unknown barcodes scanned offline, a restore drill.
 
 ## Next implementation step
