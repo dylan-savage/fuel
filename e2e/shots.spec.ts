@@ -196,9 +196,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
       await tab(page, 'Goal').click();
       await expect(page.getByTestId('goal-kcal')).not.toHaveText('–');
-      await page.screenshot({ path: join(dir, `goal-${colorScheme}.png`), animations: 'disabled' });
+      // The toast from saving a food earlier in this pass would cover the form.
+      await page.screenshot({ path: join(dir, `goal-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
       // A full-page capture would paint the fixed tab bar mid-page.
-      await page.screenshot({ path: join(dir, `goal-${colorScheme}-full.png`), fullPage: true, animations: 'disabled', style: '.tab-bar { display: none; }' });
+      await page.screenshot({ path: join(dir, `goal-${colorScheme}-full.png`), fullPage: true, animations: 'disabled', style: '.tab-bar, .toast { display: none; }' });
     });
   });
 }
