@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { expect, type BrowserContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
 import Database from 'better-sqlite3';
 import { z } from 'zod';
-import { parseDoc, type DocOf, type Kind } from '../src/domain/kinds.js';
+import { parseDoc, type DocOf, type Kind, type Mutation } from '../src/domain/kinds.js';
+import { ClientId, MutationId, Rev, SyncResponse, type SyncRequest, type WireMutation } from '../src/protocol.js';
 
 const dbPath = join(process.env.FUEL_E2E_DIR ?? '', 'data', 'fuel.db');
 
@@ -19,6 +21,21 @@ export function stored<K extends Kind>(kind: K): DocOf<K>[] {
   } finally {
     db.close();
   }
+}
+
+/**
+ * Pushes documents to the mini as another phone would, for data a spec needs but does not
+ * test the making of. The app pulls them on its next sync.
+ */
+export async function seed(request: APIRequestContext, mutations: readonly Mutation[]): Promise<void> {
+  const wire = mutations.map((m, i): WireMutation => {
+    const id = MutationId.parse(i + 1);
+    return m.op === 'put' ? { op: 'put', id, kind: m.kind, docId: m.doc.id, doc: m.doc } : { op: 'delete', id, kind: m.kind, docId: m.id };
+  });
+  const body: SyncRequest = { clientId: ClientId.parse(randomUUID()), epoch: null, cursor: Rev.parse(0), mutations: wire };
+  const res = await request.post('/api/sync', { data: body });
+  expect(res.ok()).toBe(true);
+  expect(SyncResponse.parse(await res.json()).rejected).toEqual([]);
 }
 
 /** Loads the app until the service worker controls it, so it can run with the network cut. */
