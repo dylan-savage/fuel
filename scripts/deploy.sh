@@ -18,5 +18,10 @@ npm run build --silent
 
 cp scripts/$LABEL.plist "$PLIST"
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+# bootout returns before the old job is gone, and bootstrapping over it fails with error 5.
+for _ in $(seq 50); do
+  launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || break
+  sleep 0.2
+done
 launchctl bootstrap "$DOMAIN" "$PLIST"
 echo "deployed $(git rev-parse --short HEAD) from $DEST"
