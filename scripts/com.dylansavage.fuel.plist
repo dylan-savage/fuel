@@ -7,7 +7,7 @@
   <string>com.dylansavage.fuel</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/dylansavage/Desktop/Personal-AI/2026-10-28-fuel/scripts/run.sh</string>
+    <string>/Users/dylansavage/fuel/scripts/run.sh</string>
   </array>
   <!-- A long-running server, unlike stash's nightly job: start at login, restart on exit. -->
   <key>RunAtLoad</key>

@@ -2,24 +2,22 @@
 
 This guide installs the fuel server as a launchd agent, serves it over HTTPS on the tailnet, and puts the app on the iPhone Home Screen. It assumes the repo is at `/Users/dylansavage/Desktop/Personal-AI/2026-10-28-fuel` and Node 22.22.3 is installed through nvm.
 
-## Build
+## Deploy
+
+macOS privacy protection denies processes started by launchd access to `~/Desktop`, so the service cannot run from this checkout (it exits with `Operation not permitted`). It runs from a clone at `~/fuel` instead, the same way stash runs from `~/stash`. Develop and merge here, then deploy from a terminal:
 
 ```sh
 cd /Users/dylansavage/Desktop/Personal-AI/2026-10-28-fuel
-npm ci
-npm run build
+scripts/deploy.sh
 ```
 
-`scripts/run.sh` pins `/Users/dylansavage/.nvm/versions/node/v22.22.3/bin/node`. If you move to another Node version, edit that path and run `npm rebuild`, because `better-sqlite3` is a native module built for one Node ABI.
+`deploy.sh` clones the repo to `~/fuel` the first time, pulls `main`, runs `npm ci` and `npm run build` there, installs the launchd agent, and restarts it. The agent starts at login and restarts the server if it exits. `/healthz` on `http://127.0.0.1:8787` answers `{"ok":true,"epoch":"…","rev":0}`. Logs go to `~/Library/Logs/fuel.log`, one JSON object per line.
 
-## Install the launchd agent
+`scripts/run.sh` pins `/Users/dylansavage/.nvm/versions/node/v22.22.3/bin/node`. If you move to another Node version, edit that path, because `better-sqlite3` is a native module built for one Node ABI.
 
-```sh
-cp scripts/com.dylansavage.fuel.plist ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.dylansavage.fuel.plist
-```
+### Keys
 
-The agent starts at login and restarts the server if it exits. To confirm the server is up, open `http://127.0.0.1:8787/healthz` on the mini. It answers `{"ok":true,"epoch":"…","rev":0}`. Logs go to `~/Library/Logs/fuel.log`, one JSON object per line.
+The service cannot read `~/Desktop/Personal-AI/.env.local`, where tokenstash writes keys, for the same privacy reason. Put the keys the server needs in `~/fuel/.env.local` (`run.sh` loads it), then run `scripts/deploy.sh` again.
 
 The server reads these optional environment variables:
 
@@ -37,16 +35,7 @@ The server reads these optional environment variables:
 | `FUEL_OFF_SEARCH_URL` | `https://search.openfoodfacts.org` (text search) |
 | `FUEL_USDA_URL` | `https://api.nal.usda.gov/fdc` |
 
-`run.sh` loads `.env.local` from the repo and from the parent folder, where tokenstash writes keys. Both keys, `USDA_API_KEY` and `ANTHROPIC_API_KEY`, are optional. The log line `listening` reports `"usda": true` once the server has the first, and the AI model once it has the second. Each AI request logs an `ai_parse` line with its latency, token counts and outcome.
-
-## Deploy a new version
-
-```sh
-npm run build
-launchctl kickstart -k gui/$(id -u)/com.dylansavage.fuel
-```
-
-The phone picks up the new shell on its next launch and shows **A new version is ready. Tap to reload.**
+Both keys, `USDA_API_KEY` and `ANTHROPIC_API_KEY`, are optional. The log line `listening` reports `"usda": true` once the server has the first, and the AI model once it has the second. Each AI request logs an `ai_parse` line with its latency, token counts and outcome.
 
 ## Serve it on the tailnet
 

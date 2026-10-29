@@ -9,7 +9,8 @@ cd "$REPO"
 # to another Node is a deliberate edit here plus `npm rebuild`.
 NODE=/Users/dylansavage/.nvm/versions/node/v22.22.3/bin/node
 
-# tokenstash writes keys to the parent folder's .env.local.
+# The parent .env.local is where tokenstash writes keys for the Desktop checkout. The deployed
+# copy in ~/fuel cannot read ~/Desktop, so it relies on its own .env.local.
 exec "$NODE" \
   --env-file-if-exists="$REPO/.env.local" \
   --env-file-if-exists="$REPO/../.env.local" \
