@@ -66,7 +66,8 @@ export interface Replica {
   /**
    * Writes the documents and one outbox row per mutation in one IndexedDB transaction,
    * then tells onCommit listeners. Live queries re-run before any network activity, which
-   * is what makes logging instant offline.
+   * is what makes logging instant offline. Throws InvalidDocument, writing nothing, when a
+   * document fails its kind's schema.
    */
   commit(mutations: readonly Mutation[]): Promise<void>;
   /** Re-runs the query whenever a table it read changes, from a commit or a sync merge. */
@@ -101,6 +102,18 @@ export interface ReplicaOptions {
   readonly indexedDB?: IDBFactory;
   readonly IDBKeyRange?: typeof IDBKeyRange;
   readonly newId?: () => string;
+}
+
+/** A local write its kind's schema rejects. Thrown by commit before anything is written. */
+export class InvalidDocument extends Error {
+  override readonly name = 'InvalidDocument';
+  constructor(
+    readonly kind: Kind,
+    readonly id: string,
+    readonly reason: string,
+  ) {
+    super(`refused to write ${kind} ${id}: ${reason}`);
+  }
 }
 
 const docKey = (kind: Kind, id: string) => `${kind}\u0000${id}`;
@@ -159,6 +172,13 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
   const replica: Replica = {
     read,
     commit: async (mutations) => {
+      // The mini would reject the document and sync would then delete it from the phone, long
+      // after the edit. Refusing it here makes the edit itself fail, with nothing written.
+      for (const m of mutations) {
+        if (m.op !== 'put') continue;
+        const parsed = parseDoc(m.kind, m.doc);
+        if (!parsed.ok) throw new InvalidDocument(m.kind, m.doc.id, parsed.reason);
+      }
       await db.transaction('rw', [...kindTables, outbox], async () => {
         for (const m of mutations) {
           if (m.op === 'put') {

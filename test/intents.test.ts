@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createIntents, type Intents } from '../src/client/intents.js';
-import { openReplica, type Replica, type SyncPort } from '../src/client/replica.js';
+import { InvalidDocument, openReplica, type Replica, type SyncPort } from '../src/client/replica.js';
 import { syncRounds } from '../src/client/sync.js';
 import {
   bodyView,
@@ -519,6 +519,14 @@ describe('workouts', () => {
     expect((await dayView(replica.read, today)).workouts).toEqual([]);
     await undoDelete();
     expect((await dayView(replica.read, today)).workouts.map((w) => w.id)).toEqual([run.id]);
+  });
+
+  it('fail at the tap, never reaching the outbox, when the burn is more than a workout can store', async () => {
+    const { replica, port, intents } = await setup();
+    await intents.logWeight(90, today);
+    await expect(intents.logWorkout(metDraft('run_10', 1440), today)).rejects.toThrow(InvalidDocument);
+    expect((await dayView(replica.read, today)).workouts).toEqual([]);
+    expect(await pushed(port)).toEqual([expect.objectContaining({ kg: 90 })]);
   });
 
   it('wait for a weight before working out a burn, then offer what was logged before', async () => {

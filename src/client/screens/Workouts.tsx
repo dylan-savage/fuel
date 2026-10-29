@@ -118,7 +118,7 @@ export function WorkoutSheet({ date, editing, onClose }: { readonly date: LocalD
   const parsed = WorkoutDraft.safeParse({ name: choice.kind === 'met' ? choice.name : nameText.trim(), minutes: parseNumber(minutesText), source });
   const draft = parsed.success ? parsed.data : null;
   const burn = draft === null || kg === undefined ? null : Math.round(netKcal(draft, kg));
-  /** The mini rejects a burn its schema would not store, and a rejected write is dropped, so check the same rule here. */
+  /** The replica refuses a burn the workout schema would not store, so Log stays off and says why before the tap. */
   const storable = burn !== null && Workout.shape.kcal.safeParse(burn).success;
 
   const save = () => {

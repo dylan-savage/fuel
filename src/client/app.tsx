@@ -3,6 +3,7 @@ import { useRegisterSW } from 'virtual:pwa-register/preact';
 import { mealAt, type Meal } from '../domain/diary.js';
 import type { LocalDate } from '../domain/ids.js';
 import { localDate } from './clock.js';
+import { InvalidDocument } from './replica.js';
 import { Add } from './screens/Add.js';
 import { Diary } from './screens/Diary.js';
 import type { OnLogged } from './screens/flow.js';
@@ -61,6 +62,18 @@ export function App() {
   useEffect(() => {
     if (tab === 'scan' && scan === null) void loadScan().then(setScan);
   }, [tab, scan]);
+
+  // Screens fire intents without awaiting them, so a write the replica refused would only reach the console.
+  useEffect(() => {
+    const onRejection = (event: PromiseRejectionEvent) => {
+      if (!(event.reason instanceof InvalidDocument)) return;
+      console.error(event.reason);
+      event.preventDefault();
+      toast({ text: 'Not saved. A value is outside what fuel can store.' });
+    };
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => window.removeEventListener('unhandledrejection', onRejection);
+  }, [toast]);
 
   const onLogged: OnLogged = (text, logged) => {
     toast({ text, undo: logged.undo });

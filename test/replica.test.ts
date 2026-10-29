@@ -1,7 +1,7 @@
 import Dexie from 'dexie';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, describe, expect, it } from 'vitest';
-import { openReplica, type Replica } from '../src/client/replica.js';
+import { InvalidDocument, openReplica, type Replica } from '../src/client/replica.js';
 import { Gtin } from '../src/domain/food.js';
 import { SCHEMA_HISTORY } from '../src/domain/kinds.js';
 import { MutationId, type SyncResponse } from '../src/protocol.js';
@@ -26,6 +26,22 @@ const response = (fields: Partial<SyncResponse>): SyncResponse => ({
   cursor: rev(0),
   more: false,
   ...fields,
+});
+
+describe('Replica.commit', () => {
+  it('refuses a batch holding a document its kind would reject, writing and queueing none of it', async () => {
+    const { replica, port } = await setup();
+    const good = entry(newEntryId(), 400);
+    const bad = { ...entry(newEntryId(), 400), quantity: { kind: 'amount' as const, amount: -1 } };
+    await expect(
+      replica.commit([
+        { op: 'put', kind: 'entry', doc: good },
+        { op: 'put', kind: 'entry', doc: bad },
+      ]),
+    ).rejects.toThrow(InvalidDocument);
+    expect(await port.pendingCount()).toBe(0);
+    expect(await replica.read.get('entry', good.id)).toBeUndefined();
+  });
 });
 
 describe('SyncPort.apply', () => {
