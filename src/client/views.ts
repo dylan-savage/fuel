@@ -9,7 +9,7 @@ import { bodyWeightOn, projectGoal, trendSeries, weeklyRate, type BodyWeight, ty
 import { recentWorkouts, type Workout, type WorkoutDraft } from '../domain/burn.js';
 import { summarizeDay, type DaySummary } from '../domain/diary.js';
 import type { Food, Gtin } from '../domain/food.js';
-import { PROFILE_ID, budgetOn, goalOn, type Budget, type Goal, type Profile } from '../domain/goals.js';
+import { PROFILE_ID, budgetOn, goalOn, type Budget, type BudgetPolicy, type Goal, type Profile } from '../domain/goals.js';
 import {
   fastHistory,
   fastState,
@@ -37,6 +37,8 @@ export interface DayView {
   readonly workouts: readonly Workout[];
   /** Null before any goal, or while a computed goal has no profile. */
   readonly budget: Budget | null;
+  /** How the goal in effect that day treats workouts. */
+  readonly policy: BudgetPolicy | undefined;
 }
 
 export async function dayView(r: ReplicaReader, date: LocalDate): Promise<DayView> {
@@ -51,6 +53,7 @@ export async function dayView(r: ReplicaReader, date: LocalDate): Promise<DayVie
     summary: summarizeDay(entries),
     workouts: workouts.toSorted((a, b) => a.loggedAt - b.loggedAt),
     budget: budgetOn({ goals, profile, weighIns, workouts, date }),
+    policy: goalOn(goals, date)?.policy,
   };
 }
 

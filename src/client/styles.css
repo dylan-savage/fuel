@@ -1532,3 +1532,29 @@ main {
   padding: 0 16px;
 }
 
+/* Workouts */
+
+/* A header with no menu button after its total, such as Workouts, keeps the total in line with the rows. */
+.meal-header > .meal-kcal:last-child {
+  padding-right: 16px;
+}
+
+.workout-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.pills.minutes {
+  margin-top: 12px;
+}
+
+.pill[aria-pressed='true'] {
+  background: var(--tint);
+  color: #fff;
+}
+
+.burn-preview {
+  margin-top: 16px;
+}
+

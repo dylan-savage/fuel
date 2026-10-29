@@ -12,6 +12,7 @@ import { Icon, useToast } from './ui.js';
 import { Waiting } from './Waiting.js';
 import { WaterTile } from './Water.js';
 import { WeightTile } from './Weight.js';
+import { WorkoutsSection } from './Workouts.js';
 
 const MACRO_LABEL: Readonly<Record<Macro, string>> = { protein: 'Protein', carbs: 'Carbs', fat: 'Fat' };
 
@@ -43,7 +44,12 @@ function Summary({ day, onGoal }: { readonly day: DayView; readonly onGoal: () =
           </p>
         </div>
         <p class="summary-equation">
-          <span data-testid="kcal-target">{kcal(budget.kcal)}</span> goal
+          <span data-testid="kcal-target">{kcal(budget.baseKcal)}</span> goal
+          {budget.workoutKcal > 0 && (
+            <>
+              <br />+ <span data-testid="kcal-workouts">{kcal(budget.workoutKcal)}</span> workouts
+            </>
+          )}
           <br />− <span data-testid="kcal-eaten">{kcal(totals.sum.kcal)}</span> food
         </p>
       </div>
@@ -153,6 +159,7 @@ export function Diary({
               </section>
             );
           })}
+          <WorkoutsSection date={date} workouts={day.workouts} policy={day.policy} />
         </>
       )}
 
