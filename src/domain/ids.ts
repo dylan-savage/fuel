@@ -7,6 +7,13 @@ import { z } from 'zod';
 export const LocalDate = z.iso.date().brand<'LocalDate'>();
 export type LocalDate = z.infer<typeof LocalDate>;
 
+/** Calendar arithmetic on diary days, done in UTC so no time zone or DST shift can skip a day. */
+export function addDays(date: LocalDate, days: number): LocalDate {
+  const at = new Date(`${date}T00:00:00Z`);
+  at.setUTCDate(at.getUTCDate() + days);
+  return LocalDate.parse(at.toISOString().slice(0, 10));
+}
+
 /**
  * Epoch milliseconds from the writing device's clock. Display and within-day ordering only.
  * Sync never resolves anything by clock; the server's arrival order decides.

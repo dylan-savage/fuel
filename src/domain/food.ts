@@ -162,13 +162,20 @@ export const Ingredient = z.looseObject({ food: FoodSnapshot, quantity: Quantity
 export type Ingredient = z.infer<typeof Ingredient>;
 
 /** Amount of a quantity in the food's unit. */
-function baseAmount(q: Quantity): number {
+export function baseAmount(q: Quantity): number {
   switch (q.kind) {
     case 'amount':
       return q.amount;
     case 'serving':
       return q.serving.amount * q.count;
   }
+}
+
+/** What the food sheet starts at for a food with no history: its first serving, else 100 g or ml, else one portion. */
+export function defaultQuantity(food: FoodSnapshot): Quantity {
+  const [first] = food.servings;
+  if (first !== undefined) return { kind: 'serving', serving: first, count: 1 };
+  return { kind: 'amount', amount: BASIS[food.unit] };
 }
 
 /** The only food-times-quantity formula in the system. */

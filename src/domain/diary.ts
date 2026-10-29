@@ -6,6 +6,9 @@ import { total, type Nutrients, type Totals } from './nutrients.js';
 export const Meal = z.enum(['breakfast', 'lunch', 'dinner', 'snacks']);
 export type Meal = z.infer<typeof Meal>;
 
+/** Diary order. */
+export const MEALS: readonly Meal[] = Meal.options;
+
 /** One diary line. Synced document kind 'entry'. */
 export const Entry = Ingredient.extend({
   id: EntryId,
@@ -30,15 +33,27 @@ export function entryNutrients(entry: Entry): Nutrients {
   return nutrientsFor(entry.food, entry.quantity);
 }
 
-export interface DaySummary {
+export interface MealSummary {
   /** Oldest first. */
   readonly entries: readonly Entry[];
   readonly totals: Totals;
 }
 
+export interface DaySummary extends MealSummary {
+  readonly meals: Readonly<Record<Meal, MealSummary>>;
+}
+
+function summarize(entries: readonly Entry[]): MealSummary {
+  return { entries, totals: total(entries.map(entryNutrients)) };
+}
+
 export function summarizeDay(entries: readonly Entry[]): DaySummary {
   const sorted = entries.toSorted((a, b) => a.loggedAt - b.loggedAt);
-  return { entries: sorted, totals: total(sorted.map(entryNutrients)) };
+  const inMeal = (meal: Meal) => summarize(sorted.filter((e) => e.meal === meal));
+  return {
+    ...summarize(sorted),
+    meals: { breakfast: inMeal('breakfast'), lunch: inMeal('lunch'), dinner: inMeal('dinner'), snacks: inMeal('snacks') },
+  };
 }
 
 /** The meal a log most likely belongs to at this local hour (0 to 23). */
