@@ -5,6 +5,7 @@ import {
   CM_PER_INCH,
   GoalDraft,
   KG_PER_LB,
+  MAX_WATER_ML,
   ProfileDraft,
   ageOn,
   budgetFor,
@@ -120,17 +121,19 @@ function GoalForm({ goal, profile, today }: { readonly goal: Goal | undefined; r
   const [customText, setCustomText] = useState(goal?.kcalOverride === undefined ? '' : String(goal.kcalOverride));
   const [macroKind, setMacroKind] = useState<MacroTarget['kind']>(goal?.macros.kind ?? 'percent');
   const [macros, setMacros] = useState(goal === undefined ? { protein: '30', carbs: '40', fat: '30' } : macroTexts(goal.macros));
-  const [waterText, setWaterText] = useState(flOz(goal?.waterMl ?? DEFAULT_WATER_ML));
+  const [waterText, setWaterText] = useState(String(Math.round(((goal?.waterMl ?? DEFAULT_WATER_ML) / ML_PER_FL_OZ) * 100) / 100));
 
   const override = parseNumber(customText);
   const waterOz = parseNumber(waterText);
+  const waterMl = waterOz === null ? null : waterOz * ML_PER_FL_OZ;
+  const waterValid = GoalDraft.shape.waterMl.safeParse(waterMl).success;
   const macroValues = { protein: parseNumber(macros.protein), carbs: parseNumber(macros.carbs), fat: parseNumber(macros.fat) };
   const draft = GoalDraft.safeParse({
     policy: { kind: 'activity-level', level },
     kgPerWeek: rateLb * KG_PER_LB,
     ...(custom ? { kcalOverride: override } : {}),
     macros: { kind: macroKind, ...macroValues },
-    waterMl: waterOz === null ? null : waterOz * ML_PER_FL_OZ,
+    waterMl,
   });
   const budget = draft.success ? budgetFor({ ...draft.data, id: goalId(today), effectiveFrom: today }, profile, today) : null;
   const percentTotal = MACROS.reduce((sum, m) => sum + (macroValues[m] ?? 0), 0);
@@ -237,8 +240,9 @@ function GoalForm({ goal, profile, today }: { readonly goal: Goal | undefined; r
 
       <h2 class="section-title">Water</h2>
       <div class="group">
-        <NumberField label="Daily goal" unit="fl oz" value={waterText} onInput={setWaterText} invalid={waterOz === null || waterOz <= 0} />
+        <NumberField label="Daily goal" unit="fl oz" value={waterText} onInput={setWaterText} invalid={!waterValid} />
       </div>
+      {!waterValid && <p class="hint warn">A daily water goal is more than 0 and at most {flOz(MAX_WATER_ML)} fl oz.</p>}
 
       <div class="screen-actions">
         <button

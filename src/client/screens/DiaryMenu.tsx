@@ -53,7 +53,9 @@ export function DiaryMenu({
     [from, fromMeal],
   );
   const into = target.kind === 'meal' ? MEAL_LABEL[target.meal] : dayTitle(target.date, today);
-  const toCopy = source === null || source === undefined || (target.kind === 'day' && from === target.date) ? [] : source.entries;
+  /** Copying a day, or a meal, onto itself would only duplicate it. */
+  const ontoItself = from === target.date && (target.kind === 'day' || fromMeal === target.meal);
+  const toCopy = source === null || source === undefined || ontoItself ? [] : source.entries;
 
   const copy = async () => {
     if (from === null || toCopy.length === 0) return;
@@ -107,7 +109,7 @@ export function DiaryMenu({
             </label>
           </div>
           {fromMeal !== null && <MealPicker value={fromMeal} onChange={setFromMeal} />}
-          <h4 class="group-title">{summaryText(source)}</h4>
+          <h4 class="group-title">{ontoItself ? `Pick another ${target.kind === 'day' ? 'day' : 'day or meal'}` : summaryText(source)}</h4>
           {toCopy.length > 0 && <ItemList items={toCopy.map(itemOf)} label="To copy" />}
           <div class="sheet-actions">
             <button type="button" class="primary" disabled={toCopy.length === 0} onClick={() => void copy()}>

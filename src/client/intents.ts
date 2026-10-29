@@ -42,14 +42,12 @@ export interface UsesUpdated {
 
 export interface Intents {
   /**
-   * The one way to put food in the diary: one entry per item, in one commit. Recipes, saved
-   * meals and copied meals all arrive here as items.
+   * The way to put food in the diary: one entry per item, in one commit. Recipes, saved
+   * meals and copied meals all arrive here as items. Only importAndLog, which logs the food it
+   * imports in the same commit, and copyDay make entries otherwise.
    */
   logItems(items: readonly Ingredient[], slot: Slot): Promise<Logged>;
-  /**
-   * Copies every entry of one day onto another, each keeping its own meal, in one commit.
-   * The only other way entries are made, because each copy keeps its own meal.
-   */
+  /** Copies every entry of one day onto another in one commit, each keeping its own meal. */
   copyDay(from: LocalDate, to: LocalDate): Promise<Logged>;
   /** Changes how much was eaten and in which meal. */
   editEntry(id: EntryId, change: { readonly quantity: Quantity; readonly meal: Meal }): Promise<Undo>;

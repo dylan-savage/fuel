@@ -47,6 +47,9 @@ export const BudgetPolicy = z.discriminatedUnion('kind', [
 ]);
 export type BudgetPolicy = z.infer<typeof BudgetPolicy>;
 
+/** The most water a daily goal may ask for. */
+export const MAX_WATER_ML = 10_000;
+
 const percent = z.number().min(0).max(100);
 const grams = z.number().nonnegative().max(2000);
 
@@ -73,7 +76,7 @@ const GoalFields = z.looseObject({
   kcalOverride: z.number().positive().max(20_000).optional(),
   macros: MacroTarget,
   /** The daily water goal, stored in ml. Goals saved before water existed have none. */
-  waterMl: z.number().positive().max(10_000).optional(),
+  waterMl: z.number().positive().max(MAX_WATER_ML).optional(),
 });
 
 /**
