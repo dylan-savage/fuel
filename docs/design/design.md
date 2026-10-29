@@ -53,13 +53,13 @@ function DiaryScreen({ date }: { date: LocalDate }) {
 
 ### Documents and the kind registry
 
-Every piece of user state is a document of one kind. `src/domain/kinds.ts` is the only list of kinds. Each entry names the zod schema, the one writer class (`client` or `server`), and whether documents are dated. The server's validation, the phone's IndexedDB tables, and the client's write type all derive from it. Per model-the-domain, adding storage for a feature is one line plus the compile errors it causes.
+Every piece of user state is a document of one kind. `src/domain/kinds.ts` is the only list of kinds. Each entry names the zod schema and whether documents are dated. Every kind is phone-written today, so there is no writer field yet. It returns with the first server-written kind (wearable burn). The server's validation, the phone's IndexedDB tables, and the client's write type all derive from it. Per model-the-domain, adding storage for a feature is one line plus the compile errors it causes.
 
 The phone's IndexedDB version is derived, not hand-bumped. `SCHEMA_HISTORY` is an append-only array of derived table specs, and the version is its length. A test fails when the current derived spec differs from the last entry. (Graft from the judge's review.)
 
 ### Food model
 
-- **One basis per food.** A food has `unit` (`g`, `ml` or `portion`) and nutrients per `per` units (100 for g and ml, 1 for portion). `nutrientsFor(food, quantity)` is the only food-times-quantity math. Grams and millilitres never convert.
+- **One basis per food.** A food has `unit` (`g`, `ml` or `portion`) and nutrients per 100 g, per 100 ml or per portion. The `per` amount is derived from the unit, never stored, so the two cannot disagree. `nutrientsFor(food, quantity)` is the only food-times-quantity math. Grams and millilitres never convert.
 - **Servings** are named amounts in the food's unit ("1 large egg" is 50 g). A `Quantity` is `{ amount }` or `{ serving, count }` with the serving copied in, so it never needs a lookup.
 - **Required nutrients.** A library food must have kcal, protein, carbs and fat. Fiber, sugar and sodium are optional, and unknown is never zero. External data (Open Food Facts, USDA, AI) arrives as a `FoodCandidate` with partial nutrients. `completeFood()` either returns a `Food` or names the missing fields, and the confirm sheet asks for them. An incomplete import cannot reach the diary. (Graft from server-authoritative.)
 - **Quick add** entries need only kcal. Totals list them as incomplete for macros ("protein: at least 92 g").
@@ -136,7 +136,7 @@ Logging a recent food traces `screens/Diary.tsx` to `intents.ts` to `replica.ts`
 
 ### Backups
 
-Nightly online backup of `fuel.db` to an iCloud Drive folder, keeping 30 days. (Graft from server-authoritative.) The phone's full copy is a second line of defense. Restoring a backup changes the server's epoch, and phones then re-push anything the restored server lacks.
+Nightly online backup of `fuel.db` to an iCloud Drive folder, keeping 30 days. (Graft from server-authoritative.) The phone's full copy is a second line of defense. Restoring a backup changes the server's epoch. Phones then re-queue every document they hold, so edits made after the backup survive. A delete made after the backup comes back and has to be redone.
 
 ## Synthesis decision
 
