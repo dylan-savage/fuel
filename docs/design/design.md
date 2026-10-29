@@ -1,6 +1,6 @@
 # fuel design
 
-Status: approved 2026-10-28 (phone-first). Wearable burn import deferred the same day. Phases 1, 2, 3, 5 and 6 are built. Open questions are in [open-questions.md](open-questions.md).
+Status: approved 2026-10-28 (phone-first). Wearable burn import deferred the same day. Phases 1 to 6 are built. Open questions are in [open-questions.md](open-questions.md).
 
 ## Problem
 
@@ -102,6 +102,8 @@ Ids are random UUIDs minted on the phone. Day singletons use fixed ids (`w:<date
 
 The phone queues whole-document puts and deletes in an outbox. Each sync pushes them and pulls everything above its cursor in one request. The server applies pushes in arrival order inside one transaction and stamps each with a global revision. It skips mutation ids it has already applied, so a lost response is safe to retry. When pulled data arrives, the phone keeps its own unsynced version of a document. That is correct because every mutation is a whole document, and the unsynced write will reach the server after everything already pulled.
 
+The replica's `commit` parses every document against its kind's schema before it writes, and throws `InvalidDocument` with nothing written. An edit the mini would reject fails on the phone when it is made. Before, it reached the outbox, the mini refused it, and the next sync deleted it from the phone without a word.
+
 The only real conflict is two devices editing the same document while one is offline. The later arrival wins. 
 iOS gives web apps no background sync. Sync runs on app start, after each write (debounced), on returning to the foreground, on the `online` event, and every 60 seconds while the app is open.
 
@@ -128,7 +130,7 @@ The default is `activity-level`, which gives a steady daily target. The goal sto
 
 BMR reads the trend weight on the day. Days before the first weigh-in use the profile weight, which is what they were budgeted with before phase 5, so starting to weigh in leaves them alone. A late weigh-in moves the trend, and with it the targets of the days after it, slightly. A single weigh-in is its own trend, so "the latest weigh-in" needs no separate fallback.
 
-A workout is one `workout` document. It stores its net kcal, `(MET − 1) × kg × hours`, and the weight it was worked out at, so later weigh-ins never rewrite past burn. Editing a workout keeps that weight. Net kcal leave out the resting burn already in BMR. The 1.2 sedentary baseline covers digestion and light daily movement, so a logged workout is extra on top of it and never counted twice. Activities come from a table of about 30 MET values from the 2011 Compendium of Physical Activities. A workout stores its label and MET, so it never needs the table again, and a newer app's activity still parses on an older one. A custom workout takes the burn as a machine or calculator reports it, and the app subtracts the same resting share, `kg × hours`, to keep the one rule. Dylan wears an Apple Watch but does not trust its calorie numbers, so no device burn enters the budget.
+A workout is one `workout` document. It stores its net kcal, `(MET − 1) × kg × hours`, and the weight it was worked out at, so later weigh-ins never rewrite past burn. Editing a workout keeps that weight. Net kcal leave out the resting burn already in BMR. The 1.2 sedentary baseline covers digestion and light daily movement, so a logged workout is extra on top of it and never counted twice. Activities come from a table of 30 MET values from the 2024 Adult Compendium of Physical Activities, checked against the published tables on 2026-10-28. A workout stores its label and MET, so it never needs the table again, and a newer app's activity still parses on an older one. A custom workout takes the burn as a machine or calculator reports it, and the app subtracts the same resting share, `kg × hours`, to keep the one rule. Dylan wears an Apple Watch but does not trust its calorie numbers, so no device burn enters the budget.
 
 ### Weight trend
 
@@ -138,6 +140,36 @@ The weekly rate is the least-squares slope of the trend over the last 14 days. I
 
 The Weight sheet charts scale weigh-ins as gray dots under the trend as a blue line, over 30, 90 or 365 days, in inline SVG. A green goal line shows when the goal is near the data, so a distant goal never flattens the trend. A touch scrub reads out the day's trend and scale weight, and the list of weigh-ins under the chart is its table view.
 
+### AI quick log
+
+On the Add screen Dylan describes a meal, or picks a photo of a plate or a nutrition label. The phone shrinks a photo to 1568 px on the long edge as a JPEG of a few hundred KB, and sends it with his foods as hints: up to 60 names and keys, recents first. `POST /api/ai/parse` asks Claude, writes nothing, and answers drafts for a description or a plate, or a `FoodCandidate` for a label.
+
+A draft is one food: a name, the amount as far as the model could tell it, nutrients for the whole amount, a confidence, and the key of one of his foods when the model judged the item to be that food. The amount is a count, grams for food and millilitres for drinks, and any of them may be unknown. The model picks the match from the numbered hints, because a name search cannot tell "coffee with oat milk" from his oat milk. The phone resolves the key against its own copy, and also offers up to two foods that the draft's name finds.
+
+A draft logs as the AI's estimate or as one of his foods (`domain/quicklog.ts`):
+
+- The estimate is a one-off food measured by the weight or volume the model gave, so changing the amount scales its nutrients. A counted piece becomes a serving, so "3 slices" can become 2.
+- His food logs his own nutrients. With no amount said, it logs the amount he last logged, so "my usual oats" is his usual jar.
+- A count becomes his serving only when it agrees with the model's weight to within 35%. "1 bowl, 80 g" of oats whose serving is a 250 g jar logs 80 g.
+- Grams never become millilitres.
+
+The review sheet lists the drafts under their totals. Each row edits its amount, swaps between the estimate and his foods, or is removed. Nothing is logged until he confirms. Then every row goes through `intents.logItems` in one commit, into the one meal picked at the foot of the sheet. A label opens the confirm sheet, where `completeFood` asks for any core nutrient the model could not read. When a barcode lookup misses, Scan offers **Photograph the label**, and the confirmed food keeps the scanned barcode, so the next scan finds it in the library.
+
+`server/ai.ts` calls `client.beta.messages.create` with structured output from zod schemas, at low effort, with `fallbacks: "default"` so a classifier refusal is retried on another model by the API. It reads the stop reason before the content, then parses the reply with the same schema. A failure carries its reason in the error body:
+
+| Reason | Status | When |
+|---|---|---|
+| `ai_unconfigured` | 503 | no `ANTHROPIC_API_KEY` on the mini |
+| `ai_unavailable` | 502 | the API is out of reach or answers an error, after one retry |
+| `ai_timeout` | 504 | no answer within 25 seconds |
+| `ai_refused` | 422 | the model declined, fallback included |
+| `ai_unreadable` | 502 | the reply does not fit the schema, or was cut off |
+| `ai_nothing_found` | 422 | no food in the input, or no readable label |
+
+The model is `FUEL_AI_MODEL`, by default `claude-opus-5-5` at low effort. The claude-api guidance is to use the current Opus unless Dylan names another model, and to lower effort before switching to a smaller model. Low effort is its quickest setting, and structured extraction keeps its quality there. Whether a Haiku or Sonnet model is fast and accurate enough to replace it is open question 5. `scripts/ai-smoke.mjs` answers it once the key lands.
+
+AI needs the mini. The phone turns quick log off, and says why, while the browser is offline or the last sync could not reach the mini. It never queues a request. The route's reasons reach the screen through `Online<T, Why>`, the same result type as search and lookup.
+
 ### Deferred: wearable burn import
 
 Importing measured burn is out of scope until Dylan has a wearable he trusts (decided 2026-10-28). When it lands, it adds a third policy, `{ kind: 'measured', fraction }` with `target = bmr × 1.1 + fraction × device active energy`, a server-written `health` kind (one line in `KINDS`), and an ingest route. The candidates' Shortcut contract (latest `as_of` wins per metric and day, numbers coerced from text, raw payloads logged) is the starting point. See [candidates/local-first/design.md](candidates/local-first/design.md). Nothing in the current shape blocks it.
@@ -146,15 +178,15 @@ Importing measured burn is out of scope until Dylan has a wearable he trusts (de
 
 ```
 src/domain/     pure; compiled with no DOM and no Node types
-  ids.ts units.ts nutrients.ts food.ts diary.ts library.ts reuse.ts goals.ts body.ts burn.ts habits.ts kinds.ts
+  ids.ts units.ts nutrients.ts food.ts diary.ts library.ts reuse.ts goals.ts body.ts burn.ts habits.ts quicklog.ts kinds.ts
 src/protocol.ts zod schemas for every HTTP body
 src/server/     main.ts routes.ts store.ts foods.ts off.ts usda.ts upstream.ts ai.ts backup.ts
-src/client/     main.tsx replica.ts sync.ts intents.ts views.ts api.ts scanner.ts screens/
+src/client/     main.tsx replica.ts sync.ts intents.ts views.ts api.ts scanner.ts photo.ts screens/
 test/           domain units, adapter fixtures, routes, sync simulation, schema history pin
-scripts/        run.sh, com.dylansavage.fuel.plist, restore.sh
+scripts/        run.sh, com.dylansavage.fuel.plist, restore.sh, ai-smoke.mjs
 ```
 
-Logging a recent food traces `screens/Diary.tsx` to `intents.ts` to `replica.ts`, with the math in `domain/diary.ts`. The server side is `routes.ts` to `store.ts`. Recipes, saved meals and the food-edit refresh live in `domain/reuse.ts`, water and fasts in `domain/habits.ts`, weigh-ins and the trend in `domain/body.ts`, and workouts in `domain/burn.ts`.
+Logging a recent food traces `screens/Diary.tsx` to `intents.ts` to `replica.ts`, with the math in `domain/diary.ts`. The server side is `routes.ts` to `store.ts`. Recipes, saved meals and the food-edit refresh live in `domain/reuse.ts`, water and fasts in `domain/habits.ts`, weigh-ins and the trend in `domain/body.ts`, workouts in `domain/burn.ts`, and AI drafts in `domain/quicklog.ts`.
 
 The tab bar keeps four tabs: Diary, Add, Scan and Goal. Recipes and saved meals are shelves inside Add, beside Recent, where logging starts. Water, the fast timer and weight are tiles on the Diary under the day's summary. The fasting tile shows only on today, where the weight tile takes the row below the other two and adds a 30-day trend line. The weight tile has a one-tap Weigh in and opens the Weight sheet, which the Goal screen's Profile group opens too. Workouts are a section after Snacks, laid out like a meal.
 
@@ -165,7 +197,7 @@ The tab bar keeps four tabs: Diary, Add, Scan and Goal. Recipes and saved meals 
 | `POST /api/sync` | the only write path for user data: push mutations, pull changes |
 | `GET /api/foods/search?q=` | USDA (when `USDA_API_KEY` is set) and Open Food Facts text search through search-a-licious; 502 only when every source fails |
 | `GET /api/foods/lookup/:ref` | barcode (`gtin:`) or USDA (`usda:`) lookup, cached on the mini |
-| `POST /api/ai/parse` | text or photo to draft entries or a food candidate; writes nothing |
+| `POST /api/ai/parse` | a description or photo to drafts, or a label to a food candidate; writes nothing; 503 `ai_unconfigured` without a key |
 | `GET /healthz`, `GET /*` | smoke check; the built PWA |
 
 ### Backups
@@ -191,6 +223,7 @@ Nightly online backup of `fuel.db` to an iCloud Drive folder, keeping 30 days. (
 - We accept that a late weigh-in nudges past days' targets through the trend, in exchange for not storing targets. Days before the first weigh-in keep the profile weight, so they do not move.
 - We accept that the trend holds still across days with no weigh-in, rather than drawing a line between weigh-ins. After a long gap it takes a couple of weeks of weigh-ins to catch up, and the rate reads fast while it does.
 - We accept no app-level auth. The tailnet and the loopback bind are the perimeter.
+- We accept sending the names of up to 60 of Dylan's foods to Anthropic with each AI request, in exchange for matches a name search cannot make.
 
 ## Phasing
 
@@ -199,7 +232,7 @@ Each phase ends with a check on the real phone.
 1. **Scaffold.** Repo, lint, tests, Hono serving a placeholder PWA, launchd, `tailscale serve`, Add to Home Screen. A device spike for camera access in standalone mode. Done when the Home Screen app opens in airplane mode and scans a barcode to digits on screen.
 2. **MVP.** Foods, entries, goals, profile. Sync and its simulation. Diary with meals, totals and remaining. Recents, library search, quick add, edit and delete with undo, create a food, scan to Open Food Facts to log, USDA search, the goal calculator (BMR, TDEE, rate, macro split), nightly backups. Done when Dylan logs a real day, including one entry made in airplane mode that reaches `fuel.db`.
 3. **Reuse.** Recipes, saved meals, copy meal and copy day, the food-edit update prompt. Built 2026-10-28.
-4. **AI quick log.** Text first, then label photo (which also fills the "barcode not found" gap), then plate photo.
+4. **AI quick log.** Text first, then label photo (which also fills the "barcode not found" gap), then plate photo. Built 2026-10-28, tested against hand-written replies until the API key lands.
 5. **Body and workouts.** Weigh-ins, trend chart, weekly rate, projected goal date, MET workouts, the budget policy. Built 2026-10-28.
 6. **Water and fasting.** Built 2026-10-28.
 7. **Refinements.** Adaptive TDEE suggestion once weeks of data exist, an inbox for unknown barcodes scanned offline, a restore drill.

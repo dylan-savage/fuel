@@ -31,11 +31,13 @@ The server reads these optional environment variables:
 | `FUEL_BACKUP_KEEP` | `30` |
 | `FUEL_STATIC_DIR` | `dist/client` in the repo |
 | `USDA_API_KEY` | unset: search uses Open Food Facts only |
+| `ANTHROPIC_API_KEY` | unset: AI quick log answers 503 `ai_unconfigured` |
+| `FUEL_AI_MODEL` | `claude-opus-5-5` |
 | `FUEL_OFF_URL` | `https://world.openfoodfacts.org` (barcode lookups) |
 | `FUEL_OFF_SEARCH_URL` | `https://search.openfoodfacts.org` (text search) |
 | `FUEL_USDA_URL` | `https://api.nal.usda.gov/fdc` |
 
-`run.sh` loads `.env.local` from the repo and from the parent folder, where tokenstash writes keys. The only key is `USDA_API_KEY`, and it is optional. The log line `listening` reports `"usda": true` once the server has it.
+`run.sh` loads `.env.local` from the repo and from the parent folder, where tokenstash writes keys. Both keys, `USDA_API_KEY` and `ANTHROPIC_API_KEY`, are optional. The log line `listening` reports `"usda": true` once the server has the first, and the AI model once it has the second. Each AI request logs an `ai_parse` line with its latency, token counts and outcome.
 
 ## Deploy a new version
 

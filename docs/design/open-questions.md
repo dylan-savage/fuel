@@ -8,7 +8,7 @@ Deferred decisions and unstated assumptions for [design.md](design.md), as of 20
 2. **Calorie floor.** Should the target never go below BMR, or only warn?
 3. **Units.** Pounds for body weight is assumed. Food amounts in grams, ounces, or both?
 4. **Late-night snacks.** Should food logged after midnight count toward the previous day, and until what hour?
-5. **AI model.** Quick log needs to feel fast. Compare a Haiku-class and a Sonnet-class Claude model on latency and accuracy during phase 4.
+5. **AI model.** Quick log runs `claude-opus-5-5` at low effort, its quickest setting. Once the key lands, `node --env-file-if-exists=../.env.local scripts/ai-smoke.mjs claude-opus-5-5 claude-sonnet-5-5 claude-haiku-5-5` times all three on the same description, label and plate. Keep Opus, or set `FUEL_AI_MODEL` to the one that feels fast enough?
 6. **Second device.** Will a laptop browser ever write? If not, the only real sync conflict cannot happen.
 7. **MyFitnessPal history.** Do you want your MFP history imported so the trend and adaptive TDEE start with data?
 8. **Recents order.** Recents rank by how often you log a food, with each use counting half as much after a week, so daily staples stay on top. The other option is plain most-recent-first. Which feels right after a week of use?
@@ -18,9 +18,12 @@ Deferred decisions and unstated assumptions for [design.md](design.md), as of 20
 12. **Editing saved meals.** A saved meal can be logged or deleted, not edited. To change one, delete it and save a diary meal again. Is that enough?
 13. **Trend across gaps.** The trend holds still on days you skip the scale. After a week or more away it lags, and for a couple of weeks after you resume the weekly rate reads faster than your real change. The other choice draws a straight line between weigh-ins across a gap, as Hacker's Diet Online does. Keep holding?
 14. **Time to a first rate.** The weekly rate and projected date wait for two weeks of trend with at least 7 weigh-ins in the last 14 days. Is two weeks too long to wait?
-15. **MET values.** The 30 built-in activities use MET values from the 2011 Compendium of Physical Activities, written from memory and not yet checked against the published table. The 2024 Adult Compendium revised some of them. Want them checked, or other activities added?
+15. **One meal per quick log.** The review logs every row into the one meal picked at its foot, like the other log sheets. Describing breakfast and lunch together means two quick logs. Want a meal on each row instead?
+16. **Saving AI estimates.** An AI estimate logs as a one-off and then shows in Recents, but it never becomes a library food. Want a "Save to my foods" on a draft?
 
 ## Decided
+
+- **MET values checked** (2026-10-28). All 30 activities were checked against the 2024 Adult Compendium tables on pacompendium.com, and 14 changed. The rowing machine moved most, from 7.0 to 5.0, because moderate effort is the under-100 W entry. Workouts already logged keep the MET they were stored with. Say if you want other activities added.
 
 - **Food and recipe edits ask first** (2026-10-28). After you edit a food or recipe that recipes or saved meals use, the app asks "also update 2 recipes and 1 saved meal?" and changes them only on yes, with an undo. Diary entries never change. Say if you would rather they update without asking.
 - **Eating back workouts** (2026-10-28). The default stays `activity-level`, where logged workouts never change the target. The Goal screen can switch to `eat-back-workouts`, which counts 100% of each workout by default, editable from 0% to 100%. MyFitnessPal credits 100%. Many people use 50%.
@@ -50,10 +53,18 @@ Deferred decisions and unstated assumptions for [design.md](design.md), as of 20
 - Dragging a finger across the weight chart scrubs the readout without fighting the sheet's vertical scroll.
 - The date field in the weigh-in sheet opens the iOS date wheel and refuses future days.
 
+## Assumptions to verify on the device (phase 4)
+
+- **Plate photo** and **Label photo** open the iOS menu with Take Photo and Photo Library in the Home Screen app, and **Photograph the label** opens the camera straight away.
+- A portrait iPhone photo reaches the mini upright. The phone draws it through an image element, which applies its EXIF orientation, before shrinking it.
+- Quick log feels fast enough on cellular. The photo is a few hundred KB, and the mini gives up after 25 seconds and one retry.
+- Quick log turns off within a moment of losing signal, from the browser's offline event or the next failed sync.
+
 ## Human steps
 
 - Enable HTTPS certificates in the Tailscale admin console.
 - Install Tailscale on the iPhone and sign in.
 - After deploying phases 3 and 6, open the app and tap "A new version is ready" before logging. The older cached app cannot read recipe, saved meal, water or fast documents, so its sync stops with an error until it reloads. Nothing is lost: its outbox waits.
 - Phase 5 needs the same reload. The older app cannot read weigh-in or workout documents, or a goal that eats back workouts.
-- Approve the tokenstash requests for `ANTHROPIC_API_KEY` (phase 4) and `USDA_API_KEY` (phase 2). The USDA request is filed and pending. Once it is approved, run `node --env-file-if-exists=../.env.local scripts/record-fixtures.mjs usda`, add `test/usda.test.ts` against the recordings, and restart the server so search includes USDA.
+- Approve the tokenstash requests for `ANTHROPIC_API_KEY` (phase 4) and `USDA_API_KEY` (phase 2). Both are filed and pending. Once the USDA key is approved, run `node --env-file-if-exists=../.env.local scripts/record-fixtures.mjs usda`, add `test/usda.test.ts` against the recordings, and restart the server so search includes USDA.
+- Once `ANTHROPIC_API_KEY` is approved, run `npm run build`, then `node --env-file-if-exists=../.env.local scripts/ai-smoke.mjs`, and check its drafts against `test/ai-replies.ts`. Restart the server, and quick log turns on. Until then the route answers 503 and the app says AI is not set up.
