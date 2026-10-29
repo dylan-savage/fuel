@@ -4,7 +4,7 @@ Deferred decisions and unstated assumptions for [design.md](design.md), as of 20
 
 ## For Dylan
 
-1. **Eating back workouts.** The default budget policy is `activity-level`, where logged workouts do not raise the target. If you switch to `eat-back-workouts`, what fraction should count? MyFitnessPal credits 100%. Many people use 50%.
+1. **Custom workout burn.** A custom workout takes the burn a machine or app shows and subtracts your resting burn for the time (1 kcal per kg per hour), the same rule MET workouts follow. A 60-minute class you enter as 300 kcal counts as 218 kcal at 180 lb. If you would rather type the extra burn yourself and have it stored as entered, say so.
 2. **Calorie floor.** Should the target never go below BMR, or only warn?
 3. **Units.** Pounds for body weight is assumed. Food amounts in grams, ounces, or both?
 4. **Late-night snacks.** Should food logged after midnight count toward the previous day, and until what hour?
@@ -16,10 +16,14 @@ Deferred decisions and unstated assumptions for [design.md](design.md), as of 20
 10. **Fasting streak day.** A fast counts toward the streak on the day it ends, if it reached its target. Should it count on the day it started instead?
 11. **Backdated fasts.** A fast starts when you tap Start. Do you want to set an earlier start ("I stopped eating at 8 pm") or edit a past fast?
 12. **Editing saved meals.** A saved meal can be logged or deleted, not edited. To change one, delete it and save a diary meal again. Is that enough?
+13. **Trend across gaps.** The trend holds still on days you skip the scale. After a week or more away it lags, and for a couple of weeks after you resume the weekly rate reads faster than your real change. The other choice draws a straight line between weigh-ins across a gap, as Hacker's Diet Online does. Keep holding?
+14. **Time to a first rate.** The weekly rate and projected date wait for two weeks of trend with at least 7 weigh-ins in the last 14 days. Is two weeks too long to wait?
+15. **MET values.** The 30 built-in activities use MET values from the 2011 Compendium of Physical Activities, written from memory and not yet checked against the published table. The 2024 Adult Compendium revised some of them. Want them checked, or other activities added?
 
 ## Decided
 
 - **Food and recipe edits ask first** (2026-10-28). After you edit a food or recipe that recipes or saved meals use, the app asks "also update 2 recipes and 1 saved meal?" and changes them only on yes, with an undo. Diary entries never change. Say if you would rather they update without asking.
+- **Eating back workouts** (2026-10-28). The default stays `activity-level`, where logged workouts never change the target. The Goal screen can switch to `eat-back-workouts`, which counts 100% of each workout by default, editable from 0% to 100%. MyFitnessPal credits 100%. Many people use 50%.
 - **Wearable burn import is deferred** (2026-10-28). Dylan wears an Apple Watch but does not trust its calorie numbers. Revisit when he has a better wearable. The shape for it is in design.md under "Deferred: wearable burn import".
 
 ## Assumptions to verify on the device (phase 1)
@@ -40,9 +44,16 @@ Deferred decisions and unstated assumptions for [design.md](design.md), as of 20
 - The fast timer shows the right time after the app comes back from the background. It is derived from the start time, so only the once-a-second tick has to resume.
 - "End fast" on the Today tile is not easy to hit by accident. The toast offers an undo.
 
+## Assumptions to verify on the device (phase 5)
+
+- Tapping **Weigh in** on the Today tile raises the decimal keypad with the weight field focused. iOS may ignore `autofocus` in a Home Screen app, which costs one extra tap.
+- Dragging a finger across the weight chart scrubs the readout without fighting the sheet's vertical scroll.
+- The date field in the weigh-in sheet opens the iOS date wheel and refuses future days.
+
 ## Human steps
 
 - Enable HTTPS certificates in the Tailscale admin console.
 - Install Tailscale on the iPhone and sign in.
 - After deploying phases 3 and 6, open the app and tap "A new version is ready" before logging. The older cached app cannot read recipe, saved meal, water or fast documents, so its sync stops with an error until it reloads. Nothing is lost: its outbox waits.
+- Phase 5 needs the same reload. The older app cannot read weigh-in or workout documents, or a goal that eats back workouts.
 - Approve the tokenstash requests for `ANTHROPIC_API_KEY` (phase 4) and `USDA_API_KEY` (phase 2). The USDA request is filed and pending. Once it is approved, run `node --env-file-if-exists=../.env.local scripts/record-fixtures.mjs usda`, add `test/usda.test.ts` against the recordings, and restart the server so search includes USDA.

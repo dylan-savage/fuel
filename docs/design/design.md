@@ -1,6 +1,6 @@
 # fuel design
 
-Status: approved 2026-10-28 (phone-first). Wearable burn import deferred the same day. Phases 1, 2, 3 and 6 are built. Open questions are in [open-questions.md](open-questions.md).
+Status: approved 2026-10-28 (phone-first). Wearable burn import deferred the same day. Phases 1, 2, 3, 5 and 6 are built. Open questions are in [open-questions.md](open-questions.md).
 
 ## Problem
 
@@ -109,20 +109,34 @@ Screens never touch the replica's `commit` or the outbox. `FuelProvider` exposes
 
 ### Calorie budget and workouts
 
-All pure, in `domain/goals.ts` and `domain/burn.ts`.
+All pure, in `domain/goals.ts`, `domain/body.ts` and `domain/burn.ts`.
 
 ```
-bmr       = Mifflin-St Jeor(profile, trend weight on that day)
+weight    = the trend weight on that day, or the profile weight before the first weigh-in
+bmr       = Mifflin-St Jeor(profile, weight)
 goal      = the goal in effect on that day (goals are effective-dated)
 policy    = { kind: 'activity-level', level } | { kind: 'eat-back-workouts', fraction }
 
 activity-level:     target = bmr × multiplier + rate adjustment
                     workouts are recorded but do not change the budget
 eat-back-workouts:  target = bmr × 1.2 + rate adjustment + fraction × Σ workout net kcal
+manual override:    replaces bmr × multiplier + rate adjustment; eat-back still adds workouts
 remaining = target − eaten kcal
 ```
 
-The default is `activity-level`, which gives a steady daily target. The goal stores the activity level, and the multiplier comes from the standard table (1.2 to 1.9). Changing the level saves a new goal, so past days keep theirs. The weekly rate is stored in kg and converted at 3500 kcal per lb, so losing 1 lb a week is exactly 500 kcal a day. A goal may set a manual kcal target instead, and its macros are a percent split or grams. Until weigh-ins arrive in phase 5, BMR uses the profile's current weight, so updating it shifts past days' targets slightly. That is the same tradeoff the trend makes later. Workout kcal are net MET kcal, `(MET − 1) × kg × hours`, which leaves out the resting burn already in BMR. The 1.2 sedentary baseline covers digestion and light daily movement, so a logged workout is extra on top of it and never counted twice. Dylan wears an Apple Watch but does not trust its calorie numbers, so no device burn enters the budget.
+The default is `activity-level`, which gives a steady daily target. The goal stores the activity level, and the multiplier comes from the standard table (1.2 to 1.9). Changing the level or the policy saves a new goal, so past days keep theirs. Eat-back stores `fraction` from 0 to 1, shown as a percent, 100% by default. The weekly rate is stored in kg and converted at 3500 kcal per lb, so losing 1 lb a week is exactly 500 kcal a day. A goal may set a manual kcal target instead, and its macros are a percent split or grams. A percent split applies to the whole target, eaten-back workouts included. The Goal screen explains each policy in one sentence, and the diary summary reads "goal + workouts − food" when workouts count.
+
+BMR reads the trend weight on the day. Days before the first weigh-in use the profile weight, which is what they were budgeted with before phase 5, so starting to weigh in leaves them alone. A late weigh-in moves the trend, and with it the targets of the days after it, slightly. A single weigh-in is its own trend, so "the latest weigh-in" needs no separate fallback.
+
+A workout is one `workout` document. It stores its net kcal, `(MET − 1) × kg × hours`, and the weight it was worked out at, so later weigh-ins never rewrite past burn. Editing a workout keeps that weight. Net kcal leave out the resting burn already in BMR. The 1.2 sedentary baseline covers digestion and light daily movement, so a logged workout is extra on top of it and never counted twice. Activities come from a table of about 30 MET values from the 2011 Compendium of Physical Activities. A workout stores its label and MET, so it never needs the table again, and a newer app's activity still parses on an older one. A custom workout takes the burn as a machine or calculator reports it, and the app subtracts the same resting share, `kg × hours`, to keep the one rule. Dylan wears an Apple Watch but does not trust its calorie numbers, so no device burn enters the budget.
+
+### Weight trend
+
+A weigh-in is one document per day, `w:<date>`, so a second weigh-in that day replaces the first and the latest edit wins. The trend follows the Hacker's Diet. The first weigh-in seeds it, each later weigh-in moves it a tenth of the way, `trend += 0.1 × (weight − trend)`, and a day with no weigh-in carries it unchanged. Nothing about the trend is stored.
+
+The weekly rate is the least-squares slope of the trend over the last 14 days. It needs a trend that spans all 14 days and at least 7 weigh-ins in them. Before that the app says "not enough data" rather than project from one or two readings. The goal weight is an optional field of the goal, so it is effective-dated like the rest. The projected date is when the trend reaches it at the current rate. Within about half a pound counts as reached, a rate under 0.1 lb a week projects nothing ("holding steady"), and a trend heading the wrong way says so.
+
+The Weight sheet charts scale weigh-ins as gray dots under the trend as a blue line, over 30, 90 or 365 days, in inline SVG. A green goal line shows when the goal is near the data, so a distant goal never flattens the trend. A touch scrub reads out the day's trend and scale weight, and the list of weigh-ins under the chart is its table view.
 
 ### Deferred: wearable burn import
 
@@ -140,9 +154,9 @@ test/           domain units, adapter fixtures, routes, sync simulation, schema 
 scripts/        run.sh, com.dylansavage.fuel.plist, restore.sh
 ```
 
-Logging a recent food traces `screens/Diary.tsx` to `intents.ts` to `replica.ts`, with the math in `domain/diary.ts`. The server side is `routes.ts` to `store.ts`. Recipes, saved meals and the food-edit refresh live in `domain/reuse.ts`, and water and fasts in `domain/habits.ts`.
+Logging a recent food traces `screens/Diary.tsx` to `intents.ts` to `replica.ts`, with the math in `domain/diary.ts`. The server side is `routes.ts` to `store.ts`. Recipes, saved meals and the food-edit refresh live in `domain/reuse.ts`, water and fasts in `domain/habits.ts`, weigh-ins and the trend in `domain/body.ts`, and workouts in `domain/burn.ts`.
 
-The tab bar keeps four tabs: Diary, Add, Scan and Goal. Recipes and saved meals are shelves inside Add, beside Recent, where logging starts. Water and the fast timer are tiles on the Diary under the day's summary. The fasting tile shows only on today.
+The tab bar keeps four tabs: Diary, Add, Scan and Goal. Recipes and saved meals are shelves inside Add, beside Recent, where logging starts. Water, the fast timer and weight are tiles on the Diary under the day's summary. The fasting tile shows only on today, where the weight tile takes the row below the other two and adds a 30-day trend line. The weight tile has a one-tap Weigh in and opens the Weight sheet, which the Goal screen's Profile group opens too. Workouts are a section after Snacks, laid out like a meal.
 
 ### HTTP surface
 
@@ -174,7 +188,8 @@ Nightly online backup of `fuel.db` to an iCloud Drive folder, keeping 30 days. (
 - We accept a generic JSON document table on the mini with no SQL foreign keys, in exchange for one registry driving validation, sync and the phone's tables. Document schemas evolve additively only.
 - We accept diverging from stash's Python conventions, in exchange for one copy of the math.
 - We accept that food edits do not flow into recipes and saved meals unless Dylan accepts the prompt, in exchange for stable history.
-- We accept that a late weigh-in nudges past days' targets through the trend, in exchange for not storing targets.
+- We accept that a late weigh-in nudges past days' targets through the trend, in exchange for not storing targets. Days before the first weigh-in keep the profile weight, so they do not move.
+- We accept that the trend holds still across days with no weigh-in, rather than drawing a line between weigh-ins. After a long gap it takes a couple of weeks of weigh-ins to catch up, and the rate reads fast while it does.
 - We accept no app-level auth. The tailnet and the loopback bind are the perimeter.
 
 ## Phasing
@@ -185,7 +200,7 @@ Each phase ends with a check on the real phone.
 2. **MVP.** Foods, entries, goals, profile. Sync and its simulation. Diary with meals, totals and remaining. Recents, library search, quick add, edit and delete with undo, create a food, scan to Open Food Facts to log, USDA search, the goal calculator (BMR, TDEE, rate, macro split), nightly backups. Done when Dylan logs a real day, including one entry made in airplane mode that reaches `fuel.db`.
 3. **Reuse.** Recipes, saved meals, copy meal and copy day, the food-edit update prompt. Built 2026-10-28.
 4. **AI quick log.** Text first, then label photo (which also fills the "barcode not found" gap), then plate photo.
-5. **Body and workouts.** Weigh-ins, trend chart, weekly rate, projected goal date, MET workouts, the budget policy.
+5. **Body and workouts.** Weigh-ins, trend chart, weekly rate, projected goal date, MET workouts, the budget policy. Built 2026-10-28.
 6. **Water and fasting.** Built 2026-10-28.
 7. **Refinements.** Adaptive TDEE suggestion once weeks of data exist, an inbox for unknown barcodes scanned offline, a restore drill.
 
