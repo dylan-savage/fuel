@@ -20,8 +20,12 @@ export const CORE_KEYS: readonly CoreKey[] = NUTRIENTS.flatMap((n) => (n.core ? 
 
 const amount = z.number().nonnegative().finite();
 
-/** Any subset known. Unknown is absent, never 0, so "unknown" and "none" stay distinct. */
-export const PartialNutrients = z.strictObject({
+/**
+ * Any subset known. Unknown is absent, never 0, so "unknown" and "none" stay distinct.
+ * Loose, like every document shape: a nutrient a newer app adds survives an older app's
+ * rewrite instead of being stripped.
+ */
+export const PartialNutrients = z.looseObject({
   kcal: amount.optional(),
   protein: amount.optional(),
   carbs: amount.optional(),

@@ -56,7 +56,7 @@ export function parseGtin(format: string, raw: string): Gtin | null {
 }
 
 /** A named serving whose amount is in the owning food's unit ("1 large egg" is 50 g). */
-export const Serving = z.object({
+export const Serving = z.looseObject({
   label: z.string().min(1),
   amount: z.number().positive(),
 });
@@ -67,15 +67,15 @@ export type Serving = z.infer<typeof Serving>;
  * without a lookup and cannot dangle.
  */
 export const Quantity = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('amount'), amount: z.number().positive() }),
-  z.object({ kind: z.literal('serving'), serving: Serving, count: z.number().positive() }),
+  z.looseObject({ kind: z.literal('amount'), amount: z.number().positive() }),
+  z.looseObject({ kind: z.literal('serving'), serving: Serving, count: z.number().positive() }),
 ]);
 export type Quantity = z.infer<typeof Quantity>;
 
 /** Provenance of a snapshot, for grouping recents. Never read by nutrient math. */
 export const Origin = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('food'), id: FoodId }),
-  z.object({ kind: z.literal('adhoc') }),
+  z.looseObject({ kind: z.literal('food'), id: FoodId }),
+  z.looseObject({ kind: z.literal('adhoc') }),
 ]);
 export type Origin = z.infer<typeof Origin>;
 
@@ -83,7 +83,7 @@ export type Origin = z.infer<typeof Origin>;
  * A food's nutrition at one moment, held by value in entries, so editing the library food
  * later never changes a past day. `nutrients` describe BASIS[unit] units.
  */
-export const FoodSnapshot = z.object({
+export const FoodSnapshot = z.looseObject({
   name: z.string().min(1),
   brand: z.string().min(1).optional(),
   unit: FoodUnit,
@@ -94,10 +94,10 @@ export const FoodSnapshot = z.object({
 export type FoodSnapshot = z.infer<typeof FoodSnapshot>;
 
 export const FoodSource = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('user') }),
-  z.object({ kind: z.literal('off'), gtin: Gtin, fetchedAt: Millis }),
-  z.object({ kind: z.literal('usda'), fdcId: z.number().int().positive() }),
-  z.object({ kind: z.literal('ai'), from: z.enum(['label', 'plate', 'text']) }),
+  z.looseObject({ kind: z.literal('user') }),
+  z.looseObject({ kind: z.literal('off'), gtin: Gtin, fetchedAt: Millis }),
+  z.looseObject({ kind: z.literal('usda'), fdcId: z.number().int().positive() }),
+  z.looseObject({ kind: z.literal('ai'), from: z.enum(['label', 'plate', 'text']) }),
 ]);
 export type FoodSource = z.infer<typeof FoodSource>;
 
@@ -132,7 +132,7 @@ export function completeFood(candidate: FoodCandidate, id: FoodId): Completion {
 }
 
 /** A food plus how much of it: what logging takes. */
-export const Ingredient = z.object({ food: FoodSnapshot, quantity: Quantity });
+export const Ingredient = z.looseObject({ food: FoodSnapshot, quantity: Quantity });
 export type Ingredient = z.infer<typeof Ingredient>;
 
 /** Amount of a quantity in the food's unit. */

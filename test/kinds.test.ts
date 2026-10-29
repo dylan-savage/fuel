@@ -40,3 +40,25 @@ describe('parseDoc', () => {
     expect(parseDoc('food', { ...food, nutrients: { ...food.nutrients, fat: 7 } }).ok).toBe(true);
   });
 });
+
+describe('documents from a newer app', () => {
+  it('keep fields this app does not know, at every depth, so rewriting one drops nothing', () => {
+    const newer = {
+      id: '0b1e6c7a-3f2d-4e5a-8b9c-0d1e2f3a4b5c',
+      date: '2026-10-28',
+      meal: 'lunch',
+      loggedAt: 1,
+      photoId: 'p-1',
+      food: {
+        name: 'Soup',
+        unit: 'g',
+        nutrients: { kcal: 40, saturatedFat: 0.4 },
+        servings: [{ label: '1 cup', amount: 249, household: 'cup' }],
+        origin: { kind: 'adhoc', via: 'voice' },
+        imageUrl: 'https://example.invalid/soup.jpg',
+      },
+      quantity: { kind: 'serving', serving: { label: '1 cup', amount: 249, household: 'cup' }, count: 1, note: 'about' },
+    };
+    expect(parseDoc('entry', newer)).toEqual({ ok: true, doc: newer });
+  });
+});
