@@ -5,8 +5,8 @@
  */
 import { createContext } from 'preact';
 import { useCallback, useContext, useEffect, useState } from 'preact/hooks';
-import type { WeighIn } from '../domain/body.js';
-import type { Workout } from '../domain/burn.js';
+import { bodyWeightOn, projectGoal, trendSeries, weeklyRate, type BodyWeight, type Projection, type TrendPoint, type WeeklyRate, type WeighIn } from '../domain/body.js';
+import { recentWorkouts, type Workout, type WorkoutDraft } from '../domain/burn.js';
 import { summarizeDay, type DaySummary } from '../domain/diary.js';
 import type { Food, Gtin } from '../domain/food.js';
 import { PROFILE_ID, budgetOn, goalOn, type Budget, type Goal, type Profile } from '../domain/goals.js';
@@ -137,6 +137,48 @@ export async function fastView(r: ReplicaReader, today: LocalDate): Promise<Fast
     streak: fastStreak(history, { today, dayOf: (at) => localDate(new Date(at)) }),
     nextTargetHours: nextTargetHours(fasts),
   };
+}
+
+export interface BodyView {
+  /** One point a day from the first weigh-in through the day asked for. */
+  readonly series: readonly TrendPoint[];
+  /** Newest first, up to the day asked for. */
+  readonly weighIns: readonly WeighIn[];
+  /** The trend on the day asked for. */
+  readonly trendKg: number | undefined;
+  readonly rate: WeeklyRate;
+  /** The goal weight of the goal in effect that day. */
+  readonly goalKg: number | undefined;
+  readonly projection: Projection;
+}
+
+/** The weight trend, rate and goal projection as they stand on `date`. */
+export async function bodyView(r: ReplicaReader, date: LocalDate): Promise<BodyView> {
+  const [weighIns, goals] = await Promise.all([r.all('weighIn'), r.all('goal')]);
+  const series = trendSeries(weighIns, date);
+  const trendKg = series.at(-1)?.trendKg;
+  const rate = weeklyRate(series);
+  const goalKg = goalOn(goals, date)?.goalWeightKg;
+  return {
+    series,
+    weighIns: weighIns.filter((w) => w.date <= date).toSorted((a, b) => b.date.localeCompare(a.date)),
+    trendKg,
+    rate,
+    goalKg,
+    projection: projectGoal({ trendKg, rate, goalKg, from: date }),
+  };
+}
+
+export interface WorkoutLoggerView {
+  /** The weight a new workout on the day is worked out at. Undefined before any weigh-in or profile. */
+  readonly weight: BodyWeight | undefined;
+  /** Workouts to log again in a tap, newest first. */
+  readonly recents: readonly WorkoutDraft[];
+}
+
+export async function workoutLoggerView(r: ReplicaReader, date: LocalDate): Promise<WorkoutLoggerView> {
+  const [weighIns, profile, workouts] = await Promise.all([r.all('weighIn'), r.get('profile', PROFILE_ID), r.all('workout')]);
+  return { weight: bodyWeightOn(weighIns, profile, date), recents: recentWorkouts(workouts, 4) };
 }
 
 /** Writes made on this phone that the mini has not acknowledged. */

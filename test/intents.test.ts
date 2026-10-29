@@ -4,12 +4,25 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createIntents, type Intents } from '../src/client/intents.js';
 import { openReplica, type Replica, type SyncPort } from '../src/client/replica.js';
 import { syncRounds } from '../src/client/sync.js';
-import { dayView, fastView, foodWithBarcode, goalView, recentsView, recipesView, savedMealsView, usesView, waterView } from '../src/client/views.js';
+import {
+  bodyView,
+  dayView,
+  fastView,
+  foodWithBarcode,
+  goalView,
+  recentsView,
+  recipesView,
+  savedMealsView,
+  usesView,
+  waterView,
+  workoutLoggerView,
+} from '../src/client/views.js';
+import { metDraft } from '../src/domain/burn.js';
 import { itemOf } from '../src/domain/diary.js';
 import { Gtin, defaultQuantity, quickAddItem, snapshotOf, type FoodCandidate } from '../src/domain/food.js';
 import { KG_PER_LB, type GoalDraft } from '../src/domain/goals.js';
 import { DEFAULT_WATER_ML, HOUR_MS, runningFast } from '../src/domain/habits.js';
-import { LocalDate, type Millis } from '../src/domain/ids.js';
+import { LocalDate, addDays, type Millis } from '../src/domain/ids.js';
 import { recipeSnapshot } from '../src/domain/reuse.js';
 import { openStore } from '../src/server/store.js';
 import { at, entry, food, newEntryId, rev } from './fixtures.js';
@@ -128,13 +141,13 @@ describe('recents', () => {
   });
 });
 
-describe('goals', () => {
-  const draft: GoalDraft = {
-    policy: { kind: 'activity-level', level: 'moderate' },
-    kgPerWeek: -KG_PER_LB,
-    macros: { kind: 'percent', protein: 30, carbs: 40, fat: 30 },
-  };
+const draft: GoalDraft = {
+  policy: { kind: 'activity-level', level: 'moderate' },
+  kgPerWeek: -KG_PER_LB,
+  macros: { kind: 'percent', protein: 30, carbs: 40, fat: 30 },
+};
 
+describe('goals', () => {
   it('puts the target and remaining kcal on the day once a profile and goal exist', async () => {
     const { replica, intents } = await setup();
     await intents.saveProfile({ sex: 'male', birthDate: LocalDate.parse('1990-06-15'), heightCm: 180, weightKg: 81 });
@@ -412,6 +425,115 @@ describe('fasting', () => {
   });
 });
 
+describe('weigh-ins', () => {
+  it('keep one per day, the latest edit winning, and undo back to the earlier one', async () => {
+    const { replica, port, intents } = await setup();
+    await intents.logWeight(82, today);
+    const undo = await intents.logWeight(81.5, today);
+    expect((await replica.read.all('weighIn')).map((w) => w.kg)).toEqual([81.5]);
+    expect((await bodyView(replica.read, today)).weighIns.map((w) => w.kg)).toEqual([81.5]);
+    await undo();
+    expect((await replica.read.all('weighIn')).map((w) => w.kg)).toEqual([82]);
+    expect(await pushed(port)).toHaveLength(3);
+  });
+
+  it('delete and come back on undo', async () => {
+    const { replica, intents } = await setup();
+    await intents.logWeight(82, today);
+    const undo = await intents.deleteWeighIn(today);
+    expect((await bodyView(replica.read, today)).trendKg).toBeUndefined();
+    await undo();
+    expect((await bodyView(replica.read, today)).trendKg).toBe(82);
+  });
+
+  it('build a trend and rate over the days, and project the goal weight only once there is enough', async () => {
+    const { replica, intents } = await setup();
+    await intents.saveGoal({ ...draft, goalWeightKg: 78 }, addDays(today, -30));
+    await intents.logWeight(82, addDays(today, -1));
+    await intents.logWeight(81.8, today);
+    const early = await bodyView(replica.read, today);
+    expect(early.trendKg).toBeCloseTo(81.98);
+    expect(early.projection).toEqual({ kind: 'not-enough-data' });
+
+    for (let i = 2; i < 21; i++) await intents.logWeight(82 + i * 0.1, addDays(today, -i));
+    const later = await bodyView(replica.read, today);
+    expect(later.rate.kind).toBe('rate');
+    expect(later.goalKg).toBe(78);
+    expect(later.projection.kind).toBe('on-course');
+  });
+
+  it('move BMR to the trend weight on the day', async () => {
+    const { replica, intents } = await setup();
+    await intents.saveProfile({ sex: 'male', birthDate: LocalDate.parse('1990-06-15'), heightCm: 180, weightKg: 81 });
+    await intents.saveGoal(draft, today);
+    expect((await dayView(replica.read, today)).budget?.kcal).toBe(2228);
+    await intents.logWeight(91, today);
+    const { budget } = await dayView(replica.read, today);
+    // BMR 1760 + 10 × 10 kg = 1860. × 1.55 − 500.
+    expect(budget?.kcal).toBe(2383);
+    expect(budget?.basis).toMatchObject({ kind: 'computed', weight: { kg: 91, source: 'trend' } });
+  });
+});
+
+describe('workouts', () => {
+  const profileAt81 = { sex: 'male', birthDate: LocalDate.parse('1990-06-15'), heightCm: 180, weightKg: 81 } as const;
+
+  it('store the burn at the weight on the day, unchanged by later weigh-ins, and show on the day', async () => {
+    const { replica, intents } = await setup();
+    await intents.logWeight(80, today);
+    await intents.logWorkout(metDraft('run_6', 30), today);
+    await intents.logWeight(70, today);
+    const { workouts } = await dayView(replica.read, today);
+    // 8.8 MET above resting × 80 kg × 0.5 h.
+    expect(workouts.map((w) => [w.name, w.kcal, w.kg])).toEqual([['Running, 6 mph (10 min/mi)', 352, 80]]);
+  });
+
+  it('count toward the target only under eat-back', async () => {
+    const { replica, intents } = await setup();
+    await intents.saveProfile(profileAt81);
+    await intents.saveGoal({ ...draft, policy: { kind: 'activity-level', level: 'sedentary' } }, today);
+    await intents.logWeight(80, today);
+    await intents.logWorkout(metDraft('run_6', 30), today);
+    // BMR 1750 × 1.2 − 500.
+    expect((await dayView(replica.read, today)).budget?.kcal).toBe(1600);
+
+    await intents.saveGoal({ ...draft, policy: { kind: 'eat-back-workouts', fraction: 1 } }, today);
+    expect((await dayView(replica.read, today)).budget).toMatchObject({ baseKcal: 1600, workoutKcal: 352, kcal: 1952 });
+    expect((await dayView(replica.read, addDays(today, 1))).budget?.workoutKcal).toBe(0);
+  });
+
+  it('keep their first weight when edited, and undo the edit and a delete', async () => {
+    const { replica, intents } = await setup();
+    await intents.logWeight(80, today);
+    await intents.logWorkout(metDraft('run_6', 30), today);
+    const [run] = (await dayView(replica.read, today)).workouts;
+    if (!run) throw new Error('nothing logged');
+    await intents.logWeight(100, today);
+
+    const undoEdit = await intents.editWorkout(run.id, { ...metDraft('run_6', 60) });
+    expect((await replica.read.get('workout', run.id))?.kcal).toBe(704);
+    await undoEdit();
+    expect((await replica.read.get('workout', run.id))?.kcal).toBe(352);
+
+    const undoDelete = await intents.deleteWorkout(run.id);
+    expect((await dayView(replica.read, today)).workouts).toEqual([]);
+    await undoDelete();
+    expect((await dayView(replica.read, today)).workouts.map((w) => w.id)).toEqual([run.id]);
+  });
+
+  it('wait for a weight before working out a burn, then offer what was logged before', async () => {
+    const { replica, intents } = await setup();
+    expect(await intents.logWorkout(metDraft('strength', 45), today)).toBeNull();
+    expect((await workoutLoggerView(replica.read, today)).weight).toBeUndefined();
+
+    await intents.saveProfile(profileAt81);
+    expect((await workoutLoggerView(replica.read, today)).weight).toEqual({ kg: 81, source: 'profile' });
+    const undo = await intents.logWorkout(metDraft('strength', 45), today);
+    expect(undo).not.toBeNull();
+    expect((await workoutLoggerView(replica.read, today)).recents.map((w) => [w.name, w.minutes])).toEqual([['Strength training', 45]]);
+  });
+});
+
 describe('two phones offline', () => {
   async function phone(name: string, now: () => Millis) {
     const { replica, port } = await openReplica({ name, indexedDB: new IDBFactory(), IDBKeyRange });
@@ -441,6 +563,27 @@ describe('two phones offline', () => {
       const settled = await fastView(a.replica.read, today);
       expect(settled.state).toEqual({ kind: 'idle' });
       expect(settled.history).toHaveLength(1);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('keep one weigh-in for a day both weighed in on, the later arrival winning', async () => {
+    const server = openStore(':memory:');
+    const sync = (port: SyncPort) => syncRounds(port, (req) => Promise.resolve(server.sync(req, { now: NOW, userAgent: null })), 50);
+    const a = await phone('a', () => NOW);
+    const b = await phone('b', () => at(NOW + 60_000));
+    try {
+      await a.intents.logWeight(82, today);
+      await b.intents.logWeight(81.6, today);
+      await b.intents.logWorkout(metDraft('walk_3', 30), today);
+      for (const p of [a, b, a]) await sync(p.port);
+      for (const p of [a, b]) {
+        expect((await p.replica.read.all('weighIn')).map((w) => w.kg)).toEqual([81.6]);
+      }
+      expect(await a.intents.logWorkout(metDraft('walk_3', 30), today)).not.toBeNull();
+      for (const p of [a, b]) await sync(p.port);
+      expect((await dayView(b.replica.read, today)).workouts).toHaveLength(2);
     } finally {
       server.close();
     }

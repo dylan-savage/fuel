@@ -3,6 +3,8 @@
  * functions and makes exactly one commit. Screens hand in Ingredients and drafts; they never
  * build documents.
  */
+import { WeighIn, bodyWeightOn, weighInId } from '../domain/body.js';
+import { Workout, makeWorkout, type WorkoutDraft } from '../domain/burn.js';
 import { itemOf, makeEntry, type Entry, type Meal, type Slot } from '../domain/diary.js';
 import {
   Food,
@@ -16,7 +18,7 @@ import {
 } from '../domain/food.js';
 import { Goal, PROFILE_ID, Profile, goalId, type GoalDraft, type ProfileDraft } from '../domain/goals.js';
 import { endAt, fastState, openFasts, withEnds, type Fast, type FastEnd, type Water } from '../domain/habits.js';
-import { EntryId, FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, type LocalDate } from '../domain/ids.js';
+import { EntryId, FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, WorkoutId, type LocalDate } from '../domain/ids.js';
 import type { Mutation } from '../domain/kinds.js';
 import type { CoreKey } from '../domain/nutrients.js';
 import { Recipe, type EditedRef, type RecipeDraft, type SavedMeal, type SavedMealDraft } from '../domain/reuse.js';
@@ -92,6 +94,20 @@ export interface Intents {
   endFast(): Promise<Undo>;
   /** Changes the target of the open fast, or of every one in an overlap. Ended fasts are left alone. */
   setFastTarget(hours: number): Promise<void>;
+  /**
+   * Records the day's weigh-in in kg. A day has one, so logging again replaces it and the
+   * latest edit wins. Undo puts back what the day had.
+   */
+  logWeight(kg: number, date: LocalDate): Promise<Undo>;
+  deleteWeighIn(date: LocalDate): Promise<Undo>;
+  /**
+   * Logs a workout, its burn worked out at the body weight on `date` and stored, so later
+   * weigh-ins never change it. Null when no weight is known yet: no weigh-in and no profile.
+   */
+  logWorkout(draft: WorkoutDraft, date: LocalDate): Promise<Undo | null>;
+  /** Changes a workout, keeping the weight its burn was first worked out at. */
+  editWorkout(id: WorkoutId, draft: WorkoutDraft): Promise<Undo>;
+  deleteWorkout(id: WorkoutId): Promise<Undo>;
 }
 
 export interface Clock {
@@ -277,5 +293,44 @@ export function createIntents(replica: Pick<Replica, 'read' | 'commit'>, clock: 
         const open = openFasts(await fastNow());
         await replica.commit(open.map((fast) => ({ op: 'put', kind: 'fast', doc: { ...fast, targetHours: hours } })));
       }),
+
+    logWeight: async (kg, date) => {
+      const id = weighInId(date);
+      const before = await replica.read.get('weighIn', id);
+      await replica.commit([{ op: 'put', kind: 'weighIn', doc: keepUnknown(WeighIn.shape, before, { id, date, kg, loggedAt: clock.now() }) }]);
+      return () => replica.commit([before === undefined ? { op: 'delete', kind: 'weighIn', id } : { op: 'put', kind: 'weighIn', doc: before }]);
+    },
+
+    deleteWeighIn: async (date) => {
+      const id = weighInId(date);
+      const before = await replica.read.get('weighIn', id);
+      if (before === undefined) return nothingToUndo;
+      await replica.commit([{ op: 'delete', kind: 'weighIn', id }]);
+      return () => replica.commit([{ op: 'put', kind: 'weighIn', doc: before }]);
+    },
+
+    logWorkout: async (draft, date) => {
+      const [weighIns, profile] = await Promise.all([replica.read.all('weighIn'), replica.read.get('profile', PROFILE_ID)]);
+      const weight = bodyWeightOn(weighIns, profile, date);
+      if (weight === undefined) return null;
+      const workout = makeWorkout(draft, { id: WorkoutId.parse(clock.newId()), date, kg: weight.kg, loggedAt: clock.now() });
+      await replica.commit([{ op: 'put', kind: 'workout', doc: workout }]);
+      return () => replica.commit([{ op: 'delete', kind: 'workout', id: workout.id }]);
+    },
+
+    editWorkout: async (id, draft) => {
+      const before = await replica.read.get('workout', id);
+      if (before === undefined) return nothingToUndo;
+      const next = makeWorkout(draft, { id, date: before.date, kg: before.kg, loggedAt: before.loggedAt });
+      await replica.commit([{ op: 'put', kind: 'workout', doc: keepUnknown(Workout.shape, before, next) }]);
+      return () => replica.commit([{ op: 'put', kind: 'workout', doc: before }]);
+    },
+
+    deleteWorkout: async (id) => {
+      const before = await replica.read.get('workout', id);
+      if (before === undefined) return nothingToUndo;
+      await replica.commit([{ op: 'delete', kind: 'workout', id }]);
+      return () => replica.commit([{ op: 'put', kind: 'workout', doc: before }]);
+    },
   };
 }
