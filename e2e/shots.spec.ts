@@ -5,8 +5,10 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
+import { localDate } from '../src/client/clock.js';
 import { snapshotOf, type Food, type Ingredient, type Serving } from '../src/domain/food.js';
-import { FoodId, RecipeId, SavedMealId } from '../src/domain/ids.js';
+import { HOUR_MS, ML_PER_FL_OZ, type Fast } from '../src/domain/habits.js';
+import { FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import type { Recipe, SavedMeal } from '../src/domain/reuse.js';
 import { seed, setGoal, stored, tab, typeBarcode } from './app.js';
@@ -51,8 +53,35 @@ function reuseDocs(): Mutation[] {
 
 test.describe.configure({ mode: 'serial' });
 
+/**
+ * Today's drinks, a fast 13.4 hours in and a week of finished ones, replacing any fasts and
+ * drinks other specs left, so the timer and history photograph the same every run.
+ */
+function habitDocs(): Mutation[] {
+  const now = Date.now();
+  const today = localDate();
+  const cleared = [
+    ...stored('fast').map((f): Mutation => ({ op: 'delete', kind: 'fast', id: f.id })),
+    ...stored('water').map((w): Mutation => ({ op: 'delete', kind: 'water', id: w.id })),
+  ];
+  const drinks = [16, 8, 16, 12].map((oz, i): Mutation => ({
+    op: 'put',
+    kind: 'water',
+    doc: { id: WaterId.parse(randomUUID()), date: today, ml: oz * ML_PER_FL_OZ, loggedAt: Millis.parse(now - (4 - i) * HOUR_MS) },
+  }));
+  const start = now - 13.4 * HOUR_MS;
+  const past = [16.5, 17.2, 16.1, 16.8, 14.6, 18.3, 16.2].map((hours, i): Fast => ({
+    id: FastId.parse(randomUUID()),
+    startedAt: Millis.parse(start - (i + 1) * 24 * HOUR_MS),
+    endedAt: Millis.parse(start - (i + 1) * 24 * HOUR_MS + hours * HOUR_MS),
+    targetHours: 16,
+  }));
+  const open: Fast = { id: FastId.parse(randomUUID()), startedAt: Millis.parse(start), targetHours: 16 };
+  return [...cleared, ...drinks, ...[open, ...past].map((doc): Mutation => ({ op: 'put', kind: 'fast', doc }))];
+}
+
 test('seeds a day worth photographing', async ({ page, request }) => {
-  await seed(request, reuseDocs());
+  await seed(request, [...reuseDocs(), ...habitDocs()]);
   await page.goto('/');
   await setGoal(page);
 
@@ -89,11 +118,24 @@ for (const colorScheme of ['light', 'dark'] as const) {
   test.describe(colorScheme, () => {
     test.use({ colorScheme });
 
-    test(`photographs Today, the food sheet, the confirm sheet and the goal screen in ${colorScheme}`, async ({ page }) => {
+    test(`photographs Today, habits, the food and reuse sheets and the goal screen in ${colorScheme}`, async ({ page }) => {
       await page.goto('/');
       await expect(page.getByRole('region', { name: 'Breakfast' }).getByText('Overnight oats')).toBeVisible({ timeout: 15_000 });
       await expect(page.getByRole('region', { name: 'Lunch' }).getByText('Chicken burrito bowl')).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Fasting' }).getByTestId('fast-elapsed')).toHaveText(/^13:/);
       await page.screenshot({ path: join(dir, `today-${colorScheme}.png`), animations: 'disabled' });
+
+      await page.getByRole('region', { name: 'Fasting' }).getByRole('button', { name: /^Fasting/ }).click();
+      const timer = page.getByRole('dialog', { name: 'Fasting' });
+      await expect(timer.getByRole('list', { name: 'Past fasts' }).getByRole('listitem')).toHaveCount(7);
+      await page.screenshot({ path: join(dir, `fast-timer-${colorScheme}.png`), animations: 'disabled' });
+      await timer.getByRole('button', { name: 'Cancel' }).click();
+
+      await page.getByRole('region', { name: 'Water' }).getByRole('button', { name: /^Water/ }).click();
+      const water = page.getByRole('dialog', { name: 'Water' });
+      await expect(water.getByRole('list', { name: 'Drinks' }).getByRole('listitem')).toHaveCount(4);
+      await page.screenshot({ path: join(dir, `water-sheet-${colorScheme}.png`), animations: 'disabled' });
+      await water.getByRole('button', { name: 'Cancel' }).click();
 
       await tab(page, 'Add').click();
       await page.getByRole('list', { name: 'Recent foods' }).getByRole('button', { name: /^Overnight oats/ }).click();

@@ -30,7 +30,10 @@ async function addIngredient(page: Page, name: string, grams: string) {
   await page.getByRole('dialog', { name: 'New recipe' }).getByRole('button', { name: 'Add ingredient' }).click();
   const picker = page.getByRole('dialog', { name: 'Add ingredient' });
   await picker.getByLabel('Search ingredients').fill(name);
-  await picker.getByRole('list', { name: 'Your foods' }).getByRole('button', { name: new RegExp(`^${name}`) }).click();
+  await picker
+    .getByRole('list', { name: 'Your foods' })
+    .getByRole('button', { name: new RegExp(`^${name}`) })
+    .click();
   await picker.getByLabel('Amount').fill(grams);
   await picker.getByRole('button', { name: 'Add to recipe' }).click();
   await expect(picker).toBeHidden();
@@ -109,7 +112,10 @@ test("copies yesterday's breakfast into today", async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
 
   await meal(page, 'Breakfast').getByRole('button', { name: 'Breakfast options' }).click();
-  await page.getByRole('dialog', { name: 'Breakfast' }).getByRole('button', { name: /^Copy Breakfast from yesterday/ }).click();
+  await page
+    .getByRole('dialog', { name: 'Breakfast' })
+    .getByRole('button', { name: /^Copy Breakfast from yesterday/ })
+    .click();
   await expect(page.getByRole('status').filter({ hasText: 'Copied 2 items to Breakfast' })).toBeVisible();
   await expect(meal(page, 'Breakfast').getByText('Yesterday eggs')).toBeVisible();
   await expect(meal(page, 'Breakfast').getByText('Yesterday toast')).toBeVisible();
@@ -121,7 +127,10 @@ test('asks before updating recipes and saved meals after a food edit, and never 
   await expect(meal(page, 'Dinner').getByText('Chili')).toBeVisible();
   await tab(page, 'Add').click();
   await page.getByLabel('Search foods').fill('ground beef');
-  await page.getByRole('list', { name: 'Your foods' }).getByRole('button', { name: /^Ground beef/ }).click();
+  await page
+    .getByRole('list', { name: 'Your foods' })
+    .getByRole('button', { name: /^Ground beef/ })
+    .click();
   await page.getByRole('dialog', { name: 'Log food' }).getByRole('button', { name: 'Edit food' }).click();
   const editor = page.getByRole('dialog', { name: 'Edit food' });
   await editor.getByLabel('Calories').fill('200');
@@ -130,7 +139,10 @@ test('asks before updating recipes and saved meals after a food edit, and never 
   const ask = page.getByRole('alertdialog', { name: 'Also update 1 recipe?' });
   await ask.getByRole('button', { name: 'Update' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Saved Ground beef and updated 1 recipe' })).toBeVisible();
-  const beefKcal = () => stored('recipe').find((r) => r.name === 'Chili')?.ingredients.find((i) => i.food.name === 'Ground beef')?.food.nutrients.kcal;
+  const beefKcal = () =>
+    stored('recipe')
+      .find((r) => r.name === 'Chili')
+      ?.ingredients.find((i) => i.food.name === 'Ground beef')?.food.nutrients.kcal;
   await expect.poll(beefKcal, { timeout: 15_000 }).toBe(200);
   expect(stored('entry').find((e) => e.food.name === 'Chili')?.food.nutrients.kcal).toBeCloseTo(1758 / 16);
 });
