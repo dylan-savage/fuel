@@ -174,6 +174,11 @@ export async function bodyView(r: ReplicaReader, date: LocalDate): Promise<BodyV
   };
 }
 
+/** Every weigh-in, newest first: what the weigh-in sheet checks a picked day against. */
+export async function weighInsView(r: ReplicaReader): Promise<WeighIn[]> {
+  return (await r.all('weighIn')).toSorted((a, b) => b.date.localeCompare(a.date));
+}
+
 export interface WorkoutLoggerView {
   /** The weight a new workout on the day is worked out at. Undefined before any weigh-in or profile. */
   readonly weight: BodyWeight | undefined;

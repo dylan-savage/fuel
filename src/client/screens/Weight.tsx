@@ -1,9 +1,9 @@
 import { useState } from 'preact/hooks';
-import { BodyKg, type Projection, type WeeklyRate, type WeighIn } from '../../domain/body.js';
+import { BodyKg, type Projection, type WeeklyRate } from '../../domain/body.js';
 import { KG_PER_LB } from '../../domain/goals.js';
 import { LocalDate } from '../../domain/ids.js';
-import { bodyView, useIntents, useLive, type BodyView } from '../views.js';
-import { dayPhrase, dayTitle, lb, lbPerWeek, parseNumber, shortDate } from './format.js';
+import { bodyView, useIntents, useLive, weighInsView, type BodyView } from '../views.js';
+import { dayPhrase, dayTitle, lb, lbField, lbPerWeek, parseNumber, shortDate } from './format.js';
 import { Icon, NumberField, Segmented, Sheet, useToast } from './ui.js';
 import { RANGES, TrendSpark, WeightChart, type RangeDays } from './WeightChart.js';
 
@@ -33,69 +33,65 @@ function projectionText(projection: Projection, today: LocalDate): { readonly va
 
 /**
  * The weigh-in entry: a date and one number on the decimal keypad. A day has one weigh-in,
- * so saving on a day that has one replaces it.
+ * so saving on a day that has one replaces it. The field shows the picked day's reading
+ * until Dylan types, so a prefilled number never follows him to another day.
  */
-export function WeighInSheet({
-  date,
-  today,
-  weighIns,
-  onClose,
-}: {
-  readonly date: LocalDate;
-  readonly today: LocalDate;
-  readonly weighIns: readonly WeighIn[];
-  readonly onClose: () => void;
-}) {
+export function WeighInSheet({ date, today, onClose }: { readonly date: LocalDate; readonly today: LocalDate; readonly onClose: () => void }) {
   const intents = useIntents();
   const toast = useToast();
-  const [day, setDay] = useState<LocalDate>(date);
-  const existing = weighIns.find((w) => w.date === day);
-  const [text, setText] = useState(existing === undefined ? '' : lb(existing.kg));
-  const latest = weighIns[0];
+  const weighIns = useLive((r) => weighInsView(r), []);
+  const [dayText, setDayText] = useState<string>(date);
+  const [typed, setTyped] = useState<string | null>(null);
+  if (weighIns === undefined) return null;
+
+  const picked = LocalDate.safeParse(dayText);
+  const day = picked.success && picked.data <= today ? picked.data : null;
+  const existing = day === null ? undefined : weighIns.find((w) => w.date === day);
+  const text = typed ?? (existing === undefined ? '' : lbField(existing.kg));
+  const [latest] = weighIns;
   const pounds = parseNumber(text);
   const kg = pounds === null ? null : pounds * KG_PER_LB;
-  const valid = kg !== null && BodyKg.safeParse(kg).success;
-
-  const pickDay = (value: string) => {
-    const parsed = LocalDate.safeParse(value);
-    if (!parsed.success || parsed.data > today) return;
-    setDay(parsed.data);
-    const other = weighIns.find((w) => w.date === parsed.data);
-    if (other !== undefined) setText(lb(other.kg));
-  };
+  const valid = day !== null && kg !== null && BodyKg.safeParse(kg).success;
+  const hint =
+    day === null
+      ? 'Pick a day up to today.'
+      : existing === undefined
+        ? 'One weigh-in a day. Your trend smooths out the daily swings.'
+        : `This replaces ${dayPhrase(day, today)}'s ${lb(existing.kg)} lb.`;
 
   return (
     <Sheet title="Weigh-in" onClose={onClose}>
       <div class="group">
-        <label class="field">
+        <label class={day === null ? 'field invalid' : 'field'}>
           <span class="field-label">Date</span>
-          <input type="date" value={day} max={today} onInput={(event) => pickDay(event.currentTarget.value)} />
+          <input type="date" value={dayText} max={today} onInput={(event) => setDayText(event.currentTarget.value)} />
         </label>
         <NumberField
           label="Weight"
           unit="lb"
           value={text}
-          onInput={setText}
-          placeholder={latest === undefined ? '180.0' : lb(latest.kg)}
-          invalid={text.trim() !== '' && !valid}
+          onInput={setTyped}
+          placeholder={latest === undefined ? '180.0' : lbField(latest.kg)}
+          invalid={text.trim() !== '' && (kg === null || !BodyKg.safeParse(kg).success)}
           autoFocus
         />
       </div>
-      <p class="hint">{existing === undefined ? 'One weigh-in a day. Your trend smooths out the daily swings.' : `This replaces ${dayPhrase(day, today)}'s ${lb(existing.kg)} lb.`}</p>
+      <p class={day === null ? 'hint warn' : 'hint'}>{hint}</p>
       <div class="sheet-actions">
         <button
           type="button"
           class="primary"
           disabled={!valid}
           onClick={() => {
-            if (kg === null || !valid) return;
+            if (!valid) return;
             onClose();
-            void intents.logWeight(kg, day).then((undo) => toast({ text: `Weighed in at ${lb(kg)} lb`, undo }));
+            const when = day === today ? '' : ` for ${dayPhrase(day, today)}`;
+            void intents.logWeight(kg, day).then((undo) => toast({ text: `Weighed in at ${lb(kg)} lb${when}`, undo }));
           }}
         >
           Save weigh-in
         </button>
-        {existing !== undefined && (
+        {day !== null && existing !== undefined && (
           <button
             type="button"
             class="destructive"
@@ -161,7 +157,7 @@ export function WeightSheet({ today, onClose, onGoal }: { readonly today: LocalD
               ))}
             </ul>
           )}
-          {entry !== null && <WeighInSheet date={entry} today={today} weighIns={view.weighIns} onClose={() => setEntry(null)} />}
+          {entry !== null && <WeighInSheet date={entry} today={today} onClose={() => setEntry(null)} />}
         </>
       )}
     </Sheet>
@@ -229,7 +225,7 @@ export function WeightTile({ date, today, onGoal }: { readonly date: LocalDate; 
           </button>
         </div>
       )}
-      {weighing && <WeighInSheet date={date} today={today} weighIns={view.weighIns} onClose={() => setWeighing(false)} />}
+      {weighing && <WeighInSheet date={date} today={today} onClose={() => setWeighing(false)} />}
       {open && (
         <WeightSheet
           today={today}

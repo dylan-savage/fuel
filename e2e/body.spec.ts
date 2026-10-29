@@ -56,6 +56,18 @@ test('logs weigh-ins over several days and sees the trend, rate and projected go
   await expect(sheet.getByRole('figure', { name: 'Weight over 30 days' })).toBeVisible();
   await expect(sheet.getByRole('list', { name: 'Weigh-ins' }).getByRole('listitem')).toHaveCount(14);
   await expect.poll(() => stored('weighIn').length, { timeout: 15_000 }).toBe(14);
+  await sheet.getByRole('button', { name: 'Cancel' }).click();
+
+  // From a past day, picking a later day still finds its reading, and a day with none starts blank.
+  await page.getByRole('button', { name: 'Previous day' }).click();
+  await page.getByRole('region', { name: 'Weight' }).getByRole('button', { name: 'Weigh in', exact: true }).click();
+  const entry = page.getByRole('dialog', { name: 'Weigh-in' });
+  await entry.getByLabel('Date').fill(localDate());
+  await expect(entry.getByLabel('Weight')).toHaveValue((183 - 0.2 * 13).toFixed(1));
+  await expect(entry.getByRole('button', { name: 'Delete weigh-in' })).toBeVisible();
+  await entry.getByLabel('Date').fill(addDays(localDate(), -20));
+  await expect(entry.getByLabel('Weight')).toHaveValue('');
+  await expect(entry.getByRole('button', { name: 'Delete weigh-in' })).toBeHidden();
 });
 
 test('logs a workout offline and still shows it after reconnecting', async ({ page, context, request }) => {
