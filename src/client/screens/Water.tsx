@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { ML_PER_FL_OZ } from '../../domain/habits.js';
+import { ML_PER_FL_OZ, Water } from '../../domain/habits.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { useIntents, useLive, waterView, type WaterView } from '../views.js';
 import { amount, dayTitle, flOz, parseNumber, timeOfDay } from './format.js';
@@ -20,7 +20,9 @@ function WaterSheet({ date, today, view, onClose }: { readonly date: LocalDate; 
   const toast = useToast();
   const add = useAddWater(date);
   const [other, setOther] = useState('');
-  const otherOz = parseNumber(other);
+  const parsed = parseNumber(other);
+  /** A drink the mini will accept, else null. */
+  const otherOz = parsed !== null && Water.shape.ml.safeParse(parsed * ML_PER_FL_OZ).success ? parsed : null;
 
   return (
     <Sheet title="Water" onClose={onClose}>
@@ -39,20 +41,20 @@ function WaterSheet({ date, today, view, onClose }: { readonly date: LocalDate; 
         ))}
       </div>
       <div class="group">
-        <NumberField label="Other amount" unit="fl oz" value={other} onInput={setOther} placeholder="16.9" />
+        <NumberField label="Other amount" unit="fl oz" value={other} onInput={setOther} placeholder="16.9" invalid={other.trim() !== '' && otherOz === null} />
       </div>
       <div class="sheet-actions">
         <button
           type="button"
           class="primary"
-          disabled={otherOz === null || otherOz <= 0}
+          disabled={otherOz === null}
           onClick={() => {
             if (otherOz === null) return;
             add(otherOz);
             setOther('');
           }}
         >
-          Add {otherOz !== null && otherOz > 0 ? `${amount(otherOz)} fl oz` : 'water'}
+          Add {otherOz === null ? 'water' : `${amount(otherOz)} fl oz`}
         </button>
       </div>
       <h4 class="group-title">Drinks</h4>
