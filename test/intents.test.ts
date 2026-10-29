@@ -3,12 +3,15 @@ import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createIntents, type Intents } from '../src/client/intents.js';
 import { openReplica, type Replica, type SyncPort } from '../src/client/replica.js';
-import { dayView, foodUsesView, foodWithBarcode, goalView, recentsView, recipesView, savedMealsView } from '../src/client/views.js';
+import { syncRounds } from '../src/client/sync.js';
+import { dayView, fastView, foodUsesView, foodWithBarcode, goalView, recentsView, recipesView, savedMealsView, waterView } from '../src/client/views.js';
 import { itemOf } from '../src/domain/diary.js';
 import { Gtin, defaultQuantity, quickAddItem, snapshotOf, type FoodCandidate } from '../src/domain/food.js';
 import { KG_PER_LB, type GoalDraft } from '../src/domain/goals.js';
-import { LocalDate } from '../src/domain/ids.js';
+import { DEFAULT_WATER_ML, runningFast } from '../src/domain/habits.js';
+import { LocalDate, type Millis } from '../src/domain/ids.js';
 import { recipeSnapshot } from '../src/domain/reuse.js';
+import { openStore } from '../src/server/store.js';
 import { at, entry, food, newEntryId, rev } from './fixtures.js';
 
 const today = LocalDate.parse('2026-10-28');
@@ -322,5 +325,95 @@ describe('after a food edit', () => {
 
     await updated.undo();
     expect((await replica.read.get('recipe', recipe.id))?.ingredients[0]?.food.nutrients.kcal).toBe(380);
+  });
+});
+
+describe('water', () => {
+  it('adds one drink per tap toward the goal, and undoes the last', async () => {
+    const { replica, intents } = await setup();
+    await intents.addWater(250, today);
+    const undo = await intents.addWater(500, today);
+    await intents.addWater(330, LocalDate.parse('2026-10-27'));
+    expect((await waterView(replica.read, today)).totalMl).toBe(750);
+    await undo();
+    expect((await waterView(replica.read, today)).drinks.map((d) => d.ml)).toEqual([250]);
+  });
+
+  it('removes a drink and puts it back on undo', async () => {
+    const { replica, intents } = await setup();
+    await intents.addWater(250, today);
+    const [drink] = (await waterView(replica.read, today)).drinks;
+    if (!drink) throw new Error('no drink');
+    const undo = await intents.deleteWater(drink.id);
+    expect((await waterView(replica.read, today)).totalMl).toBe(0);
+    await undo();
+    expect((await waterView(replica.read, today)).totalMl).toBe(250);
+  });
+
+  it('measures the day against the goal in effect, saved with the calorie goal', async () => {
+    const { replica, intents } = await setup();
+    expect((await waterView(replica.read, today)).goalMl).toBe(DEFAULT_WATER_ML);
+    await intents.saveGoal(
+      { policy: { kind: 'activity-level', level: 'moderate' }, kgPerWeek: 0, macros: { kind: 'grams', protein: 150, carbs: 200, fat: 60 }, waterMl: 3000 },
+      today,
+    );
+    expect((await waterView(replica.read, today)).goalMl).toBe(3000);
+  });
+});
+
+describe('fasting', () => {
+  it('starts once, keeps the tap as its start, changes target, ends and undoes the end', async () => {
+    const { replica, intents } = await setup();
+    await intents.startFast(16);
+    await intents.startFast(16);
+    const started = await fastView(replica.read, today);
+    expect(started.state.kind).toBe('fasting');
+    expect(runningFast(started.state)?.startedAt).toBe(NOW);
+
+    await intents.setFastTarget(18);
+    expect(runningFast((await fastView(replica.read, today)).state)?.targetHours).toBe(18);
+
+    const undo = await intents.endFast();
+    const ended = await fastView(replica.read, today);
+    expect(ended.state).toEqual({ kind: 'idle' });
+    expect(ended.history).toHaveLength(1);
+    expect(ended.nextTargetHours).toBe(18);
+    await undo();
+    expect((await fastView(replica.read, today)).state.kind).toBe('fasting');
+  });
+});
+
+describe('two phones offline', () => {
+  async function phone(name: string, now: () => Millis) {
+    const { replica, port } = await openReplica({ name, indexedDB: new IDBFactory(), IDBKeyRange });
+    open.push(replica);
+    return { replica, port, intents: createIntents(replica, { now, newId: randomUUID }) };
+  }
+
+  it('count both drinks, and settle two open fasts with one end', async () => {
+    const server = openStore(':memory:');
+    const sync = (port: SyncPort) => syncRounds(port, (req) => Promise.resolve(server.sync(req, { now: NOW, userAgent: null })), 50);
+    const a = await phone('a', () => NOW);
+    const b = await phone('b', () => at(NOW + 60_000));
+    try {
+      await a.intents.addWater(250, today);
+      await b.intents.addWater(250, today);
+      await a.intents.startFast(16);
+      await b.intents.startFast(16);
+      for (const p of [a, b, a]) await sync(p.port);
+
+      expect((await waterView(b.replica.read, today)).totalMl).toBe(500);
+      const overlap = (await fastView(b.replica.read, today)).state;
+      expect(overlap.kind).toBe('overlap');
+      expect(runningFast(overlap)?.startedAt).toBe(NOW);
+
+      await b.intents.endFast();
+      for (const p of [b, a]) await sync(p.port);
+      const settled = await fastView(a.replica.read, today);
+      expect(settled.state).toEqual({ kind: 'idle' });
+      expect(settled.history).toHaveLength(1);
+    } finally {
+      server.close();
+    }
   });
 });

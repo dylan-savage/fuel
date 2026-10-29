@@ -15,7 +15,8 @@ import {
   type Quantity,
 } from '../domain/food.js';
 import { Goal, PROFILE_ID, Profile, goalId, type GoalDraft, type ProfileDraft } from '../domain/goals.js';
-import { EntryId, FoodId, Millis, RecipeId, SavedMealId, type LocalDate } from '../domain/ids.js';
+import { endOpen, fastState, type Fast, type Water } from '../domain/habits.js';
+import { EntryId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, type LocalDate } from '../domain/ids.js';
 import type { Mutation } from '../domain/kinds.js';
 import type { CoreKey } from '../domain/nutrients.js';
 import { Recipe, refreshFor, type RecipeDraft, type SavedMeal, type SavedMealDraft } from '../domain/reuse.js';
@@ -76,6 +77,15 @@ export interface Intents {
   saveProfile(draft: ProfileDraft): Promise<void>;
   /** Sets the goal in effect from `from` on. Days before keep the goal they had. */
   saveGoal(draft: GoalDraft, from: LocalDate): Promise<void>;
+  /** One document per drink, so drinks added on two phones offline both count. */
+  addWater(ml: number, date: LocalDate): Promise<Undo>;
+  deleteWater(id: WaterId): Promise<Undo>;
+  /** Starts a fast now, unless one is already open. Started offline, it keeps the moment of the tap. */
+  startFast(targetHours: number): Promise<Undo>;
+  /** Ends every open fast, which also settles two phones' overlapping fasts. */
+  endFast(): Promise<Undo>;
+  /** Changes the target of the open fast, or of every one in an overlap. */
+  setFastTarget(hours: number): Promise<void>;
 }
 
 export interface Clock {
@@ -216,6 +226,40 @@ export function createIntents(replica: Pick<Replica, 'read' | 'commit'>, clock: 
       const id = goalId(from);
       const before = await replica.read.get('goal', id);
       await replica.commit([{ op: 'put', kind: 'goal', doc: keepUnknown(Goal.shape, before, { ...draft, id, effectiveFrom: from }) }]);
+    },
+
+    addWater: async (ml, date) => {
+      const drink: Water = { id: WaterId.parse(clock.newId()), date, ml, loggedAt: clock.now() };
+      await replica.commit([{ op: 'put', kind: 'water', doc: drink }]);
+      return () => replica.commit([{ op: 'delete', kind: 'water', id: drink.id }]);
+    },
+
+    deleteWater: async (id) => {
+      const before = await replica.read.get('water', id);
+      if (before === undefined) return nothingToUndo;
+      await replica.commit([{ op: 'delete', kind: 'water', id }]);
+      return () => replica.commit([{ op: 'put', kind: 'water', doc: before }]);
+    },
+
+    startFast: async (targetHours) => {
+      if (fastState(await replica.read.all('fast')).kind !== 'idle') return nothingToUndo;
+      const fast: Fast = { id: FastId.parse(clock.newId()), startedAt: clock.now(), targetHours };
+      await replica.commit([{ op: 'put', kind: 'fast', doc: fast }]);
+      return () => replica.commit([{ op: 'delete', kind: 'fast', id: fast.id }]);
+    },
+
+    endFast: async () => {
+      const fasts = await replica.read.all('fast');
+      const ended = endOpen(fasts, clock.now());
+      if (ended.length === 0) return nothingToUndo;
+      const open = fasts.filter((f) => f.endedAt === undefined);
+      await replica.commit(ended.map((doc) => ({ op: 'put', kind: 'fast', doc })));
+      return () => replica.commit(open.map((doc) => ({ op: 'put', kind: 'fast', doc })));
+    },
+
+    setFastTarget: async (hours) => {
+      const open = (await replica.read.all('fast')).filter((f) => f.endedAt === undefined);
+      await replica.commit(open.map((f) => ({ op: 'put', kind: 'fast', doc: { ...f, targetHours: hours } })));
     },
   };
 }

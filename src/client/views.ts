@@ -8,9 +8,22 @@ import { useCallback, useContext, useEffect, useState } from 'preact/hooks';
 import { summarizeDay, type DaySummary } from '../domain/diary.js';
 import type { Food, Gtin } from '../domain/food.js';
 import { PROFILE_ID, budgetOn, goalOn, type Budget, type Goal, type Profile } from '../domain/goals.js';
+import {
+  fastHistory,
+  fastState,
+  fastStreak,
+  nextTargetHours,
+  waterGoalMl,
+  waterTotalMl,
+  type FastSession,
+  type FastState,
+  type Streak,
+  type Water,
+} from '../domain/habits.js';
 import { addDays, type FoodId, type LocalDate, type Millis } from '../domain/ids.js';
 import { RECENT_DAYS, recents, type Library, type RecentFood } from '../domain/library.js';
 import { refreshFor, type Recipe, type Refresh, type SavedMeal } from '../domain/reuse.js';
+import { localDate } from './clock.js';
 import type { Intents } from './intents.js';
 import type { Replica, ReplicaReader, Subscribable } from './replica.js';
 import type { SyncState } from './sync.js';
@@ -68,6 +81,38 @@ export interface GoalView {
 export async function goalView(r: ReplicaReader, today: LocalDate): Promise<GoalView> {
   const [profile, goals] = await Promise.all([r.get('profile', PROFILE_ID), r.all('goal')]);
   return { profile, goal: goalOn(goals, today) };
+}
+
+export interface WaterView {
+  /** Oldest first. */
+  readonly drinks: readonly Water[];
+  readonly totalMl: number;
+  readonly goalMl: number;
+}
+
+export async function waterView(r: ReplicaReader, date: LocalDate): Promise<WaterView> {
+  const [drinks, goals] = await Promise.all([r.onDate('water', date), r.all('goal')]);
+  return { drinks: drinks.toSorted((a, b) => a.loggedAt - b.loggedAt), totalMl: waterTotalMl(drinks), goalMl: waterGoalMl(goalOn(goals, date)) };
+}
+
+export interface FastView {
+  readonly state: FastState;
+  /** Newest first. */
+  readonly history: readonly FastSession[];
+  readonly streak: Streak;
+  readonly nextTargetHours: number;
+}
+
+/** The fasting timer's state, history and streak. Streak days are this phone's calendar days. */
+export async function fastView(r: ReplicaReader, today: LocalDate): Promise<FastView> {
+  const fasts = await r.all('fast');
+  const history = fastHistory(fasts);
+  return {
+    state: fastState(fasts),
+    history,
+    streak: fastStreak(history, { today, dayOf: (at) => localDate(new Date(at)) }),
+    nextTargetHours: nextTargetHours(fasts),
+  };
 }
 
 /** Writes made on this phone that the mini has not acknowledged. */
