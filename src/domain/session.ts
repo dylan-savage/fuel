@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { MET_ACTIVITIES, metDraft, type Workout, type WorkoutDraft } from './burn.js';
 import { LocalDate, Millis, ProgramId, SessionId, TrainingNoteId, WorkoutId } from './ids.js';
-import { SlotId, type LiftBook, type LiftId, type Load, type Performance, type SetLog, type Target, type Unit } from './lifts.js';
+import { SlotId, type LiftBook, type LiftId, type Performance, type SetLog, type Target, type Unit } from './lifts.js';
 import { workingSets } from './progress.js';
 import { BlockId, DayKey, stepsOf, type Block, type CardioBlock, type ChecklistBlock, type LiftsBlock, type PlannedDay, type Step } from './program.js';
 
@@ -152,7 +152,7 @@ export function restClock(day: PlannedDay, logs: SessionLogs): RestClock | null 
 
 /** Set inputs before a tap. A number may be blank, which a prefill cannot always fill. */
 export interface SetDraft {
-  readonly load: { readonly kind: 'weight'; readonly amount: number | null; readonly unit: Unit } | Extract<Load, { kind: 'bodyweight' }> | { readonly kind: 'band'; readonly label: string };
+  readonly load: { readonly kind: 'weight'; readonly amount: number | null; readonly unit: Unit } | { readonly kind: 'bodyweight' } | { readonly kind: 'band'; readonly label: string };
   readonly reps: { readonly kind: 'total'; readonly reps: number | null } | { readonly kind: 'sides'; readonly left: number | null; readonly right: number | null };
 }
 

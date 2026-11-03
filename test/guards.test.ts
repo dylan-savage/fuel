@@ -5,7 +5,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { parseProgramDraft } from '../src/domain/coach.js';
 import { KINDS, KIND_NAMES, parseDoc, type Kind } from '../src/domain/kinds.js';
+import { Performance } from '../src/domain/lifts.js';
+import { Program } from '../src/domain/program.js';
+import { Session, TrainingNote } from '../src/domain/session.js';
+import { isRecord } from '../src/domain/strict.js';
 
 /** Schema types that cannot hold an object. Anything else must be walked, or the walker throws. */
 const LEAVES: ReadonlySet<string> = new Set(['string', 'number', 'boolean', 'literal', 'enum', 'custom', 'unknown']);
@@ -41,16 +46,23 @@ describe('closedObjects', () => {
   });
 });
 
-describe.each(KIND_NAMES)('stored kind %s', (kind) => {
-  it('keeps unknown fields at every depth', () => {
-    expect(closedObjects(KINDS[kind].schema)).toEqual([]);
-  });
+type Path = readonly (string | number)[];
 
-  it('still parses its frozen sample, dropping nothing', () => {
-    const sample = FROZEN_SAMPLES[kind];
-    expect(parseDoc(kind, sample)).toEqual({ ok: true, doc: sample });
-  });
-});
+/** Every object inside a JSON value, by path, the root included. */
+function objectPaths(value: unknown, path: Path = []): readonly Path[] {
+  if (Array.isArray(value)) return value.flatMap((item: unknown, i) => objectPaths(item, [...path, i]));
+  if (!isRecord(value)) return [];
+  return [path, ...Object.entries(value).flatMap(([key, field]) => objectPaths(field, [...path, key]))];
+}
+
+/** A copy of the value with a stray field added to the object at `path`. */
+function withStray(value: unknown, path: Path): unknown {
+  const [head, ...rest] = path;
+  if (Array.isArray(value)) return value.map((item: unknown, i) => (i === head ? withStray(item, rest) : item));
+  if (!isRecord(value)) return value;
+  if (head === undefined) return { ...value, strayField: 1 };
+  return Object.fromEntries(Object.entries(value).map(([key, field]) => [key, key === head ? withStray(field, rest) : field]));
+}
 
 const UUID_A = '0b1e6c7a-3f2d-4e5a-8b9c-0d1e2f3a4b5c';
 const UUID_B = '1c2f7d8b-4a3e-4f6b-9cad-1e2f3a4b5c6d';
@@ -111,3 +123,129 @@ const FROZEN_SAMPLES: { readonly [K in Kind]: unknown } = {
     loggedAt: 1_800_000_000_000,
   },
 };
+
+const PROGRAM_SAMPLE = {
+  effectiveFrom: '2030-03-04',
+  weeklyMinimum: 3,
+  days: [
+    {
+      key: 'push',
+      label: 'Mon, Push',
+      weekday: 1,
+      minutes: 60,
+      blocks: [
+        { kind: 'checklist', id: 'warm', title: 'Warm up', note: 'Easy.', items: ['Arm circles'] },
+        {
+          kind: 'lifts',
+          id: 'a',
+          title: 'Superset A',
+          restSeconds: 90,
+          slots: [
+            {
+              id: 'a1',
+              liftId: 'bench-press',
+              label: 'Bench press',
+              cue: 'Pause on the chest.',
+              setPrompt: 'Any pinch?',
+              target: { sets: 3, reps: { min: 8, max: 10 }, perSide: 'left-first', load: 'weight' },
+              swaps: [{ liftId: 'incline-press', label: 'Incline press', cue: 'Elbows in.' }],
+            },
+          ],
+        },
+        { kind: 'cardio', id: 'zone', optional: true, onlyWeek: '2030-03-04' },
+      ],
+    },
+  ],
+  lifts: [
+    { id: 'bench-press', name: 'Bench press', aliases: ['barbell-bench'], key: true },
+    { id: 'incline-press', name: 'Incline press', aliases: [] },
+  ],
+  notes: [{ title: 'This week', text: 'Deload.', onlyWeek: '2030-03-04' }],
+  standing: [{ key: 'rules', title: 'Rules', text: 'Stop two reps short.' }],
+  report: { title: 'Week 1', text: 'A good start.' },
+  changes: [{ target: 'slot:push/a2', why: 'The machine is gone.' }],
+};
+
+/**
+ * Stored shapes the registry does not hold yet, walked and frozen like the kinds above.
+ * Registering one moves its sample into FROZEN_SAMPLES.
+ */
+const UNREGISTERED: Readonly<Record<string, { readonly schema: z.ZodType; readonly sample: unknown }>> = {
+  program: { schema: Program, sample: { id: 'p:2030-03-04', publishedAt: 1_800_000_000_000, ...PROGRAM_SAMPLE } },
+  session: {
+    schema: Session,
+    sample: {
+      id: UUID_A,
+      date: '2030-03-04',
+      day: { key: 'push', label: 'Mon, Push' },
+      programId: 'p:2030-03-04',
+      startedAt: 1_800_000_000_000,
+      finishedAt: 1_800_003_600_000,
+      skips: [{ slotId: 'a2', note: 'Machine taken.' }],
+      checked: ['warm'],
+      note: 'Felt strong.',
+    },
+  },
+  performance: {
+    schema: Performance,
+    sample: {
+      id: `pf:${UUID_A}:a1:incline-press`,
+      sessionId: UUID_A,
+      date: '2030-03-04',
+      liftId: 'incline-press',
+      label: 'Incline press',
+      slotId: 'a1',
+      plannedLiftId: 'bench-press',
+      target: { sets: 3, reps: { min: 8, max: 10 } },
+      note: 'Grip slipped.',
+      sets: [
+        { load: { kind: 'weight', amount: 45, unit: 'lb' }, reps: { kind: 'total', reps: 10 }, warmup: true, at: 1_800_000_000_000 },
+        { load: { kind: 'weight', amount: 20, unit: 'kg' }, reps: { kind: 'sides', left: 8, right: 7 }, note: 'No pinch.', at: 1_800_000_060_000 },
+        { load: { kind: 'bodyweight' }, reps: { kind: 'total', reps: 12 } },
+        { load: { kind: 'band', label: 'green' }, reps: { kind: 'total', reps: 15 } },
+      ],
+    },
+  },
+  trainingNote: { schema: TrainingNote, sample: { id: UUID_A, date: '2030-03-04', text: 'Sleep has been short.', at: 1_800_000_000_000 } },
+};
+
+/**
+ * The only inputs that refuse an unknown field rather than keep it, because Claude writes them
+ * and a misspelled field must fail. Everything stored above must do the opposite.
+ */
+const STRICT_INPUTS: Readonly<Record<string, { readonly accepts: (raw: unknown) => boolean; readonly sample: unknown }>> = {
+  ProgramDraft: { accepts: (raw) => parseProgramDraft(raw).ok, sample: PROGRAM_SAMPLE },
+};
+
+describe.each(KIND_NAMES)('stored kind %s', (kind) => {
+  it('keeps unknown fields at every depth', () => {
+    expect(closedObjects(KINDS[kind].schema)).toEqual([]);
+  });
+
+  it('still parses its frozen sample, dropping nothing', () => {
+    const sample = FROZEN_SAMPLES[kind];
+    expect(parseDoc(kind, sample)).toEqual({ ok: true, doc: sample });
+  });
+});
+
+describe.each(Object.entries(UNREGISTERED))('stored shape %s', (_name, entry) => {
+  it('keeps unknown fields at every depth', () => {
+    expect(closedObjects(entry.schema)).toEqual([]);
+  });
+
+  it('still parses its frozen sample, dropping nothing', () => {
+    expect(entry.schema.parse(entry.sample)).toEqual(entry.sample);
+  });
+});
+
+describe.each(Object.entries(STRICT_INPUTS))('strict input %s', (_name, entry) => {
+  it('accepts its sample', () => {
+    expect(entry.accepts(entry.sample)).toBe(true);
+  });
+
+  it('refuses a stray field at every object in it', () => {
+    const paths = objectPaths(entry.sample);
+    expect(paths.length).toBeGreaterThan(10);
+    for (const path of paths) expect([path, entry.accepts(withStray(entry.sample, path))]).toEqual([path, false]);
+  });
+});

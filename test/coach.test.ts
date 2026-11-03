@@ -107,11 +107,10 @@ describe('programDiff', () => {
 
   it('shows a rename and additions with no reason needed', () => {
     const added = slot('a3', 'face-pull', 2);
-    const items = diffOf((d) => ({
-      ...withDay(d, 'push', [...onlySlots({ ...benchSlot, label: 'Paused bench' }, rowSlot, added), checklist('warm')]),
-      days: [...withDay(d, 'push', [...onlySlots({ ...benchSlot, label: 'Paused bench' }, rowSlot, added), checklist('warm')]).days, { key: dayKey('arms'), label: 'Arms', blocks: [checklist('curls')] }],
-      standing: [...d.standing, { key: 'sleep', title: 'Sleep', text: 'Eight hours.' }],
-    }));
+    const items = diffOf((d) => {
+      const edited = withDay(d, 'push', [...onlySlots({ ...benchSlot, label: 'Paused bench' }, rowSlot, added), checklist('warm')]);
+      return { ...edited, days: [...edited.days, { key: dayKey('arms'), label: 'Arms', blocks: [checklist('curls')] }], standing: [...d.standing, { key: 'sleep', title: 'Sleep', text: 'Eight hours.' }] };
+    });
     expect(items.map((i) => [i.kind, i.target, i.needsReason])).toEqual([
       ['block-added', 'block:push/warm', false],
       ['slot-renamed', 'slot:push/a1', false],
@@ -142,10 +141,9 @@ describe('programDiff', () => {
 
 describe('sameContent', () => {
   it('ignores the stamp and key order, and sees any real change', () => {
-    const reordered: unknown = JSON.parse(JSON.stringify(draftOf(base, '2030-03-04')));
-    const parsed = ProgramDraft.parse({ changes: [], ...(typeof reordered === 'object' ? reordered : {}) });
+    const reversedKeys = ProgramDraft.parse(Object.fromEntries(Object.entries(draftOf(base, '2030-03-04')).toReversed()));
     expect(sameContent(base, { ...base, publishedAt: ms(T0 + 1) })).toBe(true);
-    expect(sameContent(base, parsed)).toBe(true);
+    expect(sameContent(base, reversedKeys)).toBe(true);
     expect(sameContent(base, { ...base, weeklyMinimum: 3 })).toBe(false);
     expect(sameContent(base, withDay(base, 'push', [pushBlock]))).toBe(false);
   });
@@ -295,13 +293,13 @@ describe('checkPublish', () => {
       const dayTwice = check((d) => ({ ...d, days: [...d.days, { key: dayKey('push'), label: 'Again', blocks: [checklist('x')] }] }));
       expect(problemsOf(dayTwice).find((p) => p.code === 'duplicate-id')?.message).toContain('push');
       expect(codes(check((d) => withDay(d, 'push', [pushBlock, abBlock, { ...abBlock }])))).toEqual(['duplicate-id', 'duplicate-id']);
-      expect(codes(check((d) => withDay(d, 'push', [liftsBlock('main', [benchSlot, rowSlot], { title: 'Main' }), liftsBlock('abs', [{ ...abBlock.slots[0], ...benchSlot }], { title: 'Abs' })])))).toContain('duplicate-id');
+      expect(codes(check((d) => withDay(d, 'push', [pushBlock, liftsBlock('abs', [benchSlot], { title: 'Abs' })])))).toContain('duplicate-id');
       expect(codes(check((d) => ({ ...d, lifts: [...d.lifts, { id: lift('squat'), name: 'Again', aliases: [] }] })))).toEqual(['duplicate-id']);
       expect(codes(check((d) => ({ ...d, standing: [...d.standing, ...d.standing] })))).toEqual(['duplicate-id']);
     });
 
     it('allows the same slot id on another day', () => {
-      expect(check((d) => withDay(d, 'legs', [liftsBlock('legs', [slot('b1', 'squat', 3), { ...slot('a1', 'squat', 2) }])])).status).toBe('valid');
+      expect(check((d) => withDay(d, 'legs', [liftsBlock('legs', [slot('b1', 'squat', 3), slot('a1', 'squat', 2)])])).status).toBe('valid');
     });
   });
 
@@ -322,7 +320,7 @@ describe('checkPublish', () => {
       expect(verdict.status).toBe('valid');
     });
 
-    it('refuses a dropped lift, with history that still points at it', () => {
+    it('refuses a dropped lift, naming it', () => {
       const verdict = check((d) => ({ ...d, lifts: d.lifts.filter((l) => l.id !== 'crunch'), days: withDay(d, 'push', [pushBlock]).days, changes: [{ target: 'block:push/abs', why: 'Abs moved.' }] }));
       expect(codes(verdict)).toEqual(['catalog-drop']);
       expect(problemsOf(verdict)[0]?.message).toContain('crunch');

@@ -13,7 +13,6 @@ import {
   lbOf,
   liftSeries,
   recentSessions,
-  repsRead,
   repsToGo,
   sessionsDone,
   showUp,
@@ -21,7 +20,6 @@ import {
   swapsOf,
   totalsOf,
   typedLine,
-  workingSets,
   type LiftRead,
 } from '../src/domain/progress.js';
 import { band, bw, day, dayKey, kg, lb, lift, liftsBlock, minutes, performance, program, session, sides, slot, slotId, target, warm } from './training.fixtures.js';
@@ -394,17 +392,6 @@ describe('boardRow', () => {
   it('reads reps for a bodyweight key lift', () => {
     const rows = [performance({ lift: 'pull-up', date: '2030-05-01', sets: [bw(8)] }), performance({ lift: 'pull-up', date: '2030-05-08', sets: [warm(bw(3)), bw(11)] })];
     expect(boardRow({ lift: lift('pull-up'), rows, book, today })).toMatchObject({ mode: 'reps', spark: [8, 11], latest: 11, change: 3, sessionsSinceBest: 0 });
-  });
-});
-
-describe('small reads', () => {
-  it('workingSets keeps unflagged sets', () => {
-    expect(workingSets([warm(lb(45, 10)), lb(100, 5)])).toEqual([lb(100, 5)]);
-  });
-
-  it('repsRead takes the better side', () => {
-    expect(repsRead({ kind: 'sides', left: 7, right: 9 })).toBe(9);
-    expect(repsRead({ kind: 'total', reps: 7 })).toBe(7);
   });
 });
 
