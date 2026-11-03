@@ -150,7 +150,7 @@ Each unit ends in its check. Units 1 to 7 must run in order. Units 8 to 11 touch
 4. **Reconcile real history locally.** Every Progress row matches or is waived with a reason. This tests the set model against real data before storage exists.
 5. **Register the kinds, empty.** The phone's data survives the upgrade, and 10,000 invented rows open a day under 50 ms on the iPhone.
 6. **Routes and tool.** Route tests for invalid, twice, frozen, stale, unexplained drop and lost response, plus a coach step in the simulation.
-7. **Import for real and first program.** Totals equal Progress, a re-run writes nothing, and diary days are byte-identical.
+7. **Import for real and first program.** Totals equal Progress or carry a stated waiver, a re-run writes nothing, and diary days are byte-identical. A cardio-only day known only from a week row becomes a session with no sets, so the show-up chart agrees with what happened.
 8. **Read-only Train tab.** A fake clock crosses two Mondays with no writes: the week appears, a retest goes and a note lapses, offline.
 9. **Charts.** Tests for the four corruption cases, screenshots in light and dark, on real imported data.
 10. **Logging.** Playwright offline survives a reload, a tab switch and a page kill mid-set. Then one real session alongside Notion.
