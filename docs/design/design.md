@@ -104,6 +104,8 @@ The phone queues whole-document puts and deletes in an outbox. Each sync pushes 
 
 The replica's `commit` parses every document against its kind's schema before it writes, and throws `InvalidDocument` with nothing written. An edit the mini would reject fails on the phone when it is made. Before, it reached the outbox, the mini refused it, and the next sync deleted it from the phone without a word.
 
+The old shell keeps running until Dylan taps the update banner, so a pull can hold a kind it has never heard of, or a document its schema rejects. Each pulled record is parsed alone in `apply`. One the shell cannot read is skipped, and the rest of the batch, the cursor and the acks go through. The replica's meta row remembers the build that skipped and the lowest skipped rev. A different build pulls from just before that rev, and the response replaces the note. A pending local write still wins over anything re-pulled. The shell reports its build on each sync, and `/healthz` shows the latest. Shells from before this send none, so a reported build means the shell can skip.
+
 The only real conflict is two devices editing the same document while one is offline. The later arrival wins. 
 iOS gives web apps no background sync. Sync runs on app start, after each write (debounced), on returning to the foreground, on the `online` event, and every 60 seconds while the app is open.
 
@@ -202,7 +204,7 @@ The tab bar keeps four tabs: Diary, Add, Scan and Goal. Recipes and saved meals 
 
 ### Backups
 
-Nightly online backup of `fuel.db` to an iCloud Drive folder, keeping 30 days. (Graft from server-authoritative.) The phone's full copy is a second line of defense. Restoring a backup changes the server's epoch. Phones then re-queue every document they hold, so edits made after the backup survive. A delete made after the backup comes back and has to be redone.
+Nightly online backup of `fuel.db` to an iCloud Drive folder, keeping 30 days. (Graft from server-authoritative.) The phone's full copy is a second line of defense. Restoring a backup changes the server's epoch. Phones then re-queue every document they hold, so edits made after the backup survive. A delete made after the backup comes back and has to be redone. A document whose newer version the phone's shell skipped goes back as the older copy it holds, and replaces the newer one if the server accepts it, so tap the update banner before restoring.
 
 ## Synthesis decision
 
