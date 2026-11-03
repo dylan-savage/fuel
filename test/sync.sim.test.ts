@@ -16,7 +16,7 @@ import { syncRounds, type Transport } from '../src/client/sync.js';
 import { PROFILE_ID, goalId } from '../src/domain/goals.js';
 import { weighInId } from '../src/domain/body.js';
 import { FastEndId, FastId, FoodId, LocalDate, RecipeId, SavedMealId, WaterId, WorkoutId } from '../src/domain/ids.js';
-import { KIND_NAMES, type Mutation } from '../src/domain/kinds.js';
+import { KIND_NAMES, type Kind, type Mutation } from '../src/domain/kinds.js';
 import type { SyncReply, SyncRequest, SyncResponse } from '../src/protocol.js';
 import { openStore, type DocStore } from '../src/server/store.js';
 import { at, entry, fast, fastEnd, food, goal, newClientId, newEntryId, profile, recipe, request, savedMeal, water, weighIn, workout } from './fixtures.js';
@@ -41,49 +41,29 @@ const PUSH_BATCH = 4;
 
 type WriteOp = { readonly op: 'put'; readonly slot: number; readonly kcal: number } | { readonly op: 'delete'; readonly slot: number };
 
-/** One document per slot, of every kind, so random writes collide on the same ids across phones. */
-const SLOT_WRITES: readonly ((w: WriteOp) => Mutation)[] = [
-  ...ENTRY_IDS.map(
-    (id) =>
-      (w: WriteOp): Mutation =>
-        w.op === 'put' ? { op: 'put', kind: 'entry', doc: entry(id, w.kcal) } : { op: 'delete', kind: 'entry', id },
+type SlotWrite<K extends Kind> = (w: WriteOp) => Extract<Mutation, { readonly kind: K }>;
+
+/**
+ * One document per slot, so random writes collide on the same ids across phones. Keyed by
+ * kind, so a new kind fails tsc until the simulation writes it.
+ */
+const SLOT_WRITES: { readonly [K in Kind]: readonly SlotWrite<K>[] } = {
+  entry: ENTRY_IDS.map((id) => (w) => (w.op === 'put' ? { op: 'put', kind: 'entry', doc: entry(id, w.kcal) } : { op: 'delete', kind: 'entry', id })),
+  food: FOOD_IDS.map((id) => (w) => (w.op === 'put' ? { op: 'put', kind: 'food', doc: { ...food(id), name: `Food ${w.kcal}` } } : { op: 'delete', kind: 'food', id })),
+  goal: GOAL_DATES.map((date) => (w) => (w.op === 'put' ? { op: 'put', kind: 'goal', doc: goal(date, w.kcal) } : { op: 'delete', kind: 'goal', id: goalId(date) })),
+  profile: [(w) => (w.op === 'put' ? { op: 'put', kind: 'profile', doc: profile(40 + w.kcal / 100) } : { op: 'delete', kind: 'profile', id: PROFILE_ID })],
+  recipe: [(w) => (w.op === 'put' ? { op: 'put', kind: 'recipe', doc: recipe(RECIPE_ID, w.kcal) } : { op: 'delete', kind: 'recipe', id: RECIPE_ID })],
+  savedMeal: [(w) => (w.op === 'put' ? { op: 'put', kind: 'savedMeal', doc: savedMeal(MEAL_ID, w.kcal) } : { op: 'delete', kind: 'savedMeal', id: MEAL_ID })],
+  water: WATER_IDS.map((id) => (w) => (w.op === 'put' ? { op: 'put', kind: 'water', doc: water(id, w.kcal) } : { op: 'delete', kind: 'water', id })),
+  fast: [(w) => (w.op === 'put' ? { op: 'put', kind: 'fast', doc: fast(FAST_ID, 1 + (w.kcal % 72)) } : { op: 'delete', kind: 'fast', id: FAST_ID })],
+  fastEnd: FAST_END_IDS.map((id) => (w) => (w.op === 'put' ? { op: 'put', kind: 'fastEnd', doc: fastEnd(id, FAST_ID, w.kcal) } : { op: 'delete', kind: 'fastEnd', id })),
+  weighIn: WEIGH_IN_DATES.map(
+    (date) => (w) => (w.op === 'put' ? { op: 'put', kind: 'weighIn', doc: weighIn(date, 40 + w.kcal / 100) } : { op: 'delete', kind: 'weighIn', id: weighInId(LocalDate.parse(date)) }),
   ),
-  ...FOOD_IDS.map(
-    (id) =>
-      (w: WriteOp): Mutation =>
-        w.op === 'put' ? { op: 'put', kind: 'food', doc: { ...food(id), name: `Food ${w.kcal}` } } : { op: 'delete', kind: 'food', id },
-  ),
-  ...GOAL_DATES.map(
-    (date) =>
-      (w: WriteOp): Mutation =>
-        w.op === 'put' ? { op: 'put', kind: 'goal', doc: goal(date, w.kcal) } : { op: 'delete', kind: 'goal', id: goalId(date) },
-  ),
-  (w) => (w.op === 'put' ? { op: 'put', kind: 'profile', doc: profile(40 + w.kcal / 100) } : { op: 'delete', kind: 'profile', id: PROFILE_ID }),
-  (w) => (w.op === 'put' ? { op: 'put', kind: 'recipe', doc: recipe(RECIPE_ID, w.kcal) } : { op: 'delete', kind: 'recipe', id: RECIPE_ID }),
-  (w) => (w.op === 'put' ? { op: 'put', kind: 'savedMeal', doc: savedMeal(MEAL_ID, w.kcal) } : { op: 'delete', kind: 'savedMeal', id: MEAL_ID }),
-  ...WATER_IDS.map(
-    (id) =>
-      (w: WriteOp): Mutation =>
-        w.op === 'put' ? { op: 'put', kind: 'water', doc: water(id, w.kcal) } : { op: 'delete', kind: 'water', id },
-  ),
-  (w) => (w.op === 'put' ? { op: 'put', kind: 'fast', doc: fast(FAST_ID, 1 + (w.kcal % 72)) } : { op: 'delete', kind: 'fast', id: FAST_ID }),
-  ...FAST_END_IDS.map(
-    (id) =>
-      (w: WriteOp): Mutation =>
-        w.op === 'put' ? { op: 'put', kind: 'fastEnd', doc: fastEnd(id, FAST_ID, w.kcal) } : { op: 'delete', kind: 'fastEnd', id },
-  ),
-  ...WEIGH_IN_DATES.map(
-    (date) =>
-      (w: WriteOp): Mutation =>
-        w.op === 'put' ? { op: 'put', kind: 'weighIn', doc: weighIn(date, 40 + w.kcal / 100) } : { op: 'delete', kind: 'weighIn', id: weighInId(LocalDate.parse(date)) },
-  ),
-  ...WORKOUT_IDS.map(
-    (id) =>
-      (w: WriteOp): Mutation =>
-        w.op === 'put' ? { op: 'put', kind: 'workout', doc: workout(id, 40 + w.kcal / 100) } : { op: 'delete', kind: 'workout', id },
-  ),
-];
-const SLOTS = SLOT_WRITES.length;
+  workout: WORKOUT_IDS.map((id) => (w) => (w.op === 'put' ? { op: 'put', kind: 'workout', doc: workout(id, 40 + w.kcal / 100) } : { op: 'delete', kind: 'workout', id })),
+};
+const ALL_SLOTS = KIND_NAMES.flatMap((kind): readonly ((w: WriteOp) => Mutation)[] => SLOT_WRITES[kind]);
+const SLOTS = ALL_SLOTS.length;
 
 type Fate = 'deliver' | 'drop-request' | 'drop-response' | 'deliver-twice';
 type Step =
@@ -102,7 +82,7 @@ type Step =
   | { readonly kind: 'restore' };
 
 function toMutation(w: WriteOp): Mutation {
-  const write = SLOT_WRITES[w.slot];
+  const write = ALL_SLOTS[w.slot];
   if (write === undefined) throw new Error(`no slot ${w.slot}`);
   return write(w);
 }
@@ -314,6 +294,10 @@ async function close(world: World): Promise<void> {
 
 const runs = Number(process.env.FUEL_SIM_RUNS ?? 150);
 const seed = process.env.FUEL_SIM_SEED === undefined ? {} : { seed: Number(process.env.FUEL_SIM_SEED) };
+
+it('writes at least one document of every kind', () => {
+  expect(KIND_NAMES.filter((kind) => SLOT_WRITES[kind].length === 0)).toEqual([]);
+});
 
 describe.each([
   ['shells that read everything', false],
