@@ -8,10 +8,11 @@
  * beside that file holds the steps and the rules for reading a page.
  */
 import { z } from 'zod';
-import { LocalDate, addDays } from './ids.js';
-import { LiftId, Target, Unit } from './lifts.js';
+import { LocalDate, SessionId, addDays } from './ids.js';
+import { LiftId, Performance, SlotId, Target, Unit, liftIdOf, performanceId } from './lifts.js';
 import { BlockId, DayKey } from './program.js';
-import { totalsOf, type ExerciseTotals } from './progress.js';
+import { totalsOf, typedLine, type ExerciseTotals } from './progress.js';
+import { Session } from './session.js';
 
 const Text = z.string().min(1);
 const repCount = z.number().int().nonnegative();
@@ -258,4 +259,153 @@ export function reconcile(history: NotionHistory): Reconciliation {
     staleWaivers,
     clean: standing.length === 0 && staleWaivers.length === 0,
   };
+}
+
+export interface ImportDocs {
+  readonly sessions: readonly Session[];
+  readonly performances: readonly Performance[];
+}
+
+function optional(key: string, value: unknown): Readonly<Record<string, unknown>> {
+  return value === undefined ? {} : { [key]: value };
+}
+
+/**
+ * The documents the import would write, each built through its domain schema. A session id is
+ * derived from date and day and a performance id from the session, so a re-run lands on the same
+ * documents. `uuidFrom` is injected because the domain has no crypto. A page with nothing logged
+ * is no session, and no workout is written: Notion recorded no minutes, and burn would move past
+ * targets under eat-back.
+ *
+ * The slot id is the planned lift, since imports have no program to point at, and it is what a
+ * skip shows the coach.
+ */
+export function importDocs(history: NotionHistory, uuidFrom: (seed: string) => string): ImportDocs {
+  const lift = (name: string): LiftId => liftOf(history.names, name);
+  const slot = (name: string): SlotId => SlotId.parse(lift(name));
+  const days = history.weeks.flatMap(loggedDays);
+  const built = days.map((day) => {
+    const sessionId = SessionId.parse(uuidFrom(`${day.date}:${day.key}`));
+    const session = Session.parse({
+      id: sessionId,
+      date: day.date,
+      day: { key: day.key, label: day.label },
+      source: 'notion',
+      ...optional('note', day.note),
+      ...optional('checked', day.checked),
+      ...optional('skips', day.skipped.length === 0 ? undefined : day.skipped.map((skip) => ({ slotId: slot(skip.planned), ...optional('note', skip.note) }))),
+    });
+    const performances = day.exercises.map((exercise) => {
+      const liftId = lift(exercise.done);
+      const slotId = slot(exercise.planned ?? exercise.done);
+      const planned = exercise.planned === undefined ? undefined : lift(exercise.planned);
+      return Performance.parse({
+        id: performanceId(sessionId, slotId, liftId),
+        sessionId,
+        date: day.date,
+        liftId,
+        label: exercise.done,
+        slotId,
+        sets: exercise.sets,
+        ...optional('plannedLiftId', planned === liftId ? undefined : planned),
+        ...optional('target', exercise.target),
+        ...optional('note', exercise.note),
+      });
+    });
+    return { session, performances };
+  });
+  return { sessions: built.map((b) => b.session), performances: built.flatMap((b) => b.performances) };
+}
+
+export interface ImportCounts {
+  readonly sessions: number;
+  readonly performances: number;
+  readonly sets: number;
+  readonly lifts: number;
+}
+
+export function countsOf(docs: ImportDocs): ImportCounts {
+  return {
+    sessions: docs.sessions.length,
+    performances: docs.performances.length,
+    sets: docs.performances.reduce((sum, p) => sum + p.sets.length, 0),
+    lifts: new Set(docs.performances.map((p) => p.liftId)).size,
+  };
+}
+
+function findingLine(found: Finding): string {
+  return `- ${found.row}, ${found.field}: Notion ${found.notion}, computed ${found.computed}`;
+}
+
+function listOr(lines: readonly string[], empty: string): string {
+  return lines.length === 0 ? empty : lines.join('\n');
+}
+
+function waiverLines(history: NotionHistory): readonly string[] {
+  const counts = new Map<string, number>();
+  for (const { reason } of history.waivers) counts.set(reason, (counts.get(reason) ?? 0) + 1);
+  return [...counts].map(([reason, count]) => `- ${count} × ${reason}`);
+}
+
+function namesThatDrift(history: NotionHistory): readonly string[] {
+  return Object.entries(history.names)
+    .filter(([name, id]) => liftIdOf(name) !== id)
+    .map(([name, id]) => `- ${name} → ${id}`);
+}
+
+function typedRowLines(history: NotionHistory, reports: ReadonlyMap<string, ProgressRow>): readonly string[] {
+  return [...loggedRows(history)].map(([key, sets]) => `- ${key}: Progress "${reports.get(key)?.reps ?? 'no row'}", phone "${typedLine(sets)}"`);
+}
+
+/** What the script prints, and the head of its report. */
+export function summaryOf(input: { readonly history: NotionHistory; readonly result: Reconciliation; readonly docs: ImportDocs; readonly digest: string }): string {
+  const { history, result, docs, digest } = input;
+  const counts = countsOf(docs);
+  return `# Notion reconcile, captured ${history.capturedAt}
+
+Sessions ${counts.sessions}, performances ${counts.performances}, sets ${counts.sets}, lifts ${counts.lifts}.
+Progress rows ${result.progressRows}: matched ${result.matched}, waived ${result.waivedRows}, standing ${result.progressRows - result.matched - result.waivedRows}.
+Findings ${result.findings.length}, standing ${result.standing.length}. Waivers ${history.waivers.length}, stale ${result.staleWaivers.length}.
+Documents digest ${digest}. All documents parsed with their domain schemas.
+
+## Standing
+
+${listOr(result.standing.map(findingLine), 'None.')}
+
+## Stale waivers
+
+${listOr(
+  result.staleWaivers.map((waiver) => `- ${waiver.row}, ${waiver.field}`),
+  'None.',
+)}
+
+## Waivers by reason
+
+${listOr(waiverLines(history), 'None.')}
+`;
+}
+
+/** The rest of the report, for reading a row against its source. */
+export function detailsOf(history: NotionHistory, result: Reconciliation): string {
+  const rows = new Map(history.progress.map((row) => [rowKey(row.monday, row.day, liftOf(history.names, row.exercise)), row]));
+  const dated = history.weeks.flatMap(loggedDays).map((day) => `- ${day.date} ${day.label}: page last edited ${day.pageEditedAt}`);
+  return `
+## Every finding
+
+${listOr(result.findings.map(findingLine), 'None.')}
+
+## Names that are not their own slug
+
+${listOr(namesThatDrift(history), 'None.')}
+
+## Session dates
+
+${history.dateAssumption}
+
+${listOr(dated, 'None.')}
+
+## Logged rows, as Progress and the phone each print them
+
+${listOr(typedRowLines(history, rows), 'None.')}
+`;
 }

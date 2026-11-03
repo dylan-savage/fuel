@@ -1,5 +1,9 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { NotionHistory, reconcile } from '../src/domain/notionImport.js';
+import { Performance } from '../src/domain/lifts.js';
+import { NotionHistory, detailsOf, importDocs, reconcile, summaryOf, type ImportDocs } from '../src/domain/notionImport.js';
+import { sessionsDone, skipsOf, totalsOf, workingSets } from '../src/domain/progress.js';
+import { Session } from '../src/domain/session.js';
 
 const MONDAY = '2030-03-04';
 const ROW = `${MONDAY} Mon, Push bench-press`;
@@ -33,6 +37,12 @@ function history(extra: object = {}): NotionHistory {
     waivers: [],
     ...extra,
   });
+}
+
+/** The same shape as the script's ids: a UUID that depends only on its seed. */
+function uuidFrom(seed: string): string {
+  const hash = createHash('sha1').update(seed).digest('hex');
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
 const findingsOf = (h: NotionHistory) => reconcile(h).findings.map((found) => [found.row, found.field, found.notion, found.computed]);
@@ -144,5 +154,132 @@ describe('reconcile', () => {
     const result = reconcile(history({ waivers: [{ row: ROW, field: 'volume', reason: 'Old excuse.' }] }));
     expect(result.staleWaivers.map((waiver) => waiver.reason)).toEqual(['Old excuse.']);
     expect(result.clean).toBe(false);
+  });
+});
+
+describe('importDocs', () => {
+  const docs = (h: NotionHistory = history()): ImportDocs => importDocs(h, uuidFrom);
+
+  it('is the same bytes on every run, so a re-run writes nothing new', () => {
+    expect(JSON.stringify(docs())).toBe(JSON.stringify(docs()));
+  });
+
+  it('derives ids from date and day, so another day or date is another session', () => {
+    const id = (day: object) => docs(history({ weeks: [{ monday: MONDAY, days: [pushDay([bench([lb(100, 10)])], day)] }], progress: [], weekRows: [] })).sessions[0]?.id;
+    expect(id({})).toBeDefined();
+    expect(id({ key: 'pull' })).not.toBe(id({}));
+    expect(id({ weekday: 2, date: '2030-03-05' })).not.toBe(id({}));
+  });
+
+  it('gives a page with nothing logged no session, and a logged page one the coach counts', () => {
+    const blankPage = pushDay([], { label: 'Tue, Pull', key: 'pull', weekday: 2, date: '2030-03-05' });
+    const { sessions, performances } = docs(history({ weeks: [{ monday: MONDAY, days: [pushDay([bench([lb(100, 10)])]), blankPage] }] }));
+    expect(sessions.map((session) => session.day?.key)).toEqual(['push']);
+    expect(sessionsDone(sessions, performances)).toHaveLength(1);
+  });
+
+  it('builds documents that survive their domain schemas with nothing dropped', () => {
+    const h = history({
+      weeks: [
+        {
+          monday: MONDAY,
+          days: [
+            pushDay([bench([lb(100, 10, 'Felt a pinch.'), kg(40, 8), sides(30, 8, 9), bw(12), band(15)], { planned: 'Incline press', target: { sets: 3, reps: { min: 8, max: 10 }, perSide: 'left-first', load: 'weight' }, note: 'Machine taken.' })], {
+              note: 'Short on time.',
+              checked: ['warm'],
+              skipped: [{ planned: 'Step up', note: 'No box free.' }],
+            }),
+          ],
+        },
+      ],
+    });
+    const { sessions, performances } = docs(h);
+    expect(sessions).toHaveLength(1);
+    expect(performances).toHaveLength(1);
+    for (const session of sessions) expect(Session.parse(JSON.parse(JSON.stringify(session)))).toEqual(session);
+    for (const performance of performances) expect(Performance.parse(JSON.parse(JSON.stringify(performance)))).toEqual(performance);
+  });
+
+  it('holds what its schema refuses as a failure, not a dropped set', () => {
+    const tooLong = 'x'.repeat(281);
+    expect(() => docs(history({ weeks: [{ monday: MONDAY, days: [pushDay([bench([lb(100, 10, tooLong)])])] }] }))).toThrow();
+  });
+
+  it('marks every session as an import, with no program, times or workout', () => {
+    const [session] = docs().sessions;
+    expect(session).toMatchObject({ date: MONDAY, day: { key: 'push', label: 'Mon, Push' }, source: 'notion' });
+    expect(session).not.toHaveProperty('programId');
+    expect(session).not.toHaveProperty('startedAt');
+    expect(session).not.toHaveProperty('finishedAt');
+  });
+
+  it('logs a swap under the lift really done, with the planned lift kept', () => {
+    const [performance] = docs(history({ weeks: [{ monday: MONDAY, days: [pushDay([{ done: 'Incline press', planned: 'Bench press', sets: [lb(80, 10)] }])] }], progress: [], waivers: [] })).performances;
+    expect(performance).toMatchObject({ liftId: 'incline-press', plannedLiftId: 'bench-press', label: 'Incline press', slotId: 'bench-press' });
+  });
+
+  it('treats a rename within one lift as no swap, keeping the name he used as the label', () => {
+    const [performance] = docs(history({ weeks: [{ monday: MONDAY, days: [pushDay([{ done: 'Close-grip bench', planned: 'Bench press', sets: [lb(100, 10)] }])] }] })).performances;
+    expect(performance).toMatchObject({ liftId: 'bench-press', label: 'Close-grip bench' });
+    expect(performance).not.toHaveProperty('plannedLiftId');
+  });
+
+  it('keeps weights as typed, with every set a working set and no invented time', () => {
+    const typed = [kg(40, 8), lb(50, 10)];
+    const [performance] = docs(history({ weeks: [{ monday: MONDAY, days: [pushDay([bench(typed)])] }], progress: [] })).performances;
+    expect(performance?.sets).toEqual(typed);
+    expect(workingSets(performance?.sets ?? [])).toHaveLength(2);
+  });
+
+  it('computes the same totals on its documents as reconcile compared', () => {
+    const [performance] = docs().performances;
+    expect(totalsOf(performance?.sets ?? [])).toEqual({ topLb: 100, volumeLb: 1000, e1rmLb: 100 * (1 + 10 / 30) });
+  });
+
+  it('shows a skip under its planned lift, with his note, on the coach read that has no plan', () => {
+    const h = history({ weeks: [{ monday: MONDAY, days: [pushDay([bench([lb(100, 10)])], { skipped: [{ planned: 'Step up', note: 'No box free.' }] })] }] });
+    const { sessions, performances } = docs(h);
+    const [session] = sessions;
+    if (session === undefined) throw new Error('no session');
+    expect(skipsOf({ session, performances, plan: undefined, phase: 'imported' })).toEqual([{ slotId: 'step-up', label: 'step-up', note: 'No box free.' }]);
+  });
+});
+
+describe('the report', () => {
+  const summary = (h: NotionHistory) => summaryOf({ history: h, result: reconcile(h), docs: importDocs(h, uuidFrom), digest: 'abc123' });
+
+  it('gives counts and the digest', () => {
+    const text = summary(history());
+    expect(text).toContain('Sessions 1, performances 1, sets 1, lifts 1.');
+    expect(text).toContain('Progress rows 1: matched 1, waived 0, standing 0.');
+    expect(text).toContain('Documents digest abc123.');
+  });
+
+  it('names what stands', () => {
+    expect(summary(history({ progress: [progressRow({ volume: 1001 })] }))).toContain(`- ${ROW}, volume: Notion 1001, computed 1000`);
+  });
+
+  it('counts waivers by reason', () => {
+    const waivers = [
+      { row: ROW, field: 'volume', reason: 'Notion rounded up.' },
+      { row: ROW, field: 'e1rm', reason: 'Notion rounded up.' },
+    ];
+    const text = summary(history({ progress: [progressRow({ volume: 1001, e1rm: 134 })], waivers }));
+    expect(text).toContain('- 2 × Notion rounded up.');
+    expect(text).toContain('Progress rows 1: matched 0, waived 1, standing 0.');
+  });
+
+  it('lists every name that is not its own slug, so a drift stays visible', () => {
+    const h = history();
+    const text = detailsOf(h, reconcile(h));
+    expect(text).toContain('- Close-grip bench → bench-press');
+    expect(text).not.toContain('- Step up');
+  });
+
+  it('puts every session date beside the page edit time, under the stated assumption', () => {
+    const h = history();
+    const text = detailsOf(h, reconcile(h));
+    expect(text).toContain('Monday plus the planned weekday.');
+    expect(text).toContain(`- ${MONDAY} Mon, Push: page last edited 2030-03-04T18:00:00.000Z`);
   });
 });
