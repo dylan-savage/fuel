@@ -23,9 +23,11 @@ import { Gtin, defaultQuantity, quickAddItem, snapshotOf, type FoodCandidate } f
 import { KG_PER_LB, type GoalDraft } from '../src/domain/goals.js';
 import { DEFAULT_WATER_ML, HOUR_MS, runningFast } from '../src/domain/habits.js';
 import { LocalDate, addDays, type Millis } from '../src/domain/ids.js';
+import type { Mutation } from '../src/domain/kinds.js';
 import { recipeSnapshot } from '../src/domain/reuse.js';
 import { openStore } from '../src/server/store.js';
 import { at, entry, food, newEntryId, rev } from './fixtures.js';
+import { program, session } from './training.fixtures.js';
 
 const today = LocalDate.parse('2026-10-28');
 const slot = { date: today, meal: 'lunch' } as const;
@@ -622,5 +624,21 @@ describe('two phones offline', () => {
     } finally {
       server.close();
     }
+  });
+});
+
+describe('only the coach writes a program', () => {
+  type IntentWrite = Parameters<Parameters<typeof createIntents>[0]['commit']>[0][number];
+  const doc = program('2030-03-04', []);
+
+  it('leaves a program out of what an intent can commit, by type', () => {
+    // @ts-expect-error An intent cannot put a program.
+    const put: IntentWrite = { op: 'put', kind: 'program', doc };
+    // @ts-expect-error An intent cannot delete a program.
+    const remove: IntentWrite = { op: 'delete', kind: 'program', id: doc.id };
+    // The kind alone is what is refused: the same document is a Mutation, and an intent can write the phone's kinds.
+    const stored: Mutation = { op: 'put', kind: 'program', doc };
+    const phone: IntentWrite = { op: 'put', kind: 'session', doc: session() };
+    expect([put.kind, remove.kind, stored.kind, phone.kind]).toEqual(['program', 'program', 'program', 'session']);
   });
 });

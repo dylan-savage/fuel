@@ -11,6 +11,7 @@ import { SCHEMA_HISTORY } from '../src/domain/kinds.js';
 import { ClientId, MutationId, type SyncReply } from '../src/protocol.js';
 import { openStore, type DocStore } from '../src/server/store.js';
 import { at, entry, food, newClientId, newEntryId, putEntry, request, rev } from './fixtures.js';
+import { liftsBlock, program, slot } from './training.fixtures.js';
 
 const open: Replica[] = [];
 afterEach(() => {
@@ -340,6 +341,27 @@ describe('a skipped document when the server is restored from a backup', () => {
     await syncRounds(port, (req) => Promise.resolve(restored.sync(req, ctx)));
     expect(restored.stats().rev).toBe(revBefore);
     expect(onServer(restored)).toEqual(newer);
+  });
+});
+
+describe('a program the phone pulled', () => {
+  const ctx = { now: at(1), userAgent: null };
+
+  it('goes back to a restored server with everything else the phone holds, then leaves the outbox', async () => {
+    const before = openStore(':memory:');
+    const restored = openStore(':memory:');
+    const { replica, port } = await setup();
+    const plan = program('2030-03-04', [{ key: 'push', blocks: [liftsBlock('a', [slot('a1', 'bench-press', 3)])] }]);
+    expect(before.sync(request(newClientId(), [{ op: 'put', id: MutationId.parse(1), kind: 'program', docId: plan.id, doc: plan }]), ctx).rejected).toEqual([]);
+
+    await syncRounds(port, (req) => Promise.resolve(before.sync(req, ctx)));
+    expect(await replica.read.get('program', plan.id)).toEqual(plan);
+
+    await syncRounds(port, (req) => Promise.resolve(restored.sync(req, ctx)));
+    expect(restored.sync(request(newClientId(), []), ctx).changes.map((c) => c.doc)).toEqual([plan]);
+    expect(await port.pendingCount()).toBe(0);
+    before.close();
+    restored.close();
   });
 });
 

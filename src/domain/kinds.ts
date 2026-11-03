@@ -82,6 +82,12 @@ export type Mutation = {
     | { readonly op: 'delete'; readonly kind: K; readonly id: DocOf<K>['id'] };
 }[Kind];
 
+/**
+ * What an intent may write. Mutation stays whole because a replica stores every kind and a
+ * restore re-pushes everything it holds, so this limits who writes a program, not who carries one.
+ */
+export type PhoneMutation = Exclude<Mutation, { readonly kind: 'program' }>;
+
 export type Parsed<T> = { readonly ok: true; readonly doc: T } | { readonly ok: false; readonly reason: string };
 
 /** The boundary parse for any document crossing the wire. */

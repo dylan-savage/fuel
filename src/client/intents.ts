@@ -19,7 +19,7 @@ import {
 import { Goal, PROFILE_ID, Profile, goalId, type GoalDraft, type ProfileDraft } from '../domain/goals.js';
 import { endAt, fastState, openFasts, withEnds, type Fast, type FastEnd, type Water } from '../domain/habits.js';
 import { EntryId, FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, WorkoutId, type LocalDate } from '../domain/ids.js';
-import type { Mutation } from '../domain/kinds.js';
+import type { PhoneMutation } from '../domain/kinds.js';
 import type { CoreKey } from '../domain/nutrients.js';
 import { Recipe, type EditedRef, type RecipeDraft, type SavedMeal, type SavedMealDraft } from '../domain/reuse.js';
 import type { Replica } from './replica.js';
@@ -123,7 +123,7 @@ function keepUnknown<T extends object>(known: object, before: object | undefined
 
 const nothingToUndo: Undo = () => Promise.resolve();
 
-export function createIntents(replica: Pick<Replica, 'read' | 'commit'>, clock: Clock): Intents {
+export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutations: readonly PhoneMutation[]): Promise<void> }, clock: Clock): Intents {
   const entriesFor = (placed: readonly (readonly [Ingredient, Slot])[]): Entry[] => {
     const start = clock.now();
     // Each item gets its own millisecond so the day lists them in the order they were logged.
@@ -212,13 +212,13 @@ export function createIntents(replica: Pick<Replica, 'read' | 'commit'>, clock: 
     updateUsesOf: async (ref) => {
       const [next, recipes, meals] = await Promise.all([usesView(replica.read, ref), replica.read.all('recipe'), replica.read.all('savedMeal')]);
       const changed = new Set<string>([...next.recipes, ...next.meals].map((d) => d.id));
-      const before: Mutation[] = [
-        ...recipes.filter((r) => changed.has(r.id)).map((doc): Mutation => ({ op: 'put', kind: 'recipe', doc })),
-        ...meals.filter((m) => changed.has(m.id)).map((doc): Mutation => ({ op: 'put', kind: 'savedMeal', doc })),
+      const before: PhoneMutation[] = [
+        ...recipes.filter((r) => changed.has(r.id)).map((doc): PhoneMutation => ({ op: 'put', kind: 'recipe', doc })),
+        ...meals.filter((m) => changed.has(m.id)).map((doc): PhoneMutation => ({ op: 'put', kind: 'savedMeal', doc })),
       ];
       await replica.commit([
-        ...next.recipes.map((doc): Mutation => ({ op: 'put', kind: 'recipe', doc })),
-        ...next.meals.map((doc): Mutation => ({ op: 'put', kind: 'savedMeal', doc })),
+        ...next.recipes.map((doc): PhoneMutation => ({ op: 'put', kind: 'recipe', doc })),
+        ...next.meals.map((doc): PhoneMutation => ({ op: 'put', kind: 'savedMeal', doc })),
       ]);
       return { recipes: next.recipes.length, meals: next.meals.length, undo: () => replica.commit(before) };
     },
