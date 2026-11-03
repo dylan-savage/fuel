@@ -244,13 +244,18 @@ export type PublishVerdict =
   | { readonly status: 'valid'; readonly program: Program; readonly diff: readonly DiffItem[] }
   /** The version already holds this content. */
   | { readonly status: 'unchanged'; readonly id: ProgramId }
-  | { readonly status: 'frozen'; readonly id: ProgramId; readonly problems: readonly Problem[] }
+  | { readonly status: 'frozen'; readonly id: ProgramId; readonly earliestEffectiveFrom: LocalDate; readonly problems: readonly Problem[] }
   | { readonly status: 'invalid'; readonly problems: readonly Problem[] };
+
+/** A new version may start today, unless today's version already exists and so is frozen. */
+export function earliestEffectiveFrom(versions: readonly Program[], today: LocalDate): LocalDate {
+  return versions.some((version) => version.effectiveFrom === today) ? addDays(today, 1) : today;
+}
 
 /**
  * Everything that refuses a draft, reported together so one fix round is enough. Frozen is a
  * calendar rule rather than a look at sessions, which is what protects a session started offline
- * that the mini has not heard of. A new version may start today.
+ * that the mini has not heard of.
  */
 export function checkPublish(raw: unknown, versions: readonly Program[], at: { readonly today: LocalDate; readonly now: Millis }): PublishVerdict {
   const parsed = parseProgramDraft(raw);
@@ -262,7 +267,8 @@ export function checkPublish(raw: unknown, versions: readonly Program[], at: { r
 
   const before = programOn(versions, addDays(draft.effectiveFrom, -1)) ?? null;
   const diff = programDiff(before, draft);
-  const frozen: readonly Problem[] = existing !== undefined && draft.effectiveFrom <= at.today ? [{ code: 'frozen', path: 'effectiveFrom', message: `${id} has been in effect since ${draft.effectiveFrom}. Publish a new version from today or later` }] : [];
+  const earliest = earliestEffectiveFrom(versions, at.today);
+  const frozen: readonly Problem[] = existing !== undefined && draft.effectiveFrom <= at.today ? [{ code: 'frozen', path: 'effectiveFrom', message: `${id} has been in effect since ${draft.effectiveFrom}. Publish a new version from ${earliest} or later` }] : [];
   const problems: readonly Problem[] = [
     ...frozen,
     ...(draft.effectiveFrom < at.today ? [{ code: 'back-dated' as const, path: 'effectiveFrom', message: `${draft.effectiveFrom} is before today, ${at.today}` }] : []),
@@ -272,12 +278,12 @@ export function checkPublish(raw: unknown, versions: readonly Program[], at: { r
     ...onlyWeekProblems(draft),
     ...diff.filter((item) => item.needsReason && item.why === null).map((item): Problem => ({ code: 'unexplained', path: 'changes', message: `${item.kind} ${item.label}: name target "${item.target}" in changes with a reason` })),
   ];
-  if (frozen.length > 0) return { status: 'frozen', id, problems };
+  if (frozen.length > 0) return { status: 'frozen', id, earliestEffectiveFrom: earliest, problems };
   if (problems.length > 0) return { status: 'invalid', problems };
   return { status: 'valid', program: Program.parse({ ...draft, id, publishedAt: at.now }), diff };
 }
 
-const SNAPSHOT_WEEKS = 6;
+export const SNAPSHOT_WEEKS = 6;
 
 /** A document with the revision it arrived at, because only arrival order shows that an offline session came in late. */
 export interface Arrived<T> {
@@ -286,6 +292,8 @@ export interface Arrived<T> {
 }
 
 export interface TrainDocs {
+  /** The newest rev any program took, a tombstone's included, so a publish can tell the plan moved since this read. */
+  readonly programRev: number;
   readonly programs: readonly Arrived<Program>[];
   readonly sessions: readonly Arrived<Session>[];
   readonly performances: readonly Arrived<Performance>[];
@@ -355,9 +363,13 @@ export interface CoachSnapshot {
   readonly today: LocalDate;
   /** What the weekly run publishes for. */
   readonly targetMonday: LocalDate;
+  /** The first date a change outside the weekly run can take effect. */
+  readonly earliestEffectiveFrom: LocalDate;
+  /** Echoed by a publish, which answers stale if the plan has moved past it. */
+  readonly basedOnRev: number;
   readonly program: Program | null;
   readonly upcoming: readonly Program[];
-  /** Six weeks oldest first, plus the week of any session that arrived late. */
+  /** The weeks asked for, oldest first, plus the week of any session that arrived late. */
   readonly weeks: readonly SnapshotWeek[];
   readonly notes: readonly SnapshotNote[];
   /** Names typed on the phone that the catalog has not placed. */
@@ -439,7 +451,7 @@ function notesOf(session: Session, performances: readonly Performance[], skips: 
   ];
 }
 
-export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; readonly now: Millis; readonly phoneLastSyncAt: Millis | null }): CoachSnapshot {
+export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; readonly now: Millis; readonly phoneLastSyncAt: Millis | null }, weekCount = SNAPSHOT_WEEKS): CoachSnapshot {
   const { today, now } = at;
   const programs = docs.programs.map((program) => program.doc);
   const program = programOn(programs, today) ?? null;
@@ -447,7 +459,7 @@ export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; rea
   const lastReportRev = reportRevs.length === 0 ? null : Math.max(...reportRevs);
   const performances = docs.performances.map((row) => row.doc);
   const thisWeek = mondayOf(today);
-  const firstWeek = addDays(thisWeek, -7 * (SNAPSHOT_WEEKS - 1));
+  const firstWeek = addDays(thisWeek, -7 * (weekCount - 1));
 
   const reads = docs.sessions.map(({ doc: session, rev }) => {
     const own = docs.performances.filter((row) => row.doc.sessionId === session.id);
@@ -481,7 +493,7 @@ export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; rea
     return { summary, notes: notesOf(session, read.performances, skips) };
   });
 
-  const regularWeeks = Array.from({ length: SNAPSHOT_WEEKS }, (_, i) => addDays(firstWeek, 7 * i));
+  const regularWeeks = Array.from({ length: weekCount }, (_, i) => addDays(firstWeek, 7 * i));
   const mondays = [...new Set([...shown.map((read) => mondayOf(read.session.date)), ...regularWeeks])].toSorted((a, b) => a.localeCompare(b));
   const weeks = mondays.map((monday): SnapshotWeek => {
     const inWeek = shown.filter((read) => mondayOf(read.session.date) === monday);
@@ -507,6 +519,8 @@ export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; rea
   return {
     today,
     targetMonday,
+    earliestEffectiveFrom: earliestEffectiveFrom(programs, today),
+    basedOnRev: docs.programRev,
     program,
     upcoming: programs.filter((version) => version.effectiveFrom > today).toSorted((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom)),
     weeks,

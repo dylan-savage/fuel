@@ -266,6 +266,13 @@ describe('checkPublish', () => {
       expect(later).toMatchObject({ status: 'frozen', id: 'p:2030-03-11' });
     });
 
+    it('names the earliest date allowed: today, or tomorrow once today has a version', () => {
+      const older = checkPublish(draftOf(upcoming, '2030-03-11', changed), [base, upcoming], { today: day('2030-03-12'), now: ms(T0) });
+      expect(older).toMatchObject({ status: 'frozen', earliestEffectiveFrom: '2030-03-12' });
+      const today = checkPublish(draftOf(upcoming, '2030-03-11', changed), [base, upcoming], { today: day('2030-03-11'), now: ms(T0) });
+      expect(today).toMatchObject({ status: 'frozen', earliestEffectiveFrom: '2030-03-12' });
+    });
+
     it('lets an upcoming version be replaced, the day before its date', () => {
       const verdict = checkPublish(draftOf(upcoming, '2030-03-11', changed), [base, upcoming], { today: day('2030-03-10'), now: ms(T0) });
       expect(verdict.status).toBe('valid');
@@ -400,7 +407,7 @@ describe('targetMondayOf', () => {
 });
 
 describe('snapshotOf', () => {
-  const noDocs: TrainDocs = { programs: [], sessions: [], performances: [], trainingNotes: [], weighIns: [], entries: [], workouts: [] };
+  const noDocs: TrainDocs = { programRev: 0, programs: [], sessions: [], performances: [], trainingNotes: [], weighIns: [], entries: [], workouts: [] };
   const AT_SUNDAY = { today: day('2030-03-10'), now: ms(T0 + 100 * 3_600_000), phoneLastSyncAt: ms(T0 - 5000) };
   const arrived = <T>(doc: T, rev = 1) => ({ doc, rev });
 
@@ -417,6 +424,22 @@ describe('snapshotOf', () => {
     expect(snapshot.upcoming.map((p) => p.id)).toEqual([next.id, later.id]);
     expect(snapshot.targetMonday).toBe('2030-03-11');
     expect(snapshot.phoneLastSyncAt).toBe(T0 - 5000);
+  });
+
+  it('echoes the program rev it was read at, and the earliest date a change can start', () => {
+    const snapshot = snapshotOf({ ...noDocs, programRev: 41, programs: [arrived(base, 40)] }, AT_SUNDAY);
+    expect(snapshot.basedOnRev).toBe(41);
+    expect(snapshot.earliestEffectiveFrom).toBe('2030-03-10');
+    const startsToday = program('2030-03-10', [{ key: 'push', blocks: [pushBlock] }]);
+    expect(snapshotOf({ ...noDocs, programs: [arrived(startsToday)] }, AT_SUNDAY).earliestEffectiveFrom).toBe('2030-03-11');
+  });
+
+  it('reads the number of weeks asked for', () => {
+    const inside = session({ date: day('2030-02-25') });
+    const outside = session({ date: day('2030-02-24') });
+    const snapshot = snapshotOf({ ...noDocs, sessions: [arrived(inside), arrived(outside)] }, AT_SUNDAY, 2);
+    expect(snapshot.weeks.map((week) => week.monday)).toEqual(['2030-02-25', '2030-03-04']);
+    expect(snapshot.weeks.flatMap((week) => week.sessions).map((one) => one.id)).toEqual([inside.id]);
   });
 
   it('has an empty read before anything exists', () => {
