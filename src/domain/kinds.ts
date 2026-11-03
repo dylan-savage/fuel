@@ -6,7 +6,10 @@ import { Food } from './food.js';
 import { Goal, Profile } from './goals.js';
 import { Fast, FastEnd, Water } from './habits.js';
 import type { LocalDate } from './ids.js';
+import { Performance } from './lifts.js';
+import { Program } from './program.js';
 import { Recipe, SavedMeal } from './reuse.js';
+import { Session, TrainingNote } from './session.js';
 
 interface KindDef<S extends z.ZodType<{ id: string }>, D extends boolean> {
   readonly schema: S;
@@ -21,12 +24,17 @@ function doc<S extends z.ZodType<{ id: string }>>(schema: S, indexes: readonly s
 }
 
 /** The bound makes marking a kind dated a compile error when its documents have no date. */
-function datedDoc<S extends z.ZodType<{ id: string; date: LocalDate }>>(schema: S): KindDef<S, true> {
-  return { schema, dated: true, indexes: [] };
+function datedDoc<S extends z.ZodType<{ id: string; date: LocalDate }>>(schema: S, indexes: readonly string[] = []): KindDef<S, true> {
+  return { schema, dated: true, indexes };
 }
 
 /** The phone's index on food barcodes. Multi-entry ('*'), so each GTIN is its own key. */
 export const BARCODE_INDEX = 'doc.barcodes';
+
+/** The phone's indexes on a performance. A row with no plannedLiftId stays out of its index, so that one holds swaps only. */
+export const LIFT_DATE_INDEX = '[doc.liftId+doc.date]';
+export const PLANNED_DATE_INDEX = '[doc.plannedLiftId+doc.date]';
+export const SESSION_INDEX = 'doc.sessionId';
 
 /**
  * The only list of document kinds. Server validation, the phone's IndexedDB tables and the
@@ -44,6 +52,10 @@ const DEFS = {
   fastEnd: doc(FastEnd),
   weighIn: datedDoc(WeighIn),
   workout: datedDoc(Workout),
+  program: doc(Program),
+  session: datedDoc(Session),
+  performance: datedDoc(Performance, [LIFT_DATE_INDEX, PLANNED_DATE_INDEX, SESSION_INDEX]),
+  trainingNote: datedDoc(TrainingNote),
 } as const;
 
 export type Kind = keyof typeof DEFS;
@@ -147,6 +159,25 @@ export const SCHEMA_HISTORY: readonly DexieSpec[] = [
     fastEnd: 'id',
     weighIn: 'id, doc.date',
     workout: 'id, doc.date',
+    outbox: '++mutationId',
+    meta: 'key',
+  },
+  {
+    food: 'id, *doc.barcodes',
+    entry: 'id, doc.date',
+    profile: 'id',
+    goal: 'id',
+    recipe: 'id',
+    savedMeal: 'id',
+    water: 'id, doc.date',
+    fast: 'id',
+    fastEnd: 'id',
+    weighIn: 'id, doc.date',
+    workout: 'id, doc.date',
+    program: 'id',
+    session: 'id, doc.date',
+    performance: 'id, doc.date, [doc.liftId+doc.date], [doc.plannedLiftId+doc.date], doc.sessionId',
+    trainingNote: 'id, doc.date',
     outbox: '++mutationId',
     meta: 'key',
   },

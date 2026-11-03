@@ -7,10 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { parseProgramDraft } from '../src/domain/coach.js';
 import { KINDS, KIND_NAMES, parseDoc, type Kind } from '../src/domain/kinds.js';
-import { Performance } from '../src/domain/lifts.js';
 import { NotionHistory } from '../src/domain/notionImport.js';
-import { Program } from '../src/domain/program.js';
-import { Session, TrainingNote } from '../src/domain/session.js';
 import { isRecord } from '../src/domain/strict.js';
 
 /** Schema types that cannot hold an object. Anything else must be walked, or the walker throws. */
@@ -77,6 +74,48 @@ const SNAPSHOT = {
 };
 const INGREDIENT = { food: SNAPSHOT, quantity: { kind: 'serving', serving: { label: '1 cup', amount: 249 }, count: 1.5 } };
 
+const PROGRAM_SAMPLE = {
+  effectiveFrom: '2030-03-04',
+  weeklyMinimum: 3,
+  days: [
+    {
+      key: 'push',
+      label: 'Mon, Push',
+      weekday: 1,
+      minutes: 60,
+      blocks: [
+        { kind: 'checklist', id: 'warm', title: 'Warm up', note: 'Easy.', items: ['Arm circles'] },
+        {
+          kind: 'lifts',
+          id: 'a',
+          title: 'Superset A',
+          restSeconds: 90,
+          slots: [
+            {
+              id: 'a1',
+              liftId: 'bench-press',
+              label: 'Bench press',
+              cue: 'Pause on the chest.',
+              setPrompt: 'Any pinch?',
+              target: { sets: 3, reps: { min: 8, max: 10 }, perSide: 'left-first', load: 'weight' },
+              swaps: [{ liftId: 'incline-press', label: 'Incline press', cue: 'Elbows in.' }],
+            },
+          ],
+        },
+        { kind: 'cardio', id: 'zone', optional: true, onlyWeek: '2030-03-04' },
+      ],
+    },
+  ],
+  lifts: [
+    { id: 'bench-press', name: 'Bench press', aliases: ['barbell-bench'], key: true },
+    { id: 'incline-press', name: 'Incline press', aliases: [] },
+  ],
+  notes: [{ title: 'This week', text: 'Deload.', onlyWeek: '2030-03-04' }],
+  standing: [{ key: 'rules', title: 'Rules', text: 'Stop two reps short.' }],
+  report: { title: 'Week 1', text: 'A good start.' },
+  changes: [{ target: 'slot:push/a2', why: 'The machine is gone.' }],
+};
+
 /**
  * Documents exactly as a phone may already hold them. Keyed by kind, so a new kind fails tsc
  * until it has one. Typed as unknown on purpose, so a schema change cannot silently carry a
@@ -123,91 +162,36 @@ const FROZEN_SAMPLES: { readonly [K in Kind]: unknown } = {
     kcal: 290,
     loggedAt: 1_800_000_000_000,
   },
-};
-
-const PROGRAM_SAMPLE = {
-  effectiveFrom: '2030-03-04',
-  weeklyMinimum: 3,
-  days: [
-    {
-      key: 'push',
-      label: 'Mon, Push',
-      weekday: 1,
-      minutes: 60,
-      blocks: [
-        { kind: 'checklist', id: 'warm', title: 'Warm up', note: 'Easy.', items: ['Arm circles'] },
-        {
-          kind: 'lifts',
-          id: 'a',
-          title: 'Superset A',
-          restSeconds: 90,
-          slots: [
-            {
-              id: 'a1',
-              liftId: 'bench-press',
-              label: 'Bench press',
-              cue: 'Pause on the chest.',
-              setPrompt: 'Any pinch?',
-              target: { sets: 3, reps: { min: 8, max: 10 }, perSide: 'left-first', load: 'weight' },
-              swaps: [{ liftId: 'incline-press', label: 'Incline press', cue: 'Elbows in.' }],
-            },
-          ],
-        },
-        { kind: 'cardio', id: 'zone', optional: true, onlyWeek: '2030-03-04' },
-      ],
-    },
-  ],
-  lifts: [
-    { id: 'bench-press', name: 'Bench press', aliases: ['barbell-bench'], key: true },
-    { id: 'incline-press', name: 'Incline press', aliases: [] },
-  ],
-  notes: [{ title: 'This week', text: 'Deload.', onlyWeek: '2030-03-04' }],
-  standing: [{ key: 'rules', title: 'Rules', text: 'Stop two reps short.' }],
-  report: { title: 'Week 1', text: 'A good start.' },
-  changes: [{ target: 'slot:push/a2', why: 'The machine is gone.' }],
-};
-
-/**
- * Stored shapes the registry does not hold yet, walked and frozen like the kinds above.
- * Registering one moves its sample into FROZEN_SAMPLES.
- */
-const UNREGISTERED: Readonly<Record<string, { readonly schema: z.ZodType; readonly sample: unknown }>> = {
-  program: { schema: Program, sample: { id: 'p:2030-03-04', publishedAt: 1_800_000_000_000, ...PROGRAM_SAMPLE } },
+  program: { id: 'p:2030-03-04', publishedAt: 1_800_000_000_000, ...PROGRAM_SAMPLE },
   session: {
-    schema: Session,
-    sample: {
-      id: UUID_A,
-      date: '2030-03-04',
-      day: { key: 'push', label: 'Mon, Push' },
-      programId: 'p:2030-03-04',
-      startedAt: 1_800_000_000_000,
-      finishedAt: 1_800_003_600_000,
-      skips: [{ slotId: 'a2', note: 'Machine taken.' }],
-      checked: ['warm'],
-      note: 'Felt strong.',
-    },
+    id: UUID_A,
+    date: '2030-03-04',
+    day: { key: 'push', label: 'Mon, Push' },
+    programId: 'p:2030-03-04',
+    startedAt: 1_800_000_000_000,
+    finishedAt: 1_800_003_600_000,
+    skips: [{ slotId: 'a2', note: 'Machine taken.' }],
+    checked: ['warm'],
+    note: 'Felt strong.',
   },
   performance: {
-    schema: Performance,
-    sample: {
-      id: `pf:${UUID_A}:a1:incline-press`,
-      sessionId: UUID_A,
-      date: '2030-03-04',
-      liftId: 'incline-press',
-      label: 'Incline press',
-      slotId: 'a1',
-      plannedLiftId: 'bench-press',
-      target: { sets: 3, reps: { min: 8, max: 10 } },
-      note: 'Grip slipped.',
-      sets: [
-        { load: { kind: 'weight', amount: 45, unit: 'lb' }, reps: { kind: 'total', reps: 10 }, warmup: true, at: 1_800_000_000_000 },
-        { load: { kind: 'weight', amount: 20, unit: 'kg' }, reps: { kind: 'sides', left: 8, right: 7 }, note: 'No pinch.', at: 1_800_000_060_000 },
-        { load: { kind: 'bodyweight' }, reps: { kind: 'total', reps: 12 } },
-        { load: { kind: 'band', label: 'green' }, reps: { kind: 'total', reps: 15 } },
-      ],
-    },
+    id: `pf:${UUID_A}:a1:incline-press`,
+    sessionId: UUID_A,
+    date: '2030-03-04',
+    liftId: 'incline-press',
+    label: 'Incline press',
+    slotId: 'a1',
+    plannedLiftId: 'bench-press',
+    target: { sets: 3, reps: { min: 8, max: 10 }, perSide: 'either' },
+    note: 'Grip slipped.',
+    sets: [
+      { load: { kind: 'weight', amount: 45, unit: 'lb' }, reps: { kind: 'total', reps: 10 }, warmup: true, at: 1_800_000_000_000 },
+      { load: { kind: 'weight', amount: 20, unit: 'kg' }, reps: { kind: 'sides', left: 8, right: 7 }, note: 'No pinch.', at: 1_800_000_060_000 },
+      { load: { kind: 'bodyweight' }, reps: { kind: 'total', reps: 12 } },
+      { load: { kind: 'band', label: 'green' }, reps: { kind: 'total', reps: 15 } },
+    ],
   },
-  trainingNote: { schema: TrainingNote, sample: { id: UUID_A, date: '2030-03-04', text: 'Sleep has been short.', at: 1_800_000_000_000 } },
+  trainingNote: { id: UUID_A, date: '2030-03-04', text: 'Sleep has been short.', at: 1_800_000_000_000 },
 };
 
 const NOTION_HISTORY_SAMPLE = {
@@ -270,15 +254,13 @@ describe.each(KIND_NAMES)('stored kind %s', (kind) => {
     const sample = FROZEN_SAMPLES[kind];
     expect(parseDoc(kind, sample)).toEqual({ ok: true, doc: sample });
   });
-});
 
-describe.each(Object.entries(UNREGISTERED))('stored shape %s', (_name, entry) => {
-  it('keeps unknown fields at every depth', () => {
-    expect(closedObjects(entry.schema)).toEqual([]);
-  });
-
-  it('still parses its frozen sample, dropping nothing', () => {
-    expect(entry.schema.parse(entry.sample)).toEqual(entry.sample);
+  it('carries a stray field through at every object in its sample', () => {
+    const sample = FROZEN_SAMPLES[kind];
+    for (const path of objectPaths(sample)) {
+      const newer = withStray(sample, path);
+      expect([path, parseDoc(kind, newer)]).toEqual([path, { ok: true, doc: newer }]);
+    }
   });
 });
 

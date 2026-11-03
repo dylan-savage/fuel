@@ -15,11 +15,14 @@ import { openReplica, type Replica, type SyncPort } from '../src/client/replica.
 import { syncRounds, type Transport } from '../src/client/sync.js';
 import { PROFILE_ID, goalId } from '../src/domain/goals.js';
 import { weighInId } from '../src/domain/body.js';
-import { FastEndId, FastId, FoodId, LocalDate, RecipeId, SavedMealId, WaterId, WorkoutId } from '../src/domain/ids.js';
+import { FastEndId, FastId, FoodId, LocalDate, RecipeId, SavedMealId, SessionId, TrainingNoteId, WaterId, WorkoutId } from '../src/domain/ids.js';
 import { KIND_NAMES, type Kind, type Mutation } from '../src/domain/kinds.js';
+import { performanceId } from '../src/domain/lifts.js';
+import { programId } from '../src/domain/program.js';
 import type { SyncReply, SyncRequest, SyncResponse } from '../src/protocol.js';
 import { openStore, type DocStore } from '../src/server/store.js';
 import { at, entry, fast, fastEnd, food, goal, newClientId, newEntryId, profile, recipe, request, savedMeal, water, weighIn, workout } from './fixtures.js';
+import { lb, lift, liftsBlock, ms, performance, program, session, slot, slotId } from './training.fixtures.js';
 
 const ENTRY_IDS = Array.from({ length: 4 }, newEntryId);
 const FOOD_IDS = [FoodId.parse('0f0e0d0c-0b0a-4908-8706-050403020100'), FoodId.parse('1f1e1d1c-1b1a-4918-9716-151413121110')];
@@ -34,6 +37,11 @@ const FAST_END_IDS = [FastEndId.parse('7f7e7d7c-7b7a-4978-b776-757473727170'), F
 /** Weigh-ins have one id per day, so phones weighing in on the same day write the same document. */
 const WEIGH_IN_DATES = ['2026-10-27', '2026-10-28'];
 const WORKOUT_IDS = [WorkoutId.parse('9f9e9d9c-9b9a-4998-9796-959493929190'), WorkoutId.parse('afaeadac-abaa-49a8-a7a6-a5a4a3a2a1a0')];
+/** The app has no phone write of a program, but a restore re-pushes one through this same outbox, so phones carry them here. */
+const PROGRAM_DATES = ['2026-10-26', '2026-11-02'];
+const SESSION_IDS = [SessionId.parse('bfbebdbc-bbba-49b8-b7b6-b5b4b3b2b1b0'), SessionId.parse('cfcecdcc-cbca-49c8-87c6-c5c4c3c2c1c0')];
+const NOTE_IDS = [TrainingNoteId.parse('dfdedddc-dbda-49d8-97d6-d5d4d3d2d1d0'), TrainingNoteId.parse('efeeedec-ebea-49e8-a7e6-e5e4e3e2e1e0')];
+const PUSH_DAY = [{ key: 'push', blocks: [liftsBlock('a', [slot('a1', 'bench-press', 3)])] }];
 
 /** Small pages and batches so every schedule exercises multi-round pushes and pulls. */
 const PULL_PAGE = 3;
@@ -61,6 +69,19 @@ const SLOT_WRITES: { readonly [K in Kind]: readonly SlotWrite<K>[] } = {
     (date) => (w) => (w.op === 'put' ? { op: 'put', kind: 'weighIn', doc: weighIn(date, 40 + w.kcal / 100) } : { op: 'delete', kind: 'weighIn', id: weighInId(LocalDate.parse(date)) }),
   ),
   workout: WORKOUT_IDS.map((id) => (w) => (w.op === 'put' ? { op: 'put', kind: 'workout', doc: workout(id, 40 + w.kcal / 100) } : { op: 'delete', kind: 'workout', id })),
+  program: PROGRAM_DATES.map(
+    (date) => (w) => (w.op === 'put' ? { op: 'put', kind: 'program', doc: program(date, PUSH_DAY, { publishedAt: ms(w.kcal) }) } : { op: 'delete', kind: 'program', id: programId(LocalDate.parse(date)) }),
+  ),
+  session: SESSION_IDS.map((id) => (w) => (w.op === 'put' ? { op: 'put', kind: 'session', doc: session({ id, note: `Session ${w.kcal}` }) } : { op: 'delete', kind: 'session', id })),
+  performance: SESSION_IDS.map(
+    (id) => (w) =>
+      w.op === 'put'
+        ? { op: 'put', kind: 'performance', doc: performance({ session: id, slot: 'a1', lift: 'bench-press', sets: [lb(w.kcal, 8)] }) }
+        : { op: 'delete', kind: 'performance', id: performanceId(id, slotId('a1'), lift('bench-press')) },
+  ),
+  trainingNote: NOTE_IDS.map(
+    (id) => (w) => (w.op === 'put' ? { op: 'put', kind: 'trainingNote', doc: { id, date: LocalDate.parse('2026-10-28'), text: `Note ${w.kcal}`, at: at(w.kcal) } } : { op: 'delete', kind: 'trainingNote', id }),
+  ),
 };
 const ALL_SLOTS = KIND_NAMES.flatMap((kind): readonly ((w: WriteOp) => Mutation)[] => SLOT_WRITES[kind]);
 const SLOTS = ALL_SLOTS.length;
