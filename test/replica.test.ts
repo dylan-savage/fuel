@@ -165,6 +165,11 @@ describe('a new build', () => {
     expect(await cursorOf(await shell('newer'))).toBe(22);
   });
 
+  it('sends its build on every request', async () => {
+    const { port } = await (shells())('abc-1');
+    expect((await port.nextBatch(1)).build).toBe('abc-1');
+  });
+
   it('stays at its cursor when the build has not changed', async () => {
     const shell = shells();
     const old = await shell('old');

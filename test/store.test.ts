@@ -1,6 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openStore, type DocStore } from '../src/server/store.js';
 import { at, deleteEntry, entry, newClientId, newEntryId, putEntry, request } from './fixtures.js';
@@ -129,6 +130,84 @@ describe('DocStore.sync', () => {
     const reopened = open(path);
     expect(reopened.stats().epoch).toBe(epoch);
     expect(reopened.sync(request(newClientId(), []), ctx).changes.map((c) => c.doc)).toEqual([doc]);
+  });
+});
+
+describe('the build a phone reports on sync', () => {
+  const reported = (build: string) => ({ ...request(newClientId(), []), build });
+
+  it('keeps the latest and when it arrived, and a sync without one leaves it alone', () => {
+    const store = open();
+    expect(store.stats().phoneBuild).toBeNull();
+    store.sync(reported('abc-1'), { now: at(5), userAgent: null });
+    expect(store.stats().phoneBuild).toEqual({ build: 'abc-1', at: 5 });
+    store.sync(reported('def-2'), { now: at(6), userAgent: null });
+    expect(store.stats().phoneBuild).toEqual({ build: 'def-2', at: 6 });
+    store.sync(request(newClientId(), []), { now: at(7), userAgent: null });
+    expect(store.stats().phoneBuild).toEqual({ build: 'def-2', at: 6 });
+  });
+
+  it('is no document: it takes no revision and no pull ever carries it', () => {
+    const store = open();
+    store.sync(reported('abc-1'), { now: at(5), userAgent: null });
+    expect(store.stats().rev).toBe(0);
+    expect(store.sync(request(newClientId(), []), ctx).changes).toEqual([]);
+  });
+
+  it('survives a restart', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'fuel-store-')), 'fuel.db');
+    const first = open(path);
+    first.sync(reported('abc-1'), { now: at(5), userAgent: null });
+    first.close();
+    stores.splice(stores.indexOf(first), 1);
+    expect(open(path).stats().phoneBuild).toEqual({ build: 'abc-1', at: 5 });
+  });
+});
+
+/** Every table as fuel.db held it before phones reported a build, frozen here on purpose. */
+const SCHEMA_BEFORE_BUILDS = /* sql */ `
+CREATE TABLE doc (
+  kind TEXT NOT NULL, id TEXT NOT NULL, rev INTEGER NOT NULL UNIQUE, body TEXT,
+  written_by TEXT NOT NULL, written_at INTEGER NOT NULL, PRIMARY KEY (kind, id)
+) STRICT;
+CREATE TABLE client (
+  id TEXT PRIMARY KEY, last_mutation_id INTEGER NOT NULL, first_seen_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL, user_agent TEXT
+) STRICT;
+CREATE TABLE rejection (
+  client_id TEXT NOT NULL, mutation_id INTEGER NOT NULL, at INTEGER NOT NULL, reason TEXT NOT NULL,
+  mutation TEXT NOT NULL, PRIMARY KEY (client_id, mutation_id)
+) STRICT;
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+CREATE TABLE lookup_cache (
+  source TEXT NOT NULL, key TEXT NOT NULL, fetched_at INTEGER NOT NULL, status INTEGER NOT NULL,
+  body TEXT NOT NULL, PRIMARY KEY (source, key)
+) STRICT;
+`;
+
+describe('a database file from before phones reported a build', () => {
+  it('opens with its documents, epoch and client intact, then syncs and records a build', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'fuel-store-')), 'fuel.db');
+    const client = newClientId();
+    const doc = entry(newEntryId(), 640);
+    const existing = new Database(path);
+    existing.pragma('journal_mode = WAL');
+    existing.exec(SCHEMA_BEFORE_BUILDS);
+    existing.prepare("INSERT INTO meta (key, value) VALUES ('epoch', 'e-before')").run();
+    existing.prepare('INSERT INTO doc (kind, id, rev, body, written_by, written_at) VALUES (?, ?, 1, ?, ?, 1)').run('entry', doc.id, JSON.stringify(doc), client);
+    existing.prepare('INSERT INTO client (id, last_mutation_id, first_seen_at, last_seen_at) VALUES (?, 7, 1, 1)').run(client);
+    existing.close();
+
+    const store = open(path);
+    expect(store.stats()).toEqual({ epoch: 'e-before', rev: 1, phoneBuild: null });
+
+    const next = entry(newEntryId(), 200);
+    const replayed = store.sync({ ...request(client, [putEntry(7, next)], 0, 'e-before'), build: 'abc-1' }, ctx);
+    expect(replayed.lastMutationId).toBe(7);
+    expect(replayed.changes.map((c) => c.doc)).toEqual([doc]);
+    const res = store.sync({ ...request(client, [putEntry(8, next)], 1, 'e-before'), build: 'abc-1' }, ctx);
+    expect(res.changes).toEqual([{ kind: 'entry', id: next.id, rev: 2, doc: next }]);
+    expect(store.stats()).toEqual({ epoch: 'e-before', rev: 2, phoneBuild: { build: 'abc-1', at: 1 } });
   });
 });
 

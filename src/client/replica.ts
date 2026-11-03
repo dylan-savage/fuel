@@ -226,7 +226,7 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
             ? { op: 'put', id, kind: row.kind, docId: row.docId, doc: row.doc }
             : { op: 'delete', id, kind: row.kind, docId: row.docId };
         });
-        return { clientId: current.clientId, epoch: current.epoch, cursor: pullFrom(current), mutations };
+        return { clientId: current.clientId, epoch: current.epoch, cursor: pullFrom(current), mutations, build };
       }),
 
     apply: (res) =>

@@ -198,7 +198,7 @@ The tab bar keeps four tabs: Diary, Add, Scan and Goal. Recipes and saved meals 
 | `GET /api/foods/search?q=` | USDA (when `USDA_API_KEY` is set) and Open Food Facts text search through search-a-licious; 502 only when every source fails |
 | `GET /api/foods/lookup/:ref` | barcode (`gtin:`) or USDA (`usda:`) lookup, cached on the mini |
 | `POST /api/ai/parse` | a description or photo to drafts, or a label to a food candidate; writes nothing; 503 `ai_unconfigured` without a key |
-| `GET /healthz`, `GET /*` | smoke check; the built PWA |
+| `GET /healthz`, `GET /*` | smoke check with the build a phone last reported; the built PWA |
 
 ### Backups
 

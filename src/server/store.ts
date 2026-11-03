@@ -7,7 +7,7 @@ import Database from 'better-sqlite3';
 import { z } from 'zod';
 import { KindName, parseDoc } from '../domain/kinds.js';
 import { Millis } from '../domain/ids.js';
-import { Rev, type DocRecord, type Rejection, type SyncRequest, type SyncResponse, type WireMutation } from '../protocol.js';
+import { PhoneBuild, Rev, type DocRecord, type Rejection, type SyncRequest, type SyncResponse, type WireMutation } from '../protocol.js';
 
 const SCHEMA_SQL = /* sql */ `
 -- Every synced document of every kind. A delete keeps the row with body NULL and a new rev,
@@ -78,7 +78,7 @@ export interface DocStore {
    * Replaying a request applies nothing twice, so a lost response is safe to retry.
    */
   sync(req: SyncRequest, ctx: { readonly now: Millis; readonly userAgent: string | null }): SyncResponse;
-  stats(): { readonly epoch: string; readonly rev: Rev };
+  stats(): { readonly epoch: string; readonly rev: Rev; readonly phoneBuild: PhoneBuild | null };
   /** Online backup to `destination`, safe while the server keeps writing. */
   backup(destination: string): Promise<void>;
   /**
@@ -128,6 +128,10 @@ export function openStore(path: string, opts: { readonly pageSize?: number } = {
   const q = {
     epoch: db.prepare("SELECT value FROM meta WHERE key = 'epoch'"),
     setEpoch: db.prepare("UPDATE meta SET value = ? WHERE key = 'epoch'"),
+    phoneBuild: db.prepare("SELECT value FROM meta WHERE key = 'phone_build'"),
+    setPhoneBuild: db.prepare(`
+      INSERT INTO meta (key, value) VALUES ('phone_build', ?)
+      ON CONFLICT (key) DO UPDATE SET value = excluded.value`),
     maxRev: db.prepare('SELECT COALESCE(MAX(rev), 0) AS rev FROM doc'),
     client: db.prepare('SELECT last_mutation_id FROM client WHERE id = ?'),
     upsertClient: db.prepare(`
@@ -158,6 +162,10 @@ export function openStore(path: string, opts: { readonly pageSize?: number } = {
 
   const readEpoch = (): string => MetaRow.parse(q.epoch.get()).value;
   const readRev = (): Rev => MaxRow.parse(q.maxRev.get()).rev;
+  const readPhoneBuild = (): PhoneBuild | null => {
+    const row = q.phoneBuild.get();
+    return row === undefined ? null : PhoneBuild.parse(parseJson(MetaRow.parse(row).value));
+  };
 
   const sync = db.transaction((req: SyncRequest, now: Millis, userAgent: string | null): SyncResponse => {
     const known = q.client.get(req.clientId);
@@ -178,6 +186,7 @@ export function openStore(path: string, opts: { readonly pageSize?: number } = {
       last = m.id;
     }
     q.upsertClient.run({ id: req.clientId, last, now, userAgent });
+    if (req.build !== undefined) q.setPhoneBuild.run(JSON.stringify({ build: req.build, at: now } satisfies PhoneBuild));
 
     const epoch = readEpoch();
     const from = req.epoch === epoch ? req.cursor : ZERO;
@@ -220,7 +229,7 @@ export function openStore(path: string, opts: { readonly pageSize?: number } = {
   return {
     lookupCache,
     sync: (req, ctx) => sync.immediate(req, ctx.now, ctx.userAgent),
-    stats: () => ({ epoch: readEpoch(), rev: readRev() }),
+    stats: () => ({ epoch: readEpoch(), rev: readRev(), phoneBuild: readPhoneBuild() }),
     backup: async (destination) => {
       await db.backup(destination);
     },

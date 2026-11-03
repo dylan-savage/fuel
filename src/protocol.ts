@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import { FdcId, FoodCandidate, Gtin, SearchHit, type ExternalRef } from './domain/food.js';
+import { Millis } from './domain/ids.js';
 import { KindName } from './domain/kinds.js';
 import { Draft, FoodHint, MAX_HINTS } from './domain/quicklog.js';
 
@@ -66,6 +67,8 @@ export const SyncRequest = z.object({
     .array(WireMutation)
     .max(MAX_PUSH)
     .refine((ms) => ms.every((m, i) => i === 0 || m.id > (ms[i - 1]?.id ?? 0)), 'mutation ids must ascend'),
+  /** The shell's build id. Shells that cannot skip what they cannot read send none, so its presence alone says this one can. */
+  build: z.string().min(1).max(100).optional(),
 });
 export type SyncRequest = z.infer<typeof SyncRequest>;
 
@@ -91,7 +94,11 @@ export type SyncResponse = z.infer<typeof SyncResponse>;
 export const SyncReply = SyncResponse.extend({ changes: z.array(z.unknown()) });
 export type SyncReply = z.infer<typeof SyncReply>;
 
-export const Healthz = z.object({ ok: z.literal(true), epoch: z.string(), rev: Rev });
+/** The latest build a phone reported on sync, and when. Null until one does. */
+export const PhoneBuild = z.object({ build: z.string(), at: Millis });
+export type PhoneBuild = z.infer<typeof PhoneBuild>;
+
+export const Healthz = z.object({ ok: z.literal(true), epoch: z.string(), rev: Rev, phoneBuild: PhoneBuild.nullable() });
 export type Healthz = z.infer<typeof Healthz>;
 
 /** The `:ref` path segment of GET /api/foods/lookup: `gtin:<13 digits>` or `usda:<fdcId>`. */

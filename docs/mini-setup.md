@@ -11,7 +11,7 @@ cd /Users/dylansavage/Desktop/Personal-AI/2026-10-28-fuel
 scripts/deploy.sh
 ```
 
-`deploy.sh` clones the repo to `~/fuel` the first time, pulls `main`, runs `npm ci` and `npm run build` there, installs the launchd agent, and restarts it. The agent starts at login and restarts the server if it exits. `/healthz` on `http://127.0.0.1:8787` answers `{"ok":true,"epoch":"…","rev":0}`. Logs go to `~/Library/Logs/fuel.log`, one JSON object per line.
+`deploy.sh` clones the repo to `~/fuel` the first time, pulls `main`, runs `npm ci` and `npm run build` there, installs the launchd agent, and restarts it. The agent starts at login and restarts the server if it exits. `/healthz` on `http://127.0.0.1:8787` answers `{"ok":true,"epoch":"…","rev":0,"phoneBuild":null}`, where `phoneBuild` becomes `{"build":"…","at":…}` once a phone reports its build on sync. Logs go to `~/Library/Logs/fuel.log`, one JSON object per line.
 
 `scripts/run.sh` pins `/Users/dylansavage/.nvm/versions/node/v22.22.3/bin/node`. If you move to another Node version, edit that path, because `better-sqlite3` is a native module built for one Node ABI.
 

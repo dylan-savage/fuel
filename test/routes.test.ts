@@ -66,6 +66,11 @@ describe('POST /api/sync', () => {
     expect(res.status).toBe(400);
   });
 
+  it.each([[''], [42], ['x'.repeat(101)]])('answers 400 to the build %j', async (build) => {
+    const res = await post({ ...request(newClientId(), []), build });
+    expect(res.status).toBe(400);
+  });
+
   it('answers 400 to mutation ids out of order', async () => {
     const res = await post(request(newClientId(), [putEntry(2, entry(newEntryId(), 1)), putEntry(1, entry(newEntryId(), 2))]));
     expect(res.status).toBe(400);
@@ -170,6 +175,21 @@ describe('GET /healthz', () => {
   it('reports the epoch and revision', async () => {
     const body = Healthz.parse(await (await app.request('/healthz')).json());
     expect(body.epoch).toBe(store.stats().epoch);
+  });
+
+  it('reports the build a sync sent, and a sync without one does not clear it', async () => {
+    const health = async () => Healthz.parse(await (await fresh.app.request('/healthz')).json()).phoneBuild;
+    const fresh = appOver(recorded.fetch);
+    const send = (body: unknown) => fresh.app.request('/api/sync', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect(await health()).toBeNull();
+
+    expect((await send({ ...request(newClientId(), []), build: 'abc-1' })).status).toBe(200);
+    expect(await health()).toEqual({ build: 'abc-1', at: 1 });
+
+    const old = await send(request(newClientId(), [putEntry(1, entry(newEntryId(), 1))]));
+    expect(old.status).toBe(200);
+    expect(SyncResponse.parse(await old.json()).lastMutationId).toBe(1);
+    expect(await health()).toEqual({ build: 'abc-1', at: 1 });
   });
 });
 
