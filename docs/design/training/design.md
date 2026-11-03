@@ -1,6 +1,6 @@
 # Training in fuel
 
-Status: awaiting Dylan's approval, 2026-11-03. Replaces a program kept in Notion. This repo is public, so examples here are invented and real data stays in `.private/`.
+Status: approved by Dylan, 2026-11-03. Replaces a program kept in Notion. This repo is public, so examples here are invented and real data stays in `.private/`.
 
 ## Problem
 
@@ -88,15 +88,15 @@ Inline SVG reusing `WeightChart`'s classes and scrub readout, one series and one
 | Am I showing up? | Twelve weeks of sessions against the weekly minimum |
 | What is moving, what is stuck? | Key lifts: small line, latest, change, "best 5 sessions ago" |
 | Am I getting stronger at this lift? | Est. 1RM line over top-weight dots, best point ringed, swaps as ticks |
-| How close am I to adding weight? | Rep ladder: last 8 sessions, range as a band, a dot per set, "+5 lb" when weight rose |
+| How close am I to adding weight? | Not a plot. A headline such as "8 reps from adding weight", one bar per set against the top of the range with its number beside it, and recent sessions as plain rows marked where weight went up |
 
-Warm-ups pass through `workingSets`, and top weight and est. 1RM are maxima, so an unflagged light set cannot move them. Swapped sessions leave a gap and a tick on the planned lift, not a dip. Left out: total tonnage, which moves with which lifts he did, and a muscle-group chart, which needs every lift tagged and answers a question the coach already handles.
+Warm-ups pass through `workingSets`, and top weight and est. 1RM are maxima, so an unflagged light set cannot move them. Swapped sessions leave a gap and a tick on the planned lift, not a dip. Left out: a dotted rep ladder, which Dylan found hard to read, total tonnage, which moves with which lifts he did, and a muscle-group chart, which needs every lift tagged and answers a question the coach already handles.
 
 ### Coach
 
 A T3 scheduled task on the mini, Sundays at 07:00 with a fresh thread per run, runs the prompt checked in at `scripts/coach-prompt.md`. Each Sunday leaves a thread Dylan can read and answer. `claude -p` under launchd hung during startup in all five configurations tried on 2026-11-03, with one thread blocked in `openat` before any network call. It runs fine from a normal shell. macOS privacy protection over a config path on the Desktop is the likely cause (guess). The fallback is launchd with its own config directory and a long-lived token. A repeat run is harmless, and a missed run leaves the week in place.
 
-- **The read.** `GET /api/train/snapshot` gives the version in effect, the last six weeks of sessions by the phone's own math, skips, swaps, every note, weigh-ins, uncataloged names, and when the phone last synced. Sessions that arrived after the last report are flagged, so a late offline session reaches the next review and the report says if the phone looks behind.
+- **The read.** `GET /api/train/snapshot` gives the version in effect, the last six weeks of sessions by the phone's own math, skips, swaps, every note, weigh-ins, weekly average calories and protein from the diary, uncataloged names, and when the phone last synced. Sessions that arrived after the last report are flagged, so a late offline session reaches the next review and the report says if the phone looks behind.
 - **The write.** Claude edits a draft file in place. `POST /api/train/publish` validates it on the deployed schema, reports every problem at once and answers with a named status. Identical content answers `unchanged`, ignoring the publish stamp. The write has no field for a session or performance, so history is out of reach.
 - **Silent drops are refused.** `programDiff` compares the draft with the version before it. A removed day, block, slot or cue, or a changed prescription, must be named in `changes` with a reason, or publish exits 2. The phone runs the same function and shows "What changed" under the report, so a mistake is visible outside the model that made it.
 
@@ -129,7 +129,7 @@ Rejected: a store-level rule for weeks, one outbox row per document, and a sessi
 - We accept a second write path beside `/api/sync`, in exchange for validation on the deployed schema and failures that speak. It has sync's same lack of auth. `design.md`'s HTTP table changes with it.
 - We accept a swap not lasting past its session until the coach or Dylan makes it permanent, in exchange for no plan editor and no fold.
 - We accept a missed Sunday leaving last week's cues in place, in exchange for a week that always appears.
-- We accept T3 having to be running on the mini on Sunday morning, in exchange for no launchd workaround and a thread per run.
+- We accept depending on T3 running on the mini, which Dylan says it always is, in exchange for no launchd workaround and a thread per run.
 - We accept the prompt, not the harness, limiting the coach to `scripts/train.mjs` and its private directory, because a T3 task inherits its thread's permissions.
 - We accept that a one-week prescription change does not revert by itself. Claude publishes the following version too, and the prompt says so.
 - We accept that a backup restore re-pushes coach documents as the phone's. A re-run of the coach fixes a reverted future version.
