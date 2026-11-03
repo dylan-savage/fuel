@@ -90,7 +90,7 @@ Inline SVG reusing `WeightChart`'s classes and scrub readout, one series and one
 | Am I getting stronger at this lift? | Est. 1RM line over top-weight dots, best point ringed, swaps as ticks |
 | How close am I to adding weight? | Not a plot. A headline such as "8 reps from adding weight", one bar per set against the top of the range with its number beside it, and recent sessions as plain rows marked where weight went up |
 
-Warm-ups pass through `workingSets`, and top weight and est. 1RM are maxima, so an unflagged light set cannot move them. Swapped sessions leave a gap and a tick on the planned lift, not a dip. Left out: a dotted rep ladder, which Dylan found hard to read, total tonnage, which moves with which lifts he did, and a muscle-group chart, which needs every lift tagged and answers a question the coach already handles.
+Warm-ups pass through `workingSets`. Top weight and est. 1RM are maxima, so an unflagged warm-up up to 60% of the load and 20 reps cannot move them, and a test pins that limit. On a per-side set, est. 1RM reads the better side and the add-weight hint reads the weaker side, so both sides earn the added weight. Swapped sessions leave a gap and a tick on the planned lift, not a dip. Left out: a dotted rep ladder, which Dylan found hard to read, total tonnage, which moves with which lifts he did, and a muscle-group chart, which needs every lift tagged and answers a question the coach already handles.
 
 ### Coach
 

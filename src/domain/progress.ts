@@ -25,9 +25,14 @@ export function epley(lb: number, reps: number): number {
   return lb * (1 + reps / 30);
 }
 
-/** What a set counts as against a range or in Epley. A per-side set reads its better side. */
+/** What a set counts as in Epley and on a reps-only chart. A per-side set reads its better side. */
 export function repsRead(reps: SetReps): number {
   return reps.kind === 'total' ? reps.reps : Math.max(reps.left, reps.right);
+}
+
+/** What a set counts as against a range. A per-side set reads its weaker side, so both sides earn the added weight. */
+function repsAgainstRange(reps: SetReps): number {
+  return reps.kind === 'total' ? reps.reps : Math.min(reps.left, reps.right);
 }
 
 /** Work done, so a per-side set counts both sides. */
@@ -117,7 +122,7 @@ export function repsToGo(performance: Performance): RepsToGo | null {
   if (topLb === null || first === undefined) return null;
   const top = target.reps.max;
   const done = atTop.map((set) => {
-    const reps = repsRead(set.reps);
+    const reps = repsAgainstRange(set.reps);
     return { reps, missing: Math.max(0, top - reps) };
   });
   const undone = Array.from({ length: Math.max(0, target.sets - done.length) }, () => ({ reps: null, missing: top }));

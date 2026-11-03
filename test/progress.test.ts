@@ -185,8 +185,10 @@ describe('repsToGo', () => {
     ]);
   });
 
-  it('reads a per-side set by its better side', () => {
-    expect(at([sides(30, 10, 8), sides(30, 10, 10), sides(30, 11, 7)])?.ready).toBe(true);
+  it('reads a per-side set by its weaker side, so both sides have to reach the top', () => {
+    expect(at([sides(30, 10, 8), sides(30, 10, 10), sides(30, 11, 10)])?.ready).toBe(false);
+    expect(at([sides(30, 10, 8), sides(30, 10, 10), sides(30, 11, 10)])?.missing).toBe(2);
+    expect(at([sides(30, 10, 10), sides(30, 10, 11), sides(30, 12, 10)])?.ready).toBe(true);
   });
 
   it('gives null for a bodyweight or band load, and with no range above zero', () => {
