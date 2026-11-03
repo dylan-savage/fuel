@@ -1,6 +1,8 @@
 import { KG_PER_LB } from './goals.js';
-import { addDays, type LocalDate } from './ids.js';
-import type { LiftBook, LiftId, Load, Performance, SetLog, SetReps } from './lifts.js';
+import { addDays, mondayOf, type LocalDate, type SessionId } from './ids.js';
+import type { LiftBook, LiftId, Load, Performance, SetLog, SetReps, SlotId } from './lifts.js';
+import type { PlannedDay } from './program.js';
+import type { Session, SessionPhase } from './session.js';
 
 /** The only unit conversion. Null for bodyweight and bands: they have no pounds, and zero would be a lie on a chart. */
 export function lbOf(load: Load): number | null {
@@ -301,4 +303,81 @@ export function boardRow(read: LiftRead & { readonly today: LocalDate }): BoardR
     change: latest === null || first === undefined || spark.length < 2 ? null : latest - first,
     sessionsSinceBest: best === null ? null : spark.length - 1 - best,
   };
+}
+
+/** A session counts when it has a working set, a finish, or came from the import. A session opened and left empty does not. */
+export function sessionsDone(sessions: readonly Session[], performances: readonly Performance[]): readonly Session[] {
+  const worked = new Set<SessionId>(performances.filter((p) => workingSets(p.sets).length > 0).map((p) => p.sessionId));
+  return sessions.filter((session) => session.finishedAt !== undefined || session.source === 'notion' || worked.has(session.id));
+}
+
+export interface Skip {
+  readonly slotId: SlotId;
+  readonly label: string;
+  readonly note: string | null;
+}
+
+/**
+ * A required slot with no working set under it, tapped or not, once the session is over. While
+ * it is open only tapped skips count, because the rest may still come. A day never started has
+ * none. With no plan to read, as on an import, tapped skips are all there is.
+ */
+export function skipsOf(input: {
+  readonly session: Session;
+  readonly performances: readonly Performance[];
+  readonly plan: PlannedDay | undefined;
+  readonly phase: SessionPhase;
+}): readonly Skip[] {
+  const { session, plan, phase } = input;
+  const performances = input.performances.filter((p) => p.sessionId === session.id);
+  const notes = new Map((session.skips ?? []).map((skip) => [skip.slotId, skip.note ?? null]));
+  const over = phase !== 'open' && sessionsDone([session], performances).length > 0;
+  const worked = new Set(performances.filter((p) => workingSets(p.sets).length > 0).map((p) => p.slotId));
+  const required = (plan?.blocks ?? []).flatMap((block) => (block.kind === 'lifts' && block.optional !== true ? block.slots : []));
+  const fromPlan = required.filter((slot) => !worked.has(slot.id) && (over || notes.has(slot.id))).map((slot) => ({ slotId: slot.id, label: slot.label, note: notes.get(slot.id) ?? null }));
+  const inPlan = new Set(required.map((slot) => slot.id));
+  const offPlan = [...notes].filter(([slotId]) => !inPlan.has(slotId)).map(([slotId, note]) => ({ slotId, label: slotId, note }));
+  return [...fromPlan, ...offPlan];
+}
+
+export interface Swap {
+  readonly date: LocalDate;
+  readonly plannedLiftId: LiftId;
+  readonly liftId: LiftId;
+  readonly label: string;
+}
+
+export function swapsOf(performances: readonly Performance[]): readonly Swap[] {
+  return performances.flatMap((p) => (p.plannedLiftId === undefined ? [] : [{ date: p.date, plannedLiftId: p.plannedLiftId, liftId: p.liftId, label: p.label }]));
+}
+
+export const SHOW_UP_WEEKS = 12;
+
+export interface ShowUpWeek {
+  readonly monday: LocalDate;
+  readonly done: number;
+  readonly met: boolean;
+}
+
+export interface ShowUp {
+  readonly minimum: number | null;
+  /** Oldest first, ending with the week holding `today`. */
+  readonly weeks: readonly ShowUpWeek[];
+}
+
+/** Sessions done per week against the weekly minimum. With no minimum, no week is `met`. */
+export function showUp(input: { readonly sessions: readonly Session[]; readonly performances: readonly Performance[]; readonly minimum: number | null; readonly today: LocalDate }): ShowUp {
+  const { minimum } = input;
+  const counts = new Map<LocalDate, number>();
+  for (const session of sessionsDone(input.sessions, input.performances)) {
+    const monday = mondayOf(session.date);
+    counts.set(monday, (counts.get(monday) ?? 0) + 1);
+  }
+  const thisWeek = mondayOf(input.today);
+  const weeks = Array.from({ length: SHOW_UP_WEEKS }, (_, i) => {
+    const monday = addDays(thisWeek, -7 * (SHOW_UP_WEEKS - 1 - i));
+    const done = counts.get(monday) ?? 0;
+    return { monday, done, met: minimum !== null && done >= minimum };
+  });
+  return { minimum, weeks };
 }

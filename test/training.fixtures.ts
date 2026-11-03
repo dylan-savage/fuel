@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { LocalDate, Millis, SessionId, type ProgramId } from '../src/domain/ids.js';
 import { LiftId, SlotId, performanceId, type Performance, type SetLog, type Target } from '../src/domain/lifts.js';
 import { BlockId, DayKey, programId, type Block, type ChecklistBlock, type LiftsBlock, type Program, type Slot } from '../src/domain/program.js';
+import type { Session } from '../src/domain/session.js';
 
 export const day = (date: string): LocalDate => LocalDate.parse(date);
 export const ms = (value: number): Millis => Millis.parse(value);
@@ -52,6 +53,10 @@ export function program(effectiveFrom: string, days: readonly { readonly key: st
     publishedAt: ms(T0),
     ...extra,
   };
+}
+
+export function session(extra: Partial<Session> = {}): Session {
+  return { id: newSessionId(), date: day('2030-03-04'), day: { key: dayKey('push'), label: 'Push' }, startedAt: minutes(0), ...extra };
 }
 
 export function performance(input: {

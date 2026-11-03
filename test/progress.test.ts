@@ -2,8 +2,29 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { KG_PER_LB } from '../src/domain/goals.js';
 import { liftBook, type Performance } from '../src/domain/lifts.js';
-import { addWeightNext, boardRow, epley, lastSwapAt, lastTimeOf, lbOf, liftSeries, recentSessions, repsRead, repsToGo, totalsOf, typedLine, workingSets, type LiftRead } from '../src/domain/progress.js';
-import { band, bw, day, kg, lb, lift, performance, sides, target, warm } from './training.fixtures.js';
+import { plannedDay, type PlannedDay } from '../src/domain/program.js';
+import {
+  SHOW_UP_WEEKS,
+  addWeightNext,
+  boardRow,
+  epley,
+  lastSwapAt,
+  lastTimeOf,
+  lbOf,
+  liftSeries,
+  recentSessions,
+  repsRead,
+  repsToGo,
+  sessionsDone,
+  showUp,
+  skipsOf,
+  swapsOf,
+  totalsOf,
+  typedLine,
+  workingSets,
+  type LiftRead,
+} from '../src/domain/progress.js';
+import { band, bw, day, dayKey, kg, lb, lift, liftsBlock, minutes, performance, program, session, sides, slot, slotId, target, warm } from './training.fixtures.js';
 
 const noCatalog = liftBook([]);
 const read = (name: string, rows: readonly Performance[]): LiftRead => ({ lift: lift(name), rows, book: noCatalog });
@@ -384,5 +405,95 @@ describe('small reads', () => {
   it('repsRead takes the better side', () => {
     expect(repsRead({ kind: 'sides', left: 7, right: 9 })).toBe(9);
     expect(repsRead({ kind: 'total', reps: 7 })).toBe(7);
+  });
+});
+
+describe('sessionsDone', () => {
+  it('counts a working set, a finish or an import, and not an empty or warm-up-only session', () => {
+    const worked = session();
+    const finished = session({ finishedAt: minutes(30) });
+    const imported = session({ source: 'notion' });
+    const empty = session();
+    const warmedUp = session();
+    const performances = [performance({ session: worked.id, lift: 'squat', sets: [lb(100, 5)] }), performance({ session: warmedUp.id, lift: 'squat', sets: [warm(lb(45, 5))] })];
+    expect(sessionsDone([worked, finished, imported, empty, warmedUp], performances)).toEqual([worked, finished, imported]);
+  });
+});
+
+describe('skipsOf', () => {
+  const version = program('2030-03-04', [
+    {
+      key: 'push',
+      blocks: [liftsBlock('main', [slot('a1', 'bench-press', 3), slot('a2', 'cable-row', 2, { label: 'Cable row' })]), liftsBlock('abs', [slot('c1', 'crunch', 2)], { optional: true })],
+    },
+  ]);
+  const plan: PlannedDay | undefined = plannedDay(version, dayKey('push'), day('2030-03-04'));
+  const skipIds = (input: Parameters<typeof skipsOf>[0]) => skipsOf(input).map((s) => s.slotId);
+
+  it('calls an untouched required slot of a finished session a skip, tapped or not, and leaves optional blocks out', () => {
+    const push = session({ finishedAt: minutes(60) });
+    const performances = [performance({ session: push.id, slot: 'a1', lift: 'bench-press', sets: [lb(100, 8)] })];
+    expect(skipsOf({ session: push, performances, plan, phase: 'finished' })).toEqual([{ slotId: slotId('a2'), label: 'Cable row', note: null }]);
+  });
+
+  it('calls a slot with only warm-ups a skip', () => {
+    const push = session({ finishedAt: minutes(60) });
+    const performances = [performance({ session: push.id, slot: 'a1', lift: 'bench-press', sets: [lb(100, 8)] }), performance({ session: push.id, slot: 'a2', lift: 'cable-row', sets: [warm(lb(40, 10))] })];
+    expect(skipIds({ session: push, performances, plan, phase: 'finished' })).toEqual(['a2']);
+  });
+
+  it('does not count a set from a swap as a skip of the slot', () => {
+    const push = session({ finishedAt: minutes(60) });
+    const performances = [performance({ session: push.id, slot: 'a1', lift: 'bench-press', sets: [lb(100, 8)] }), performance({ session: push.id, slot: 'a2', lift: 'dumbbell-row', planned: 'cable-row', sets: [lb(50, 10)] })];
+    expect(skipIds({ session: push, performances, plan, phase: 'finished' })).toEqual([]);
+  });
+
+  it('counts only tapped skips while the session is open, with the tapped note', () => {
+    const open = session({ skips: [{ slotId: slotId('a2'), note: 'Machine taken' }] });
+    const performances = [performance({ session: open.id, slot: 'a1', lift: 'bench-press', sets: [lb(100, 8)] })];
+    expect(skipsOf({ session: open, performances, plan, phase: 'open' })).toEqual([{ slotId: slotId('a2'), label: 'Cable row', note: 'Machine taken' }]);
+    expect(skipIds({ session: session(), performances: [], plan, phase: 'open' })).toEqual([]);
+  });
+
+  it('has no skips for a day never started, even after it lapses', () => {
+    expect(skipIds({ session: session(), performances: [], plan, phase: 'lapsed' })).toEqual([]);
+  });
+
+  it('keeps a tapped skip when the plan is unknown', () => {
+    const imported = session({ source: 'notion', skips: [{ slotId: slotId('old-slot') }] });
+    expect(skipsOf({ session: imported, performances: [], plan: undefined, phase: 'imported' })).toEqual([{ slotId: slotId('old-slot'), label: 'old-slot', note: null }]);
+  });
+
+  it('ignores sets from other sessions', () => {
+    const push = session({ finishedAt: minutes(60) });
+    const elsewhere = performance({ slot: 'a1', lift: 'bench-press', sets: [lb(100, 8)] });
+    expect(skipIds({ session: push, performances: [elsewhere], plan, phase: 'finished' })).toEqual(['a1', 'a2']);
+  });
+});
+
+describe('swapsOf', () => {
+  it('lists the rows that were swapped, and only those', () => {
+    const rows = [performance({ lift: 'squat', sets: [lb(100, 5)] }), performance({ lift: 'leg-press', planned: 'squat', label: 'Leg press', sets: [lb(200, 10)] })];
+    expect(swapsOf(rows)).toEqual([{ date: day('2030-03-04'), plannedLiftId: lift('squat'), liftId: lift('leg-press'), label: 'Leg press' }]);
+  });
+});
+
+describe('showUp', () => {
+  const today = day('2030-03-13');
+  const done = (date: string) => session({ date: day(date), finishedAt: minutes(60) });
+
+  it('gives twelve weeks ending this week against the minimum', () => {
+    const sessions = [done('2030-03-11'), done('2030-03-13'), done('2029-12-24'), done('2029-12-23'), session({ date: day('2030-03-12') })];
+    const shown = showUp({ sessions, performances: [], minimum: 2, today });
+    expect(shown.weeks).toHaveLength(SHOW_UP_WEEKS);
+    expect(shown.weeks[0]).toEqual({ monday: day('2029-12-24'), done: 1, met: false });
+    expect(shown.weeks.at(-1)).toEqual({ monday: day('2030-03-11'), done: 2, met: true });
+    expect(shown.weeks.reduce((sum, w) => sum + w.done, 0)).toBe(3);
+  });
+
+  it('marks no week met when no minimum is set', () => {
+    const shown = showUp({ sessions: [done('2030-03-11')], performances: [], minimum: null, today });
+    expect(shown.minimum).toBeNull();
+    expect(shown.weeks.some((w) => w.met)).toBe(false);
   });
 });
