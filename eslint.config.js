@@ -19,7 +19,7 @@ const REPLICA = {
 };
 
 export default tseslint.config(
-  { ignores: ['dist/', 'node_modules/', 'docs/', 'test-results/', 'playwright-report/'] },
+  { ignores: ['dist/', 'node_modules/', 'docs/', 'test-results/', 'playwright-report/', '.private/'] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
