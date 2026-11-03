@@ -92,7 +92,8 @@ Per separate-before-serializing-shared-state, each piece of state has one owner.
 
 | State | Only writer |
 |---|---|
-| foods, recipes, saved meals, entries, workouts, water, fasts, weigh-ins, goals, profile | the phone, through `/api/sync` pushes |
+| foods, recipes, saved meals, entries, workouts, water, fasts, weigh-ins, goals, profile, sessions, performances, training notes | the phone, through `/api/sync` pushes |
+| program versions | the coach tool, through `/api/train/publish`. A backup restore re-pushes them as the phone's. |
 | revision counter, epoch, per-client last mutation id | the server's `DocStore` |
 | totals, remaining, trend, recents, fasting state | nobody. Pure functions derive them on read. |
 
@@ -196,7 +197,9 @@ The tab bar keeps four tabs: Diary, Add, Scan and Goal. Recipes and saved meals 
 
 | Route | Purpose |
 |---|---|
-| `POST /api/sync` | the only write path for user data: push mutations, pull changes |
+| `POST /api/sync` | the phone's write path for user data: push mutations, pull changes |
+| `GET /api/train/snapshot?weeks=6` | the coach's read: the version in effect, recent sessions by the phone's own math, every note, and `basedOnRev` to echo |
+| `POST /api/train/publish`, `?dryRun=1` | the coach's write path, for program versions only. Same perimeter as `/api/sync` and the same lack of auth. A named JSON status: 200 `published`, `unchanged` or `dry-run`, 422 `invalid`, 409 `frozen`, `stale` or `phone_behind` |
 | `GET /api/foods/search?q=` | USDA (when `USDA_API_KEY` is set) and Open Food Facts text search through search-a-licious; 502 only when every source fails |
 | `GET /api/foods/lookup/:ref` | barcode (`gtin:`) or USDA (`usda:`) lookup, cached on the mini |
 | `POST /api/ai/parse` | a description or photo to drafts, or a label to a food candidate; writes nothing; 503 `ai_unconfigured` without a key |

@@ -20,6 +20,7 @@ import type { AiParser } from './ai.js';
 import type { FoodSources } from './foods.js';
 import { log } from './log.js';
 import type { DocStore } from './store.js';
+import { mountTrain } from './train.js';
 import { UpstreamError } from './upstream.js';
 
 export interface AppDeps {
@@ -85,6 +86,8 @@ export function buildApp({ store, foods, ai, staticDir, now }: AppDeps): Hono {
     const outcome = await ai.parse(req.data);
     return outcome.ok ? c.json(outcome.answer satisfies AiAnswer) : c.json(aiError(outcome.reason), AI_STATUS[outcome.reason]);
   });
+
+  mountTrain(app, { store, now });
 
   app.get('/healthz', (c) => c.json({ ok: true, ...store.stats() } satisfies Healthz));
 

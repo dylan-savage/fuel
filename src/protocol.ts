@@ -5,7 +5,7 @@
  */
 import { z } from 'zod';
 import { FdcId, FoodCandidate, Gtin, SearchHit, type ExternalRef } from './domain/food.js';
-import { Millis } from './domain/ids.js';
+import { LocalDate, Millis, ProgramId } from './domain/ids.js';
 import { KindName } from './domain/kinds.js';
 import { Draft, FoodHint, MAX_HINTS } from './domain/quicklog.js';
 
@@ -100,6 +100,41 @@ export type PhoneBuild = z.infer<typeof PhoneBuild>;
 
 export const Healthz = z.object({ ok: z.literal(true), epoch: z.string(), rev: Rev, phoneBuild: PhoneBuild.nullable() });
 export type Healthz = z.infer<typeof Healthz>;
+
+const PublishProblem = z.object({ code: z.string(), path: z.string(), message: z.string() });
+
+const PublishDiffItem = z.object({
+  kind: z.string(),
+  target: z.string(),
+  label: z.string(),
+  before: z.string().nullable(),
+  after: z.string().nullable(),
+  needsReason: z.boolean(),
+  why: z.string().nullable(),
+});
+
+/**
+ * POST /api/train/publish. Every outcome names itself, unlike a sync push, where a refused
+ * document is a rejection inside a 200. The body is a draft plus basedOnRev, and stays unknown
+ * here because parseProgramDraft reports every problem in it at once.
+ */
+export const PublishAnswer = z.discriminatedUnion('status', [
+  /** 200. `rev` is what to base the next publish on. */
+  z.object({ status: z.literal('published'), id: ProgramId, rev: Rev }),
+  /** 200. The version already holds this content, so a retry after a lost response lands here. */
+  z.object({ status: z.literal('unchanged'), id: ProgramId, rev: Rev }),
+  /** 200. Nothing written. `phoneBehind` says the same draft would answer phone_behind today. */
+  z.object({ status: z.literal('dry-run'), id: ProgramId, diff: z.array(PublishDiffItem), phoneBehind: z.boolean() }),
+  /** 422. Nothing written. */
+  z.object({ status: z.literal('invalid'), problems: z.array(PublishProblem) }),
+  /** 409. Nothing written. The version has taken effect. */
+  z.object({ status: z.literal('frozen'), id: ProgramId, earliestEffectiveFrom: LocalDate, problems: z.array(PublishProblem) }),
+  /** 409. Nothing written. The plan moved after this draft was read. */
+  z.object({ status: z.literal('stale'), basedOnRev: Rev, currentRev: Rev }),
+  /** 409. Nothing written. No shell that can skip an unknown kind has reported in. */
+  z.object({ status: z.literal('phone_behind') }),
+]);
+export type PublishAnswer = z.infer<typeof PublishAnswer>;
 
 /** The `:ref` path segment of GET /api/foods/lookup: `gtin:<13 digits>` or `usda:<fdcId>`. */
 export function formatRef(ref: ExternalRef): string {
