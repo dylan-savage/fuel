@@ -110,6 +110,18 @@ describe('a pull holding records this shell cannot read', () => {
     expect((await port.nextBatch(1)).cursor).toBe(3);
   });
 
+  it('stays in its one transaction through a long run of documents its schema rejects', async () => {
+    const { replica, port } = await setup();
+    const rejected = Array.from({ length: 150 }, (_, i) => {
+      const id = newEntryId();
+      return { kind: 'entry', id, rev: i + 1, doc: { id } };
+    });
+    const readable = entry(newEntryId(), 400);
+    await port.apply(response({ changes: [...rejected, { kind: 'entry', id: readable.id, rev: 151, doc: readable }], cursor: rev(151) }));
+    expect(await replica.read.get('entry', readable.id)).toEqual(readable);
+    expect((await port.nextBatch(1)).cursor).toBe(151);
+  });
+
   it('keeps the local copy of a document whose newer version it cannot read', async () => {
     const { replica, port } = await setup();
     await port.apply(response({ changes: [readable(before, 1)], cursor: rev(1) }));

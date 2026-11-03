@@ -206,16 +206,15 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
     pendingCount: () => outbox.count(),
   };
 
-  /** False when the schema of this shell rejects the document, writing nothing. */
-  const writeRecord = async (record: DocRecord): Promise<boolean> => {
-    if (record.doc === null) {
-      await table(record.kind).delete(record.id);
-      return true;
-    }
+  /**
+   * Null when the schema of this shell rejects the document, writing nothing. Not async, so a
+   * rejection awaits nothing: Dexie loses its transaction after 100 native awaits with no
+   * IndexedDB work between them, which a long run of rejections would otherwise be.
+   */
+  const writeRecord = (record: DocRecord): Promise<unknown> | null => {
+    if (record.doc === null) return table(record.kind).delete(record.id);
     const parsed = parseDoc(record.kind, record.doc);
-    if (!parsed.ok) return false;
-    await table(record.kind).put({ id: record.id, doc: parsed.doc });
-    return true;
+    return parsed.ok ? table(record.kind).put({ id: record.id, doc: parsed.doc }) : null;
   };
 
   const listeners = new Set<() => void>();
@@ -291,15 +290,22 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
         const unread: number[] = !restored && current.skipped?.build === build ? [current.skipped.rev] : [];
         for (const rejection of res.rejected) {
           if (pending.has(docKey(rejection.kind, rejection.docId))) continue;
-          if (rejection.current === null) await table(rejection.kind).delete(rejection.docId);
-          else if (!(await writeRecord(rejection.current))) unread.push(rejection.current.rev);
+          if (rejection.current === null) {
+            await table(rejection.kind).delete(rejection.docId);
+            continue;
+          }
+          const write = writeRecord(rejection.current);
+          if (write === null) unread.push(rejection.current.rev);
+          else await write;
         }
         const pulledFrom = restored ? 0 : pullFrom(current);
         for (const raw of res.changes) {
           const record = DocRecord.safeParse(raw);
           if (record.success) {
             if (pending.has(docKey(record.data.kind, record.data.id))) continue;
-            if (!(await writeRecord(record.data))) unread.push(record.data.rev);
+            const write = writeRecord(record.data);
+            if (write === null) unread.push(record.data.rev);
+            else await write;
           } else {
             const found = RecordRev.safeParse(raw);
             unread.push(found.success ? found.data.rev : pulledFrom + 1);
