@@ -45,3 +45,31 @@ export type FastEndId = z.infer<typeof FastEndId>;
 
 export const WorkoutId = z.uuid().brand<'WorkoutId'>();
 export type WorkoutId = z.infer<typeof WorkoutId>;
+
+/** Minted on the phone, or derived from date and day by the importer. The session's workout takes the same id. */
+export const SessionId = z.uuid().brand<'SessionId'>();
+export type SessionId = z.infer<typeof SessionId>;
+
+export const TrainingNoteId = z.uuid().brand<'TrainingNoteId'>();
+export type TrainingNoteId = z.infer<typeof TrainingNoteId>;
+
+/** p:<effectiveFrom>, so saving a version twice on one date converges to one document. */
+export const ProgramId = z
+  .string()
+  .regex(/^p:\d{4}-\d{2}-\d{2}$/)
+  .brand<'ProgramId'>();
+export type ProgramId = z.infer<typeof ProgramId>;
+
+/** pf:<session>:<slot>:<lift>, so each set rewrites one exercise's document. */
+export const PerformanceId = z.string().startsWith('pf:').brand<'PerformanceId'>();
+export type PerformanceId = z.infer<typeof PerformanceId>;
+
+/** The Monday of the calendar week holding `date`. A week is this value and nothing else. */
+export function mondayOf(date: LocalDate): LocalDate {
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return addDays(date, weekday === 0 ? -6 : 1 - weekday);
+}
+
+export function isMonday(date: LocalDate): boolean {
+  return mondayOf(date) === date;
+}
