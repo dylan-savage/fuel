@@ -22,6 +22,7 @@ import {
 import { DEFAULT_WATER_ML, ML_PER_FL_OZ } from '../../domain/habits.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { KCAL_PER_GRAM, MACROS, type Macro } from '../../domain/nutrients.js';
+import { BUILD } from '../build.js';
 import { goalView, useIntents, useLive } from '../views.js';
 import { amount, editable, flOz, kcal, lb as pounds, lbField, parseNumber } from './format.js';
 import { Icon, NumberField, Segmented, Sheet, TitleBar, useToast } from './ui.js';
@@ -340,6 +341,9 @@ export function GoalScreen({ today }: { readonly today: LocalDate }) {
     <section class="screen goal">
       <TitleBar title="Goal" />
       {view !== undefined && <GoalForm key={view.goal?.id ?? 'none'} goal={view.goal} profile={view.profile} weighIns={view.weighIns} trendKg={view.trendKg} today={today} />}
+      <p class="build-id" data-testid="build">
+        Build {BUILD}
+      </p>
     </section>
   );
 }

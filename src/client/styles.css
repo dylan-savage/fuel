@@ -974,6 +974,13 @@ main {
   color: var(--orange);
 }
 
+.build-id {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 24px 16px 0;
+  text-align: center;
+}
+
 /* Buttons */
 
 .primary {
