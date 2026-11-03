@@ -5,8 +5,10 @@
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { z } from 'zod';
-import { KindName, parseDoc } from '../domain/kinds.js';
+import type { Arrived } from '../domain/coach.js';
+import { KindName, parseDoc, type DocOf, type Kind } from '../domain/kinds.js';
 import { Millis } from '../domain/ids.js';
+import type { Program } from '../domain/program.js';
 import { PhoneBuild, Rev, type DocRecord, type Rejection, type SyncRequest, type SyncResponse, type WireMutation } from '../protocol.js';
 
 const SCHEMA_SQL = /* sql */ `
@@ -78,6 +80,16 @@ export interface DocStore {
    * Replaying a request applies nothing twice, so a lost response is safe to retry.
    */
   sync(req: SyncRequest, ctx: { readonly now: Millis; readonly userAgent: string | null }): SyncResponse;
+  /** Live documents of one kind with the revs they arrived at, read through the deployed schema. */
+  liveDocs<K extends Kind>(kind: K): readonly Arrived<DocOf<K>>[];
+  /** The newest rev any document of this kind took, a tombstone's included. 0 when it has none. */
+  highestRev(kind: Kind): Rev;
+  /**
+   * The coach's one write, in one IMMEDIATE transaction: the next rev by sync's rule, so a phone
+   * pulls it like any other change, then an upsert and a read back. Its only parameter is a
+   * program, so sessions and performances are out of its reach.
+   */
+  writeProgram(program: Program, ctx: { readonly now: Millis }): Arrived<Program>;
   stats(): { readonly epoch: string; readonly rev: Rev; readonly phoneBuild: PhoneBuild | null };
   /** Online backup to `destination`, safe while the server keeps writing. */
   backup(destination: string): Promise<void>;
@@ -91,6 +103,7 @@ export interface DocStore {
 
 const DocRow = z.object({ kind: KindName, id: z.string(), rev: Rev, body: z.string().nullable() });
 const ClientRow = z.object({ last_mutation_id: z.number().int().nonnegative() });
+const LiveRow = z.object({ rev: Rev, body: z.string() });
 const MaxRow = z.object({ rev: Rev });
 const MetaRow = z.object({ value: z.string() });
 const CacheRow = z.object({ fetched_at: Millis, status: z.number().int(), body: z.string() });
@@ -103,6 +116,13 @@ function toRecord(row: z.infer<typeof DocRow>): DocRecord {
 
 function parseJson(text: string): unknown {
   return JSON.parse(text);
+}
+
+/** The message names no field of the document, because the route that logs it must not log training data. */
+function readStored<K extends Kind>(kind: K, row: z.infer<typeof LiveRow>): Arrived<DocOf<K>> {
+  const parsed = parseDoc(kind, parseJson(row.body));
+  if (!parsed.ok) throw new Error(`the ${kind} stored at rev ${row.rev} does not parse`);
+  return { doc: parsed.doc, rev: row.rev };
 }
 
 type Verdict = { readonly ok: true; readonly body: string | null } | { readonly ok: false; readonly reason: string };
@@ -133,6 +153,8 @@ export function openStore(path: string, opts: { readonly pageSize?: number } = {
       INSERT INTO meta (key, value) VALUES ('phone_build', ?)
       ON CONFLICT (key) DO UPDATE SET value = excluded.value`),
     maxRev: db.prepare('SELECT COALESCE(MAX(rev), 0) AS rev FROM doc'),
+    maxRevOfKind: db.prepare('SELECT COALESCE(MAX(rev), 0) AS rev FROM doc WHERE kind = ?'),
+    live: db.prepare('SELECT rev, body FROM doc WHERE kind = ? AND body IS NOT NULL ORDER BY rev'),
     client: db.prepare('SELECT last_mutation_id FROM client WHERE id = ?'),
     upsertClient: db.prepare(`
       INSERT INTO client (id, last_mutation_id, first_seen_at, last_seen_at, user_agent)
@@ -214,6 +236,11 @@ export function openStore(path: string, opts: { readonly pageSize?: number } = {
     };
   });
 
+  const writeProgram = db.transaction((program: Program, now: Millis): Arrived<Program> => {
+    q.upsertDoc.run({ kind: 'program', id: program.id, rev: readRev() + 1, body: JSON.stringify(program), writtenBy: 'coach', now });
+    return readStored('program', LiveRow.parse(q.doc.get('program', program.id)));
+  });
+
   const lookupCache: LookupCache = {
     get: (source, key) => {
       const found = q.cached.get(source, key);
@@ -229,6 +256,9 @@ export function openStore(path: string, opts: { readonly pageSize?: number } = {
   return {
     lookupCache,
     sync: (req, ctx) => sync.immediate(req, ctx.now, ctx.userAgent),
+    liveDocs: (kind) => q.live.all(kind).map((row) => readStored(kind, LiveRow.parse(row))),
+    highestRev: (kind) => MaxRow.parse(q.maxRevOfKind.get(kind)).rev,
+    writeProgram: (program, ctx) => writeProgram.immediate(program, ctx.now),
     stats: () => ({ epoch: readEpoch(), rev: readRev(), phoneBuild: readPhoneBuild() }),
     backup: async (destination) => {
       await db.backup(destination);

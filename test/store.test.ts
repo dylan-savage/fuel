@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openStore, type DocStore } from '../src/server/store.js';
 import { at, deleteEntry, entry, newClientId, newEntryId, putEntry, request } from './fixtures.js';
+import { liftsBlock, program, slot } from './training.fixtures.js';
 
 const ctx = { now: at(1), userAgent: null };
 const stores: DocStore[] = [];
@@ -161,6 +162,74 @@ describe('the build a phone reports on sync', () => {
     first.close();
     stores.splice(stores.indexOf(first), 1);
     expect(open(path).stats().phoneBuild).toEqual({ build: 'abc-1', at: 5 });
+  });
+});
+
+describe('the coach reads and writes', () => {
+  const plan = (effectiveFrom = '2030-03-11') => program(effectiveFrom, [{ key: 'push', blocks: [liftsBlock('a', [slot('a1', 'bench-press', 3)])] }]);
+  const coachCtx = { now: at(9) };
+
+  it('lists the live documents of one kind with their revs, and nothing of another kind', () => {
+    const store = open();
+    const client = newClientId();
+    const kept = entry(newEntryId(), 100);
+    const deleted = entry(newEntryId(), 200);
+    store.sync(request(client, [putEntry(1, deleted), putEntry(2, kept), deleteEntry(3, deleted.id)]), ctx);
+    const version = plan();
+    store.writeProgram(version, coachCtx);
+    expect(store.liveDocs('entry')).toEqual([{ doc: kept, rev: 2 }]);
+    expect(store.liveDocs('program')).toEqual([{ doc: version, rev: 4 }]);
+    expect(store.liveDocs('session')).toEqual([]);
+  });
+
+  it('gives the newest rev of a kind, counting a tombstone, and is not moved by another kind', () => {
+    const store = open();
+    expect(store.highestRev('entry')).toBe(0);
+    const doc = entry(newEntryId(), 100);
+    store.sync(request(newClientId(), [putEntry(1, doc)]), ctx);
+    store.writeProgram(plan(), coachCtx);
+    expect(store.highestRev('entry')).toBe(1);
+    expect(store.highestRev('program')).toBe(2);
+    store.sync(request(newClientId(), [deleteEntry(1, doc.id)]), ctx);
+    expect(store.highestRev('entry')).toBe(3);
+    expect(store.highestRev('program')).toBe(2);
+  });
+
+  it('refuses to read a stored document the schema rejects, without saying what it holds', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'fuel-store-')), 'fuel.db');
+    const store = open(path);
+    store.sync(request(newClientId(), [putEntry(1, entry(newEntryId(), 100))]), ctx);
+    const raw = new Database(path);
+    raw.prepare("UPDATE doc SET body = '{\"secret\":\"left knee\"}'").run();
+    raw.close();
+    expect(() => store.liveDocs('entry')).toThrow(/^the entry stored at rev 1 does not parse$/);
+  });
+
+  it('stamps the next rev across every kind, answers what it stored, and a phone pulls it', () => {
+    const store = open();
+    const client = newClientId();
+    const first = store.sync(request(client, [putEntry(1, entry(newEntryId(), 100))]), ctx);
+    const version = plan();
+    expect(store.writeProgram(version, coachCtx)).toEqual({ doc: version, rev: 2 });
+    expect(store.sync(request(client, [], first.cursor, first.epoch), ctx).changes).toEqual([{ kind: 'program', id: version.id, rev: 2, doc: version }]);
+  });
+
+  it('replaces a version in place under a new rev', () => {
+    const store = open();
+    store.writeProgram(plan(), coachCtx);
+    const replaced = { ...plan(), weeklyMinimum: 4 };
+    expect(store.writeProgram(replaced, coachCtx).rev).toBe(2);
+    expect(store.liveDocs('program')).toEqual([{ doc: replaced, rev: 2 }]);
+  });
+
+  it('records the coach as the writer and when, and registers no client', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'fuel-store-')), 'fuel.db');
+    const store = open(path);
+    store.writeProgram(plan(), coachCtx);
+    const raw = new Database(path, { readonly: true });
+    expect(raw.prepare('SELECT written_by, written_at FROM doc').all()).toEqual([{ written_by: 'coach', written_at: 9 }]);
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM client').get()).toEqual({ n: 0 });
+    raw.close();
   });
 });
 
