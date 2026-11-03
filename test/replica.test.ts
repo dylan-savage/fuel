@@ -9,7 +9,7 @@ import { InvalidDocument, openReplica, type Replica } from '../src/client/replic
 import { syncRounds, type Transport } from '../src/client/sync.js';
 import { lastTimesView } from '../src/client/views.js';
 import { Gtin } from '../src/domain/food.js';
-import { SCHEMA_HISTORY } from '../src/domain/kinds.js';
+import { DB_VERSION, SCHEMA_HISTORY } from '../src/domain/kinds.js';
 import { liftBook, type Performance } from '../src/domain/lifts.js';
 import { lastSwapAt, lastTimeOf } from '../src/domain/progress.js';
 import { ClientId, MutationId, type SyncReply } from '../src/protocol.js';
@@ -528,5 +528,64 @@ describe('schema upgrades', () => {
     expect(await replica.read.withBarcode(Gtin.parse('4006381333931'))).toEqual([]);
     expect(await replica.read.onDate('entry', lunch.date)).toEqual([lunch]);
     expect(await replica.read.all('goal')).toEqual([]);
+  });
+
+  it('takes a phone from the previous layout to this one with its food and outbox intact, and sync still works', async () => {
+    const ctx = { now: at(1), userAgent: null };
+    const server = openStore(':memory:');
+    const clientId = newClientId();
+    const oats = { ...food(), barcodes: [Gtin.parse('0049000000443')] };
+    const synced = entry(newEntryId(), 300);
+    const pending = entry(newEntryId(), 640);
+    const deletedOffline = entry(newEntryId(), 120);
+    const earlier = server.sync(request(clientId, [{ op: 'put', id: MutationId.parse(1), kind: 'food', docId: oats.id, doc: oats }, putEntry(2, synced), putEntry(3, deletedOffline)]), ctx);
+    expect(earlier.rejected).toEqual([]);
+
+    const indexedDB = new IDBFactory();
+    const previous = new Dexie('upgrade', { indexedDB, IDBKeyRange });
+    const layout = SCHEMA_HISTORY.at(-2);
+    if (layout === undefined) throw new Error('no previous layout');
+    previous.version(DB_VERSION - 1).stores(layout);
+    expect(Object.keys(layout)).not.toContain('performance');
+    await previous.table('food').put({ id: oats.id, doc: oats });
+    await previous.table('entry').bulkPut([synced, pending].map((doc) => ({ id: doc.id, doc })));
+    await previous.table('outbox').add({ mutationId: 4, op: 'put', kind: 'entry', docId: pending.id, doc: pending });
+    await previous.table('outbox').add({ op: 'delete', kind: 'entry', docId: deletedOffline.id });
+    await previous.table('meta').put({ key: 'sync', clientId, epoch: earlier.epoch, cursor: earlier.cursor });
+    previous.close();
+
+    const plan = program('2030-03-04', [{ key: 'push', blocks: [liftsBlock('a', [slot('a1', 'bench-press', 3)])] }]);
+    const coach = newClientId();
+    const coached = server.sync(request(coach, [{ op: 'put', id: MutationId.parse(1), kind: 'program', docId: plan.id, doc: plan }]), ctx);
+    expect(coached.rejected).toEqual([]);
+
+    const { replica, port } = await openReplica({ name: 'upgrade', indexedDB, IDBKeyRange, newId: () => 'never-used' });
+    open.push(replica);
+    expect(await replica.read.withBarcode(Gtin.parse('0049000000443'))).toEqual([oats]);
+    expect(await replica.read.onDate('entry', pending.date)).toEqual(expect.arrayContaining([synced, pending]));
+
+    const queued = await port.nextBatch(10);
+    expect(queued).toMatchObject({ clientId, epoch: earlier.epoch, cursor: earlier.cursor });
+    expect(queued.mutations).toMatchObject([
+      { id: 4, op: 'put', kind: 'entry', docId: pending.id, doc: pending },
+      { id: 5, op: 'delete', kind: 'entry', docId: deletedOffline.id },
+    ]);
+    const revBefore = server.stats().rev;
+
+    await syncRounds(port, (req) => Promise.resolve(server.sync(req, ctx)));
+    expect(await port.pendingCount()).toBe(0);
+    expect(server.stats().rev, 'the two queued writes and nothing re-queued').toBe(revBefore + 2);
+    const onServer = server.sync(request(newClientId(), []), ctx).changes;
+    expect(onServer.find((c) => c.id === pending.id)?.doc).toEqual(pending);
+    expect(onServer.find((c) => c.id === deletedOffline.id)?.doc).toBeNull();
+    expect(await replica.read.programOn(plan.effectiveFrom)).toEqual(plan);
+
+    const set = performance({ date: '2030-03-04', lift: 'bench-press', sets: [lb(100, 8)] });
+    await replica.commit([{ op: 'put', kind: 'performance', doc: set }]);
+    expect(await replica.read.lastPerformances([set.liftId], day('2030-03-05'))).toEqual([set]);
+    await syncRounds(port, (req) => Promise.resolve(server.sync(req, ctx)));
+    expect(await port.pendingCount()).toBe(0);
+    expect(server.sync(request(newClientId(), []), ctx).changes.find((c) => c.id === set.id)?.doc).toEqual(set);
+    server.close();
   });
 });
