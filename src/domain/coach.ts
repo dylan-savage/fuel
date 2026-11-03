@@ -375,7 +375,7 @@ export interface CoachSnapshot {
   /** Names typed on the phone that the catalog has not placed. */
   readonly uncataloged: readonly { readonly liftId: LiftId; readonly label: string; readonly lastDone: LocalDate }[];
   readonly phoneLastSyncAt: Millis | null;
-  /** The version in effect, ready for Claude to edit in place. Null before the first version. */
+  /** The version that will hold the target Monday, ready for Claude to edit in place, so a following version published ahead is not lost to the week before it. Null with no version by then. */
   readonly draft: ProgramDraft | null;
 }
 
@@ -516,6 +516,7 @@ export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; rea
   const trainingNotes = docs.trainingNotes.filter((note) => note.date >= firstWeek).map((note): SnapshotNote => ({ date: note.date, source: 'training', about: null, text: note.text }));
 
   const targetMonday = targetMondayOf(today);
+  const holdingTarget = programOn(programs, targetMonday);
   return {
     today,
     targetMonday,
@@ -527,6 +528,6 @@ export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; rea
     notes: [...summaries.flatMap(({ notes }) => notes), ...trainingNotes].toSorted((a, b) => a.date.localeCompare(b.date)),
     uncataloged,
     phoneLastSyncAt: at.phoneLastSyncAt,
-    draft: program === null ? null : draftFrom(program, targetMonday),
+    draft: holdingTarget === undefined ? null : draftFrom(holdingTarget, targetMonday),
   };
 }

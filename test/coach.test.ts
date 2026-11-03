@@ -642,6 +642,22 @@ describe('snapshotOf', () => {
       expect(draft).not.toHaveProperty('publishedAt');
     });
 
+    it('starts from a version already published for the target Monday, so a following version is not lost', () => {
+      const lightWeek = { ...inEffect, weeklyMinimum: 2 };
+      const following = { ...program('2030-03-11', [{ key: 'push', blocks: [pushBlock] }], { standing }), weeklyMinimum: 4 };
+      const onTop = snapshotOf({ ...noDocs, programs: [arrived(lightWeek), arrived(following)] }, AT_SUNDAY);
+      expect(onTop.program?.id).toBe(lightWeek.id);
+      expect(onTop.draft?.weeklyMinimum).toBe(4);
+      expect(onTop.draft?.effectiveFrom).toBe('2030-03-11');
+    });
+
+    it('exists when only an upcoming version does', () => {
+      const first = program('2030-03-11', [{ key: 'push', blocks: [pushBlock] }]);
+      const onlyNext = snapshotOf({ ...noDocs, programs: [arrived(first)] }, AT_SUNDAY);
+      expect(onlyNext.program).toBeNull();
+      expect(onlyNext.draft?.effectiveFrom).toBe('2030-03-11');
+    });
+
     it('publishes as it stands, with nothing to explain', () => {
       const verdict = checkPublish(draft, [inEffect], { today: AT_SUNDAY.today, now: ms(T0) });
       if (verdict.status !== 'valid') throw new Error(JSON.stringify(verdict));
