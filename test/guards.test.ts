@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { parseProgramDraft } from '../src/domain/coach.js';
 import { KINDS, KIND_NAMES, parseDoc, type Kind } from '../src/domain/kinds.js';
 import { Performance } from '../src/domain/lifts.js';
+import { NotionHistory } from '../src/domain/notionImport.js';
 import { Program } from '../src/domain/program.js';
 import { Session, TrainingNote } from '../src/domain/session.js';
 import { isRecord } from '../src/domain/strict.js';
@@ -209,12 +210,55 @@ const UNREGISTERED: Readonly<Record<string, { readonly schema: z.ZodType; readon
   trainingNote: { schema: TrainingNote, sample: { id: UUID_A, date: '2030-03-04', text: 'Sleep has been short.', at: 1_800_000_000_000 } },
 };
 
+const NOTION_HISTORY_SAMPLE = {
+  capturedAt: '2030-03-10',
+  dateAssumption: 'Monday plus the planned weekday.',
+  names: { 'Bench press': 'bench-press', 'Incline press': 'incline-press', 'Step up': 'step-up' },
+  weeks: [
+    {
+      monday: '2030-03-04',
+      days: [
+        {
+          label: 'Mon, Push',
+          key: 'push',
+          weekday: 1,
+          date: '2030-03-04',
+          pageId: 'page-1',
+          pageEditedAt: '2030-03-04T18:00:00.000Z',
+          morningWeightLb: 170,
+          checked: ['warm'],
+          note: 'Felt strong.',
+          exercises: [
+            {
+              done: 'Incline press',
+              planned: 'Bench press',
+              target: { sets: 3, reps: { min: 8, max: 10 }, perSide: 'left-first', load: 'weight' },
+              note: 'Machine taken.',
+              sets: [
+                { load: { kind: 'weight', amount: 45, unit: 'lb' }, reps: { kind: 'sides', left: 8, right: 7 }, note: 'No pinch.' },
+                { load: { kind: 'bodyweight' }, reps: { kind: 'total', reps: 12 } },
+                { load: { kind: 'band', label: 'green' }, reps: { kind: 'total', reps: 15 } },
+              ],
+            },
+          ],
+          skipped: [{ planned: 'Step up', note: 'No box free.' }],
+        },
+      ],
+    },
+  ],
+  progress: [{ entry: 'Incline press, Mar 4', exercise: 'Incline press', day: 'Mon, Push', monday: '2030-03-04', topLb: 45, volume: 675, e1rm: 57, reps: '8+7', keyLift: false }],
+  weekRows: [{ week: 'Week of Mar 4', monday: '2030-03-04', current: false, sessionsDone: 1, notes: 'A good week.' }],
+  bodyWeight: [{ entry: 'Mon Mar 4', date: '2030-03-04', lb: 170 }],
+  waivers: [{ row: '2030-03-04', field: 'sessions-done', reason: 'Notion counted a rest day.' }],
+};
+
 /**
  * The only inputs that refuse an unknown field rather than keep it, because Claude writes them
  * and a misspelled field must fail. Everything stored above must do the opposite.
  */
 const STRICT_INPUTS: Readonly<Record<string, { readonly accepts: (raw: unknown) => boolean; readonly sample: unknown }>> = {
   ProgramDraft: { accepts: (raw) => parseProgramDraft(raw).ok, sample: PROGRAM_SAMPLE },
+  NotionHistory: { accepts: (raw) => NotionHistory.safeParse(raw).success, sample: NOTION_HISTORY_SAMPLE },
 };
 
 describe.each(KIND_NAMES)('stored kind %s', (kind) => {
