@@ -101,7 +101,7 @@ test('a pull holding an unknown kind leaves sync green, and a new build re-pulls
 
   await tab(page, 'Goal').click();
   const build = (await page.getByTestId('build').textContent())?.replace('Build ', '') ?? '';
-  expect(build).toMatch(/^[0-9a-f]{7,}-[0-9a-z]+$/);
+  expect(build).toMatch(/^[0-9a-f]{7,}$/);
   await expect.poll(() => reportedBuild(request)).toBe(build);
 
   const nextBuild = `${build}-next`;

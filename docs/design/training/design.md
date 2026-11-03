@@ -110,7 +110,7 @@ The phone reports its build on every sync. The first deploy makes the shell skip
 
 ## Synthesis decision
 
-Two designs competed, and an independent judge traced eight failure scenarios through both, scoring them 25 to 22. The base is the living program (candidate 2), which removes the two-writer week and needs no change to core sync or to `store.sync`.
+Two designs competed, and an independent judge traced eight failure scenarios through both, scoring them 25 to 22. The base is the living program (candidate 2), which removes the two-writer week and needs no change to how sync orders or stores documents. `store.sync` only records the phone's build.
 
 Taken from weekly plan documents (candidate 1): the phone reporting its build, scoped coach tools, warm-ups not counting as rounds, and one coach-written document per week.
 

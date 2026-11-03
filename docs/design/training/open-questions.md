@@ -15,4 +15,5 @@ Deferred decisions and unstated assumptions for [design.md](design.md), as of 20
 - A screen wake lock works in a Home Screen app. A guess until tried on the phone.
 - Est. 1RM on a per-side set reads the better side. The import reconciliation will show what the Notion routine did.
 - The set and last-time costs hold on the iPhone. Only desktop WebKit has been measured.
+- Rolling the server back past a kind it has already stored makes every sync fail until it rolls forward (probed). No data is lost, because the phone keeps its outbox. Accepted, since rolling forward is the fix.
 - What runs the Notion weekly job today is unknown. The listed cloud routine is disabled, and week pages were created at irregular times. Whatever it is must stop at cutover.
