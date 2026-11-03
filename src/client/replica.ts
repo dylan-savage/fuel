@@ -5,11 +5,14 @@
  */
 import Dexie, { liveQuery } from 'dexie';
 import type { Gtin } from '../domain/food.js';
-import type { LocalDate } from '../domain/ids.js';
+import { addDays, type LocalDate, type SessionId } from '../domain/ids.js';
 import {
   BARCODE_INDEX,
   DB_VERSION,
   KIND_NAMES,
+  LIFT_DATE_INDEX,
+  PLANNED_DATE_INDEX,
+  SESSION_INDEX,
   dexieStores,
   parseDoc,
   type DatedKind,
@@ -17,6 +20,8 @@ import {
   type Kind,
   type Mutation,
 } from '../domain/kinds.js';
+import type { LiftId } from '../domain/lifts.js';
+import { programId } from '../domain/program.js';
 import { ClientId, DocRecord, MutationId, Rev, type SyncReply, type SyncRequest, type WireMutation } from '../protocol.js';
 import { BUILD } from './build.js';
 
@@ -50,6 +55,19 @@ export interface ReplicaReader {
   all<K extends Kind>(kind: K): Promise<DocOf<K>[]>;
   /** Library foods carrying this barcode, through the multi-entry index. */
   withBarcode(gtin: Gtin): Promise<DocOf<'food'>[]>;
+  /** The version in effect. Program ids sort by date, so this seeks the primary key and scans nothing. */
+  programOn(date: LocalDate): Promise<DocOf<'program'> | undefined>;
+  /**
+   * One seek per lift for its newest date before `before`. Every row of that date comes back,
+   * because lastTimeOf breaks a tie by set time. The bound is the closed day before: a live
+   * query treats an open bound as closed, so a set logged on `before` would re-run it.
+   */
+  lastPerformances(liftIds: readonly LiftId[], before: LocalDate): Promise<DocOf<'performance'>[]>;
+  /** The same seek over planned lifts, so only swaps answer. */
+  lastSwaps(liftIds: readonly LiftId[], before: LocalDate): Promise<DocOf<'performance'>[]>;
+  performancesOfSession(sessionId: SessionId): Promise<DocOf<'performance'>[]>;
+  /** These lifts from `from` on, plus what was done as a swap for them, which a chart draws as a tick. */
+  performancesFrom(liftIds: readonly LiftId[], from: LocalDate): Promise<DocOf<'performance'>[]>;
   /** Local writes the server has not acknowledged yet. */
   pendingCount(): Promise<number>;
 }
@@ -154,6 +172,22 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
   const pullFrom = ({ cursor, skipped }: SyncMeta): Rev =>
     skipped === undefined || skipped.build === build ? cursor : Rev.parse(Math.max(0, Math.min(cursor, skipped.rev - 1)));
 
+  const newestBefore = async (index: string, liftIds: readonly LiftId[], before: LocalDate) => {
+    const perLift = liftIds.map((lift) => {
+      let newest: LocalDate | undefined;
+      return table('performance')
+        .where(index)
+        .between([lift, Dexie.minKey], [lift, addDays(before, -1)], true, true)
+        .reverse()
+        .until((row) => row.doc.date !== (newest ??= row.doc.date))
+        .toArray();
+    });
+    return (await Promise.all(perLift)).flat().map((row) => row.doc);
+  };
+
+  const fromDate = (index: string, liftIds: readonly LiftId[], from: LocalDate) =>
+    liftIds.map((lift) => table('performance').where(index).between([lift, from], [lift, Dexie.maxKey], true, true).toArray());
+
   const read: ReplicaReader = {
     get: async (kind, id) => (await table(kind).get(id))?.doc,
     onDate: async (kind, date) => (await table(kind).where('doc.date').equals(date).toArray()).map((row) => row.doc),
@@ -161,6 +195,14 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
       (await table(kind).where('doc.date').between(from, to, true, true).toArray()).map((row) => row.doc),
     all: async (kind) => (await table(kind).toArray()).map((row) => row.doc),
     withBarcode: async (gtin) => (await table('food').where(BARCODE_INDEX).equals(gtin).toArray()).map((row) => row.doc),
+    programOn: async (date) => (await table('program').where('id').belowOrEqual(programId(date)).last())?.doc,
+    lastPerformances: (liftIds, before) => newestBefore(LIFT_DATE_INDEX, liftIds, before),
+    lastSwaps: (liftIds, before) => newestBefore(PLANNED_DATE_INDEX, liftIds, before),
+    performancesOfSession: async (sessionId) => (await table('performance').where(SESSION_INDEX).equals(sessionId).toArray()).map((row) => row.doc),
+    performancesFrom: async (liftIds, from) => {
+      const rows = await Promise.all([...fromDate(LIFT_DATE_INDEX, liftIds, from), ...fromDate(PLANNED_DATE_INDEX, liftIds, from)]);
+      return [...new Map(rows.flat().map((row) => [row.id, row.doc])).values()];
+    },
     pendingCount: () => outbox.count(),
   };
 

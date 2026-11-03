@@ -3,15 +3,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Dexie from 'dexie';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
-import { afterEach, describe, expect, it } from 'vitest';
+import fc from 'fast-check';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InvalidDocument, openReplica, type Replica } from '../src/client/replica.js';
 import { syncRounds, type Transport } from '../src/client/sync.js';
+import { lastTimesView } from '../src/client/views.js';
 import { Gtin } from '../src/domain/food.js';
 import { SCHEMA_HISTORY } from '../src/domain/kinds.js';
+import { liftBook, type Performance } from '../src/domain/lifts.js';
+import { lastSwapAt, lastTimeOf } from '../src/domain/progress.js';
 import { ClientId, MutationId, type SyncReply } from '../src/protocol.js';
 import { openStore, type DocStore } from '../src/server/store.js';
 import { at, entry, food, newClientId, newEntryId, putEntry, request, rev } from './fixtures.js';
-import { liftsBlock, program, slot } from './training.fixtures.js';
+import { day, lb, lift, liftsBlock, newSessionId, performance, program, session, slot } from './training.fixtures.js';
 
 const open: Replica[] = [];
 afterEach(() => {
@@ -362,6 +366,146 @@ describe('a program the phone pulled', () => {
     expect(await port.pendingCount()).toBe(0);
     before.close();
     restored.close();
+  });
+});
+
+describe('training reads', () => {
+  const put = (replica: Replica, rows: readonly Performance[]) => replica.commit(rows.map((doc) => ({ op: 'put', kind: 'performance', doc })));
+  const ids = (rows: readonly Performance[]) => rows.map((row) => row.id).toSorted();
+  const plan = (date: string) => program(date, [{ key: 'push', blocks: [liftsBlock('a', [slot('a1', 'bench-press', 3)])] }]);
+
+  it('finds the program in effect on a date, and a program by id', async () => {
+    const { replica } = await setup();
+    const versions = [plan('2030-03-04'), plan('2030-03-11'), plan('2030-03-18')];
+    await replica.commit(versions.map((doc) => ({ op: 'put', kind: 'program', doc })));
+    const onDate = async (date: string) => (await replica.read.programOn(day(date)))?.effectiveFrom;
+    expect(await onDate('2030-03-03')).toBeUndefined();
+    expect(await onDate('2030-03-04')).toBe('2030-03-04');
+    expect(await onDate('2030-03-10')).toBe('2030-03-04');
+    expect(await onDate('2030-03-11')).toBe('2030-03-11');
+    expect(await onDate('2031-01-01')).toBe('2030-03-18');
+    expect(await replica.read.get('program', plan('2030-03-11').id)).toEqual(versions[1]);
+  });
+
+  it('leaves the date itself out of the last time, and answers nothing with no history', async () => {
+    const { replica } = await setup();
+    const older = performance({ date: '2030-03-04', lift: 'bench-press', sets: [lb(100, 8)] });
+    const today = performance({ date: '2030-03-11', lift: 'bench-press', sets: [lb(110, 8)] });
+    await put(replica, [older, today]);
+    expect(await replica.read.lastPerformances([lift('bench-press')], day('2030-03-11'))).toEqual([older]);
+    expect(await replica.read.lastPerformances([lift('bench-press')], day('2030-03-04'))).toEqual([]);
+    expect(await replica.read.lastPerformances([lift('row')], day('2030-03-11'))).toEqual([]);
+  });
+
+  it('reads swaps through the planned lift alone, so a row with no planned lift never answers', async () => {
+    const { replica } = await setup();
+    const straight = performance({ date: '2030-03-04', lift: 'bench-press', sets: [lb(100, 8)] });
+    const swap = performance({ date: '2030-03-05', lift: 'incline-press', planned: 'bench-press', sets: [lb(60, 8)] });
+    await put(replica, [straight, swap]);
+    expect(await replica.read.lastSwaps([lift('bench-press')], day('2030-03-11'))).toEqual([swap]);
+    expect(await replica.read.lastSwaps([lift('incline-press')], day('2030-03-11'))).toEqual([]);
+  });
+
+  it('reads the performances of one session', async () => {
+    const { replica } = await setup();
+    const mine = newSessionId();
+    const rows = [
+      performance({ session: mine, slot: 'a1', lift: 'bench-press', sets: [lb(100, 8)] }),
+      performance({ session: mine, slot: 'a2', lift: 'row', sets: [lb(90, 8)] }),
+    ];
+    await put(replica, [...rows, performance({ lift: 'bench-press', sets: [lb(100, 8)] })]);
+    expect(ids(await replica.read.performancesOfSession(mine))).toEqual(ids(rows));
+    expect(await replica.read.performancesOfSession(newSessionId())).toEqual([]);
+  });
+
+  it('holds a session by its date too', async () => {
+    const { replica } = await setup();
+    const doc = session({ date: day('2030-03-04') });
+    await replica.commit([{ op: 'put', kind: 'session', doc }]);
+    expect(await replica.read.between('session', day('2030-03-04'), day('2030-03-10'))).toEqual([doc]);
+  });
+
+  const rowsArbitrary = fc.array(
+    fc.record({
+      date: fc.constantFrom('2030-03-01', '2030-03-02', '2030-03-03', '2030-03-04'),
+      lift: fc.constantFrom('bench-press', 'barbell-bench', 'row', 'squat'),
+      planned: fc.constantFrom(undefined, 'bench-press', 'barbell-bench', 'row'),
+    }),
+    { maxLength: 30 },
+  );
+  /** Each set time differs, so the tie-break is the only thing choosing between rows of one date. */
+  const rowsOf = (drawn: readonly { readonly date: string; readonly lift: string; readonly planned: string | undefined }[]) =>
+    drawn.map(({ date, lift: name, planned }, i) => performance({ date, lift: name, sets: [lb(100, 8, i)], ...(planned === undefined || planned === name ? {} : { planned }) }));
+  const book = liftBook([{ id: lift('bench-press'), name: 'Bench press', aliases: [lift('barbell-bench')] }]);
+
+  it('answers last time and the swap hint the same as a scan of every row', async () => {
+    await fc.assert(
+      fc.asyncProperty(rowsArbitrary, fc.constantFrom('2030-03-02', '2030-03-03', '2030-03-04', '2030-03-05'), async (drawn, date) => {
+        const rows = rowsOf(drawn);
+        const { replica } = await setup();
+        await put(replica, rows);
+        const before = day(date);
+        for (const name of ['bench-press', 'row', 'squat']) {
+          const read = { lift: lift(name), book, before };
+          const seeked = await lastTimesView(replica.read, book.members(lift(name)), before);
+          expect(lastTimeOf({ ...read, rows: seeked })).toEqual(lastTimeOf({ ...read, rows }));
+          expect(lastSwapAt({ ...read, rows: seeked })).toEqual(lastSwapAt({ ...read, rows }));
+        }
+        replica.close();
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('reads a chart from a date: the lifts, what was done as a swap for them, and each row once', async () => {
+    await fc.assert(
+      fc.asyncProperty(rowsArbitrary, fc.constantFrom('2030-03-01', '2030-03-03', '2030-03-05'), async (drawn, from) => {
+        const rows = rowsOf(drawn);
+        const { replica } = await setup();
+        await put(replica, rows);
+        const members = book.members(lift('bench-press'));
+        const expected = rows.filter((row) => row.date >= from && (members.includes(row.liftId) || (row.plannedLiftId !== undefined && members.includes(row.plannedLiftId))));
+        expect(ids(await replica.read.performancesFrom(members, day(from)))).toEqual(ids(expected));
+        replica.close();
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('does not re-run the last-time read when a set is logged today, and does when an earlier day changes', async () => {
+    // A live query only runs where Dexie found a global indexedDB, which Node has none of.
+    Object.assign(Dexie.dependencies, { indexedDB: new IDBFactory(), IDBKeyRange });
+    const { replica } = await setup();
+    const today = day('2030-03-11');
+    const older = performance({ date: '2030-03-04', lift: 'bench-press', sets: [lb(100, 8)] });
+    await put(replica, [older]);
+
+    let runs = 0;
+    const lastTime = replica.live((r) => {
+      runs++;
+      return lastTimesView(r, [lift('bench-press')], today);
+    });
+    const seen: (readonly Performance[])[] = [];
+    const stop = lastTime.subscribe((rows) => seen.push(rows));
+    const todays: Performance[] = [];
+    // Reads the day being logged, so it must re-run on the same commit the read above must ignore.
+    const stopWitness = replica.live((r) => r.onDate('performance', today)).subscribe((rows) => {
+      todays.length = 0;
+      todays.push(...rows);
+    });
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+
+    await put(replica, [performance({ date: today, lift: 'bench-press', sets: [lb(110, 8, 1)] })]);
+    await vi.waitFor(() => expect(todays).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(runs).toBe(1);
+
+    const corrected = { ...older, sets: [lb(105, 8)] };
+    await put(replica, [corrected]);
+    await vi.waitFor(() => expect(seen.at(-1)).toEqual([corrected]));
+    expect(runs).toBe(2);
+    stop();
+    stopWitness();
   });
 });
 

@@ -24,6 +24,7 @@ import {
   type Water,
 } from '../domain/habits.js';
 import { addDays, type LocalDate, type Millis } from '../domain/ids.js';
+import type { LiftId, Performance } from '../domain/lifts.js';
 import { RECENT_DAYS, recents, type Library, type RecentFood } from '../domain/library.js';
 import { refreshFor, type EditedRef, type Recipe, type Refresh, type SavedMeal } from '../domain/reuse.js';
 import { localDate } from './clock.js';
@@ -94,6 +95,12 @@ export async function usesView(r: ReplicaReader, ref: EditedRef): Promise<Refres
 export async function foodWithBarcode(r: ReplicaReader, gtin: Gtin): Promise<Food | undefined> {
   const foods = await r.withBarcode(gtin);
   return foods.find((f) => !f.archived) ?? foods[0];
+}
+
+/** The rows lastTimeOf and lastSwapAt read: two seeks per id, so hand in every id the book counts as these lifts. */
+export async function lastTimesView(r: ReplicaReader, liftIds: readonly LiftId[], before: LocalDate): Promise<Performance[]> {
+  const [own, swaps] = await Promise.all([r.lastPerformances(liftIds, before), r.lastSwaps(liftIds, before)]);
+  return [...own, ...swaps];
 }
 
 export interface GoalView {
