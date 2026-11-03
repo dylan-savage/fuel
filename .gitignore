@@ -8,3 +8,6 @@ dist/
 *.db-shm
 test-results/
 playwright-report/
+
+# Real training data and notes. This repo is public.
+.private/
