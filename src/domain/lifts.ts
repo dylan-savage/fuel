@@ -104,8 +104,8 @@ export type SetLog = z.infer<typeof SetLog>;
 export const Target = z.looseObject({
   sets: z.number().int().min(1).max(20),
   reps: z.looseObject({ min: repCount, max: repCount }).refine((r) => r.min <= r.max, 'reps.min is above reps.max'),
-  /** Per arm or leg, naming the side he starts on. Absent means both together. */
-  perSide: z.enum(['left-first', 'right-first']).optional(),
+  /** Per arm or leg, naming the side he starts on, or 'either' when the plan names none. Absent means both together. */
+  perSide: z.enum(['left-first', 'right-first', 'either']).optional(),
   /** What the set is loaded with. Absent means weight. */
   load: z.enum(['weight', 'bodyweight', 'band']).optional(),
 });

@@ -98,6 +98,7 @@ describe('programDiff', () => {
     ['the range', { target: target(3, 10, 12) }, 'bench-press 3 x 10-12'],
     ['a fixed count', { target: target(3, 10, 10) }, 'bench-press 3 x 10'],
     ['per side', { target: target(3, 8, 10, { perSide: 'left-first' }) }, 'bench-press 3 x 8-10 per side'],
+    ['per side with no starting side', { target: target(3, 8, 10, { perSide: 'either' }) }, 'bench-press 3 x 8-10 per side'],
     ['the load', { target: target(3, 8, 10, { load: 'band' }) }, 'bench-press 3 x 8-10 band'],
     ['the lift', { liftId: lift('incline-press') }, 'incline-press 3 x 8-10'],
   ])('lists a changed prescription: %s', (_name, change, after) => {

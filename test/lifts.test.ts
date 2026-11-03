@@ -98,4 +98,9 @@ describe('Performance', () => {
   it('refuses a range whose bottom is above its top', () => {
     expect(Performance.safeParse({ ...row, target: { sets: 3, reps: { min: 12, max: 8 } } }).success).toBe(false);
   });
+
+  it('lets a per-side target name no starting side, and nothing else new', () => {
+    expect(Performance.safeParse({ ...row, target: { sets: 3, reps: { min: 8, max: 12 }, perSide: 'either' } }).success).toBe(true);
+    expect(Performance.safeParse({ ...row, target: { sets: 3, reps: { min: 8, max: 12 }, perSide: 'both' } }).success).toBe(false);
+  });
 });

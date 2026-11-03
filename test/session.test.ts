@@ -220,6 +220,10 @@ describe('prefillSet', () => {
     expect(fill([], undefined, target(3, 5, 8, { load: 'band' })).load).toEqual({ kind: 'band', label: '' });
   });
 
+  it('asks for each side when a per-side target names no starting side', () => {
+    expect(fill([], undefined, target(3, 8, 10, { perSide: 'either' })).reps).toEqual({ kind: 'sides', left: 8, right: 8 });
+  });
+
   it('follows per-side reps, and blanks everything with no target or history', () => {
     const perSide = target(3, 8, 10, { perSide: 'left-first' });
     expect(fill([], undefined, perSide).reps).toEqual({ kind: 'sides', left: 8, right: 8 });
