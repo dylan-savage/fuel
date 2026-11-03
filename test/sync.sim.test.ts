@@ -2,6 +2,8 @@
  * Drives real replicas (fake-indexeddb) and a real DocStore through random schedules where
  * the network drops requests, drops responses, delivers twice, and local writes land while
  * a request is in flight. Then checks that everyone converges and nothing applied twice.
+ * The same invariants run again with shells older than the server, which skip what they
+ * cannot read and update partway through.
  */
 import { copyFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -15,6 +17,7 @@ import { PROFILE_ID, goalId } from '../src/domain/goals.js';
 import { weighInId } from '../src/domain/body.js';
 import { FastEndId, FastId, FoodId, LocalDate, RecipeId, SavedMealId, WaterId, WorkoutId } from '../src/domain/ids.js';
 import { KIND_NAMES, type Mutation } from '../src/domain/kinds.js';
+import type { SyncReply, SyncRequest, SyncResponse } from '../src/protocol.js';
 import { openStore, type DocStore } from '../src/server/store.js';
 import { at, entry, fast, fastEnd, food, goal, newClientId, newEntryId, profile, recipe, request, savedMeal, water, weighIn, workout } from './fixtures.js';
 
@@ -94,6 +97,7 @@ type Step =
       /** Round trips before the network goes away mid-sync. */
       readonly roundTrips: number;
     }
+  | { readonly kind: 'update'; readonly replica: number }
   | { readonly kind: 'backup' }
   | { readonly kind: 'restore' };
 
@@ -108,7 +112,7 @@ const writeOp: fc.Arbitrary<WriteOp> = fc.oneof(
   { weight: 1, arbitrary: fc.record({ op: fc.constant('delete' as const), slot: fc.nat(SLOTS - 1) }) },
 );
 
-function schedule(replicas: number, withRestore: boolean): fc.Arbitrary<Step[]> {
+function schedule(replicas: number, withRestore: boolean, withUpdates = false): fc.Arbitrary<Step[]> {
   const replica = fc.nat(replicas - 1);
   const steps: fc.WeightedArbitrary<Step>[] = [
     { weight: 5, arbitrary: fc.record({ kind: fc.constant('write' as const), replica, ops: fc.array(writeOp, { minLength: 1, maxLength: 3 }) }) },
@@ -129,14 +133,52 @@ function schedule(replicas: number, withRestore: boolean): fc.Arbitrary<Step[]> 
     steps.push({ weight: 1, arbitrary: fc.constant({ kind: 'backup' as const }) });
     steps.push({ weight: 1, arbitrary: fc.constant({ kind: 'restore' as const }) });
   }
+  if (withUpdates) steps.push({ weight: 1, arbitrary: fc.record({ kind: fc.constant('update' as const), replica }) });
   return fc.array(fc.oneof(...steps), { minLength: 1, maxLength: 60 });
 }
 
 interface World {
   server: DocStore;
-  readonly replicas: readonly { readonly replica: Replica; readonly port: SyncPort }[];
+  replicas: readonly Phone[];
   /** Every mutation committed on any replica, in commit order. */
   readonly committed: Mutation[];
+  /** Phones still on a shell older than the server. */
+  readonly older: Set<number>;
+}
+
+interface Phone {
+  readonly replica: Replica;
+  readonly port: SyncPort;
+  readonly indexedDB: IDBFactory;
+}
+
+async function openPhone(index: number, indexedDB: IDBFactory, build: string): Promise<Phone> {
+  return { indexedDB, ...(await openReplica({ name: `sim-${index}`, indexedDB, IDBKeyRange, build })) };
+}
+
+/** A banner tap: the same database reopened under the build that reads everything. */
+async function update(world: World, index: number): Promise<void> {
+  const phone = world.replicas[index];
+  if (phone === undefined || !world.older.delete(index)) return;
+  phone.replica.close();
+  world.replicas = world.replicas.with(index, await openPhone(index, phone.indexedDB, 'new'));
+}
+
+/** What an older shell receives: waters as a kind it never heard of, workouts in a shape its schema rejects. */
+function asOlderShell(res: SyncResponse): SyncReply {
+  return {
+    ...res,
+    changes: res.changes.map((c) => {
+      if (c.kind === 'water') return { ...c, kind: 'futureKind' };
+      if (c.kind === 'workout' && c.doc !== null) return { ...c, doc: { id: c.id } };
+      return c;
+    }),
+  };
+}
+
+function answer(world: World, index: number, req: SyncRequest): SyncReply {
+  const res = world.server.sync(req, { now: at(1), userAgent: null });
+  return world.older.has(index) ? asOlderShell(res) : res;
 }
 
 async function commit(world: World, index: number, ops: readonly WriteOp[]): Promise<void> {
@@ -154,8 +196,7 @@ function transport(world: World, index: number, step: Extract<Step, { kind: 'syn
   return async (req) => {
     if (++calls > roundTrips) throw new Dropped('network gone');
     if (fate === 'drop-request') throw new Dropped('request lost');
-    const ctx = { now: at(1), userAgent: null };
-    const first = world.server.sync(req, ctx);
+    const first = answer(world, index, req);
     if (!interleaved) {
       interleaved = true;
       await commit(world, index, during);
@@ -164,13 +205,13 @@ function transport(world: World, index: number, step: Extract<Step, { kind: 'syn
     if (fate === 'deliver-twice') {
       const port = world.replicas[index]?.port;
       await port?.apply(first);
-      return world.server.sync(req, ctx);
+      return answer(world, index, req);
     }
     return first;
   };
 }
 
-const deliver = (world: World): Transport => (req) => Promise.resolve(world.server.sync(req, { now: at(1), userAgent: null }));
+const deliver = (world: World, index: number): Transport => (req) => Promise.resolve(answer(world, index, req));
 
 /** The server's live documents, read the way a brand-new phone would. */
 function serverDocs(server: DocStore): Map<string, unknown> {
@@ -204,14 +245,13 @@ function modelOf(mutations: readonly Mutation[]): Map<string, unknown> {
   return docs;
 }
 
-async function run(steps: readonly Step[], replicaCount: number, afterStep?: (world: World) => Promise<void>): Promise<World> {
+async function run(steps: readonly Step[], replicaCount: number, olderShells: boolean, afterStep?: (world: World) => Promise<void>): Promise<World> {
   const dir = mkdtempSync(join(tmpdir(), 'fuel-sim-'));
   const world: World = {
     server: openStore(':memory:', { pageSize: PULL_PAGE }),
-    replicas: await Promise.all(
-      Array.from({ length: replicaCount }, (_, i) => openReplica({ name: `sim-${i}`, indexedDB: new IDBFactory(), IDBKeyRange })),
-    ),
+    replicas: await Promise.all(Array.from({ length: replicaCount }, (_, i) => openPhone(i, new IDBFactory(), 'old'))),
     committed: [],
+    older: new Set(olderShells ? Array.from({ length: replicaCount }, (_, i) => i) : []),
   };
   let backup: string | null = null;
   let restores = 0;
@@ -231,6 +271,9 @@ async function run(steps: readonly Step[], replicaCount: number, afterStep?: (wo
         }
         break;
       }
+      case 'update':
+        await update(world, step.replica);
+        break;
       case 'backup':
         backup = join(dir, `backup-${restores}.db`);
         await world.server.backup(backup);
@@ -248,13 +291,18 @@ async function run(steps: readonly Step[], replicaCount: number, afterStep?: (wo
     await afterStep?.(world);
   }
 
+  for (let i = 0; i < replicaCount; i++) await update(world, i);
+
   // Fault-free rounds until every outbox is empty and every replica has pulled the end state.
+  const syncAll = async () => {
+    for (const [i, { port }] of world.replicas.entries()) await syncRounds(port, deliver(world, i), PUSH_BATCH);
+  };
   for (let pass = 0; pass < 10; pass++) {
-    for (const { port } of world.replicas) await syncRounds(port, deliver(world), PUSH_BATCH);
+    await syncAll();
     const pending = await Promise.all(world.replicas.map(({ port }) => port.pendingCount()));
     if (pending.every((n) => n === 0)) break;
   }
-  for (const { port } of world.replicas) await syncRounds(port, deliver(world), PUSH_BATCH);
+  await syncAll();
   return world;
 }
 
@@ -267,15 +315,18 @@ async function close(world: World): Promise<void> {
 const runs = Number(process.env.FUEL_SIM_RUNS ?? 150);
 const seed = process.env.FUEL_SIM_SEED === undefined ? {} : { seed: Number(process.env.FUEL_SIM_SEED) };
 
-describe('sync simulation', () => {
+describe.each([
+  ['shells that read everything', false],
+  ['older shells that skip what they cannot read, then update', true],
+])('sync simulation with %s', (_name, older) => {
   it('one phone: it always shows its own latest writes, the server ends where the phone left it, and every write applies once', async () => {
     const readYourWrites = async (world: World) => {
       const phone = world.replicas[0];
       if (phone) expect(await replicaDocs(phone.replica)).toEqual(modelOf(world.committed));
     };
     await fc.assert(
-      fc.asyncProperty(schedule(1, false), async (steps) => {
-        const world = await run(steps, 1, readYourWrites);
+      fc.asyncProperty(schedule(1, false, older), async (steps) => {
+        const world = await run(steps, 1, older, readYourWrites);
         try {
           const [phone] = world.replicas;
           if (!phone) throw new Error('no replica');
@@ -293,8 +344,8 @@ describe('sync simulation', () => {
 
   it('several phones converge on the server state, and every write applies once', async () => {
     await fc.assert(
-      fc.asyncProperty(fc.integer({ min: 2, max: 3 }).chain((n) => fc.tuple(fc.constant(n), schedule(n, false))), async ([n, steps]) => {
-        const world = await run(steps, n);
+      fc.asyncProperty(fc.integer({ min: 2, max: 3 }).chain((n) => fc.tuple(fc.constant(n), schedule(n, false, older))), async ([n, steps]) => {
+        const world = await run(steps, n, older);
         try {
           const truth = serverDocs(world.server);
           for (const { replica, port } of world.replicas) {
@@ -312,8 +363,8 @@ describe('sync simulation', () => {
 
   it('after the server is restored from an older backup, the phone puts back everything it holds', async () => {
     await fc.assert(
-      fc.asyncProperty(schedule(1, true), async (steps) => {
-        const world = await run(steps, 1);
+      fc.asyncProperty(schedule(1, true, older), async (steps) => {
+        const world = await run(steps, 1, older);
         try {
           const [phone] = world.replicas;
           if (!phone) throw new Error('no replica');

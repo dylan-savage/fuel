@@ -18,6 +18,7 @@ import {
   type Mutation,
 } from '../domain/kinds.js';
 import { ClientId, DocRecord, MutationId, Rev, type SyncReply, type SyncRequest, type WireMutation } from '../protocol.js';
+import { BUILD } from './build.js';
 
 interface KindRow<D> {
   readonly id: string;
@@ -34,6 +35,11 @@ interface SyncMeta {
   readonly clientId: ClientId;
   readonly epoch: string | null;
   readonly cursor: Rev;
+  /**
+   * The lowest rev this shell could not read, and the build that could not. Absent when
+   * nothing waits to be read again, as on every row from before skipping existed.
+   */
+  readonly skipped?: { readonly build: string; readonly rev: Rev };
 }
 
 export interface ReplicaReader {
@@ -69,7 +75,10 @@ export interface Replica {
 
 /** The replica's half of the sync protocol. Held only by sync.ts. */
 export interface SyncPort {
-  /** The oldest `limit` outbox rows with the cursor and epoch to pull from. */
+  /**
+   * The oldest `limit` outbox rows with the cursor and epoch to pull from. A build other
+   * than the one that skipped records pulls from just before the lowest of them.
+   */
   nextBatch(limit: number): Promise<SyncRequest>;
   /**
    * Applies one response in one transaction. Pulled changes are skipped for documents with
@@ -79,11 +88,13 @@ export interface SyncPort {
    * A new server epoch means the database was restored from a backup, which may hold
    * older versions of what this phone has. The phone re-queues every document it holds,
    * so its copy wins and anything the backup lacks is restored. Deletes made after the
-   * backup come back, because the phone keeps no tombstones.
+   * backup come back, because the phone keeps no tombstones. A document whose newer version
+   * this shell skipped goes back as the older copy it holds.
    *
    * A record this shell cannot read, of a kind it does not know or a document its schema
-   * rejects, is skipped. The rest of the response applies as usual, and a local copy of
-   * that document stays as it is.
+   * rejects, is skipped and remembered in the meta row. The rest of the response applies
+   * as usual, and a local copy of that document stays as it is. Applying a response pulled
+   * under a new build or from a restored server replaces what was remembered.
    *
    * Applying the same response twice changes nothing.
    */
@@ -97,6 +108,8 @@ export interface ReplicaOptions {
   readonly indexedDB?: IDBFactory;
   readonly IDBKeyRange?: typeof IDBKeyRange;
   readonly newId?: () => string;
+  /** Tests open one database under two values to stand in for an update. */
+  readonly build?: string;
 }
 
 /** A local write its kind's schema rejects. */
@@ -113,8 +126,10 @@ export class InvalidDocument extends Error {
 
 const docKey = (kind: Kind, id: string) => `${kind}\u0000${id}`;
 
+const RecordRev = DocRecord.pick({ rev: true });
+
 export async function openReplica(options: ReplicaOptions = {}): Promise<{ replica: Replica; port: SyncPort }> {
-  const { name = 'fuel', indexedDB, IDBKeyRange, newId = () => crypto.randomUUID() } = options;
+  const { name = 'fuel', indexedDB, IDBKeyRange, newId = () => crypto.randomUUID(), build = BUILD } = options;
   const db = new Dexie(name, indexedDB && IDBKeyRange ? { indexedDB, IDBKeyRange } : {});
   db.version(DB_VERSION).stores(dexieStores());
 
@@ -134,6 +149,10 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
     if (row === undefined) throw new Error('replica meta row missing');
     return row;
   };
+
+  // Derived rather than stored, so a lost response or a crash rewinds again until one applies.
+  const pullFrom = ({ cursor, skipped }: SyncMeta): Rev =>
+    skipped === undefined || skipped.build === build ? cursor : Rev.parse(Math.max(0, Math.min(cursor, skipped.rev - 1)));
 
   const read: ReplicaReader = {
     get: async (kind, id) => (await table(kind).get(id))?.doc,
@@ -199,7 +218,7 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
   const port: SyncPort = {
     nextBatch: (limit) =>
       db.transaction('r', [outbox, meta], async () => {
-        const { clientId, epoch, cursor } = await readMeta();
+        const current = await readMeta();
         const rows = await outbox.orderBy('mutationId').limit(limit).toArray();
         const mutations = rows.map((row): WireMutation => {
           const id = MutationId.parse(row.mutationId);
@@ -207,7 +226,7 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
             ? { op: 'put', id, kind: row.kind, docId: row.docId, doc: row.doc }
             : { op: 'delete', id, kind: row.kind, docId: row.docId };
         });
-        return { clientId, epoch, cursor, mutations };
+        return { clientId: current.clientId, epoch: current.epoch, cursor: pullFrom(current), mutations };
       }),
 
     apply: (res) =>
@@ -215,8 +234,9 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
         const current = await readMeta();
         await outbox.where('mutationId').belowOrEqual(res.lastMutationId).delete();
         const pending = new Set((await outbox.toArray()).map((row) => docKey(row.kind, row.docId)));
+        const restored = current.epoch !== null && current.epoch !== res.epoch;
 
-        if (current.epoch !== null && current.epoch !== res.epoch) {
+        if (restored) {
           for (const kind of KIND_NAMES) {
             for (const row of await table(kind).toArray()) {
               if (pending.has(docKey(kind, row.id))) continue;
@@ -226,17 +246,26 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
           }
         }
 
+        const unread: number[] = !restored && current.skipped?.build === build ? [current.skipped.rev] : [];
         for (const rejection of res.rejected) {
           if (pending.has(docKey(rejection.kind, rejection.docId))) continue;
           if (rejection.current === null) await table(rejection.kind).delete(rejection.docId);
-          else await writeRecord(rejection.current);
+          else if (!(await writeRecord(rejection.current))) unread.push(rejection.current.rev);
         }
+        const pulledFrom = restored ? 0 : pullFrom(current);
         for (const raw of res.changes) {
           const record = DocRecord.safeParse(raw);
-          if (record.success && !pending.has(docKey(record.data.kind, record.data.id))) await writeRecord(record.data);
+          if (record.success) {
+            if (pending.has(docKey(record.data.kind, record.data.id))) continue;
+            if (!(await writeRecord(record.data))) unread.push(record.data.rev);
+          } else {
+            const found = RecordRev.safeParse(raw);
+            unread.push(found.success ? found.data.rev : pulledFrom + 1);
+          }
         }
 
-        await meta.put({ ...current, epoch: res.epoch, cursor: res.cursor });
+        const skipped = unread.length === 0 ? {} : { skipped: { build, rev: Rev.parse(Math.min(...unread)) } };
+        await meta.put({ key: current.key, clientId: current.clientId, epoch: res.epoch, cursor: res.cursor, ...skipped });
       }),
 
     pendingCount: () => outbox.count(),
