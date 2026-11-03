@@ -83,6 +83,14 @@ export const SyncResponse = z.object({
 });
 export type SyncResponse = z.infer<typeof SyncResponse>;
 
+/**
+ * A SyncResponse as a shell receives it. The shell may be older than the server, so each
+ * record stays unknown here and SyncPort.apply parses it alone: one record this shell
+ * cannot read is skipped instead of failing its batch.
+ */
+export const SyncReply = SyncResponse.extend({ changes: z.array(z.unknown()) });
+export type SyncReply = z.infer<typeof SyncReply>;
+
 export const Healthz = z.object({ ok: z.literal(true), epoch: z.string(), rev: Rev });
 export type Healthz = z.infer<typeof Healthz>;
 

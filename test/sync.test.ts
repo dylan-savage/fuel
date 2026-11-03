@@ -1,13 +1,14 @@
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openReplica } from '../src/client/replica.js';
-import { OfflineError, startSync, type SyncHandle, type SyncState, type Transport } from '../src/client/sync.js';
+import { OfflineError, httpTransport, startSync, type SyncHandle, type SyncState, type Transport } from '../src/client/sync.js';
 import { openStore } from '../src/server/store.js';
 import { at, entry, newClientId, newEntryId, request } from './fixtures.js';
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
   for (const fn of cleanup.splice(0)) fn();
+  vi.unstubAllGlobals();
 });
 
 async function setup(transportFor: (deliver: Transport) => Transport) {
@@ -79,5 +80,34 @@ describe('startSync', () => {
     });
     await Promise.all([sync.run(), sync.run(), sync.run()]);
     expect(maxActive).toBe(1);
+  });
+
+  it('stays green and clears the outbox when a pull holds a record this shell cannot read', async () => {
+    const { replica, sync, states } = await setup((deliver) => async (req) => {
+      const res = await deliver(req);
+      return { ...res, changes: [{ kind: 'futureKind', id: 'p-1', rev: 1, doc: {} }, ...res.changes] };
+    });
+    await idle(sync);
+    await replica.commit([{ op: 'put', kind: 'entry', doc: entry(newEntryId(), 300) }]);
+    await sync.run();
+    expect(states.at(-1)?.kind).toBe('idle');
+    expect(states.some((s) => s.kind === 'error')).toBe(false);
+    expect(await replica.read.pendingCount()).toBe(0);
+  });
+});
+
+describe('httpTransport', () => {
+  const reply = { epoch: 'e1', lastMutationId: 0, rejected: [], cursor: 2, more: false };
+  const answering = (body: unknown) => vi.stubGlobal('fetch', () => Promise.resolve(Response.json(body)));
+
+  it('hands over a reply holding a record no schema here can read', async () => {
+    const changes = [{ kind: 'futureKind', id: 'p-1', rev: 2, doc: { id: 'p-1' } }];
+    answering({ ...reply, changes });
+    await expect(httpTransport()(request(newClientId(), []))).resolves.toEqual({ ...reply, changes });
+  });
+
+  it('still refuses a reply missing what every round relies on', async () => {
+    answering({ epoch: 'e1', changes: [] });
+    await expect(httpTransport()(request(newClientId(), []))).rejects.toThrow();
   });
 });

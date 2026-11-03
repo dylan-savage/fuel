@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { InvalidDocument, openReplica, type Replica } from '../src/client/replica.js';
 import { Gtin } from '../src/domain/food.js';
 import { SCHEMA_HISTORY } from '../src/domain/kinds.js';
-import { MutationId, type SyncResponse } from '../src/protocol.js';
+import { MutationId, type SyncReply } from '../src/protocol.js';
 import { entry, food, newEntryId, rev } from './fixtures.js';
 
 const open: Replica[] = [];
@@ -18,7 +18,7 @@ async function setup() {
   return opened;
 }
 
-const response = (fields: Partial<SyncResponse>): SyncResponse => ({
+const response = (fields: Partial<SyncReply>): SyncReply => ({
   epoch: 'e1',
   lastMutationId: 1,
   rejected: [],
@@ -76,12 +76,54 @@ describe('SyncPort.apply', () => {
     expect(await replica.read.get('entry', doc.id)).toBeUndefined();
   });
 
-  it('refuses a pulled document it cannot parse and rolls back the whole response', async () => {
+});
+
+describe('a pull holding records this shell cannot read', () => {
+  const before = entry(newEntryId(), 100);
+  const after = entry(newEntryId(), 200);
+  const readable = (doc: typeof before, n: number) => ({ kind: 'entry', id: doc.id, rev: rev(n), doc });
+
+  it.each([
+    ['an unknown kind', { kind: 'futureKind', id: 'p-1', rev: 2, doc: { id: 'p-1' } }],
+    ['a tombstone of an unknown kind', { kind: 'futureKind', id: 'p-1', rev: 2, doc: null }],
+    ['a document its schema rejects', { kind: 'entry', id: 'x', rev: 2, doc: { id: 'x' } }],
+    ['a record with no shape at all', { nonsense: true }],
+  ])('skips %s: the rest applies, the cursor advances and acks clear the outbox', async (_name, unreadable) => {
     const { replica, port } = await setup();
     await replica.commit([{ op: 'put', kind: 'entry', doc: entry(newEntryId(), 1) }]);
-    const bad = response({ lastMutationId: 1, changes: [{ kind: 'entry', id: 'x', rev: rev(1), doc: { id: 'x' } }] });
-    await expect(port.apply(bad)).rejects.toThrow('cannot read');
-    expect(await port.pendingCount()).toBe(1);
+    await port.apply(response({ lastMutationId: 1, changes: [readable(before, 1), unreadable, readable(after, 3)], cursor: rev(3) }));
+
+    expect(await replica.read.get('entry', before.id)).toEqual(before);
+    expect(await replica.read.get('entry', after.id)).toEqual(after);
+    expect(await replica.read.get('entry', 'x')).toBeUndefined();
+    expect(await port.pendingCount()).toBe(0);
+    expect((await port.nextBatch(1)).cursor).toBe(3);
+  });
+
+  it('keeps the local copy of a document whose newer version it cannot read', async () => {
+    const { replica, port } = await setup();
+    await port.apply(response({ changes: [readable(before, 1)], cursor: rev(1) }));
+    await port.apply(response({ changes: [{ kind: 'entry', id: before.id, rev: rev(2), doc: { id: before.id } }], cursor: rev(2) }));
+    expect(await replica.read.get('entry', before.id)).toEqual(before);
+  });
+
+  it('does not abort when the server copy returned with a rejection is unreadable', async () => {
+    const { replica, port } = await setup();
+    const doc = entry(newEntryId(), 400);
+    await replica.commit([{ op: 'put', kind: 'entry', doc }]);
+    const current = { kind: 'entry' as const, id: doc.id, rev: rev(3), doc: { id: doc.id } };
+    await port.apply(response({ rejected: [{ mutationId: MutationId.parse(1), kind: 'entry', docId: doc.id, reason: 'invalid', current }], cursor: rev(3) }));
+    expect(await port.pendingCount()).toBe(0);
+    expect((await port.nextBatch(1)).cursor).toBe(3);
+  });
+
+  it('applies the same response twice with no further change', async () => {
+    const { replica, port } = await setup();
+    const res = response({ changes: [readable(before, 1), { kind: 'futureKind', id: 'p-1', rev: 2, doc: {} }], cursor: rev(2) });
+    await port.apply(res);
+    await port.apply(res);
+    expect(await replica.read.all('entry')).toEqual([before]);
+    expect((await port.nextBatch(1)).cursor).toBe(2);
   });
 });
 

@@ -17,16 +17,7 @@ import {
   type Kind,
   type Mutation,
 } from '../domain/kinds.js';
-import {
-  ClientId,
-  MutationId,
-  Rev,
-  type DocRecord,
-  type Rejection,
-  type SyncRequest,
-  type SyncResponse,
-  type WireMutation,
-} from '../protocol.js';
+import { ClientId, DocRecord, MutationId, Rev, type SyncReply, type SyncRequest, type WireMutation } from '../protocol.js';
 
 interface KindRow<D> {
   readonly id: string;
@@ -90,9 +81,13 @@ export interface SyncPort {
    * so its copy wins and anything the backup lacks is restored. Deletes made after the
    * backup come back, because the phone keeps no tombstones.
    *
+   * A record this shell cannot read, of a kind it does not know or a document its schema
+   * rejects, is skipped. The rest of the response applies as usual, and a local copy of
+   * that document stays as it is.
+   *
    * Applying the same response twice changes nothing.
    */
-  apply(res: SyncResponse): Promise<void>;
+  apply(res: SyncReply): Promise<void>;
   pendingCount(): Promise<number>;
 }
 
@@ -150,21 +145,16 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
     pendingCount: () => outbox.count(),
   };
 
-  const writeRecord = async (record: DocRecord): Promise<void> => {
+  /** False when the schema of this shell rejects the document, writing nothing. */
+  const writeRecord = async (record: DocRecord): Promise<boolean> => {
     if (record.doc === null) {
       await table(record.kind).delete(record.id);
-      return;
+      return true;
     }
     const parsed = parseDoc(record.kind, record.doc);
-    // A shell older than the server it talks to. Failing loudly keeps the outbox intact
-    // until the service worker update lands, instead of silently dropping a document.
-    if (!parsed.ok) throw new Error(`server sent a ${record.kind} this app cannot read: ${parsed.reason}`);
+    if (!parsed.ok) return false;
     await table(record.kind).put({ id: record.id, doc: parsed.doc });
-  };
-
-  const undoRejection = async (rejection: Rejection): Promise<void> => {
-    if (rejection.current === null) await table(rejection.kind).delete(rejection.docId);
-    else await writeRecord(rejection.current);
+    return true;
   };
 
   const listeners = new Set<() => void>();
@@ -237,10 +227,13 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
         }
 
         for (const rejection of res.rejected) {
-          if (!pending.has(docKey(rejection.kind, rejection.docId))) await undoRejection(rejection);
+          if (pending.has(docKey(rejection.kind, rejection.docId))) continue;
+          if (rejection.current === null) await table(rejection.kind).delete(rejection.docId);
+          else await writeRecord(rejection.current);
         }
-        for (const change of res.changes) {
-          if (!pending.has(docKey(change.kind, change.id))) await writeRecord(change);
+        for (const raw of res.changes) {
+          const record = DocRecord.safeParse(raw);
+          if (record.success && !pending.has(docKey(record.data.kind, record.data.id))) await writeRecord(record.data);
         }
 
         await meta.put({ ...current, epoch: res.epoch, cursor: res.cursor });

@@ -3,7 +3,7 @@
  * DocStore.sync; this file decides timing only.
  */
 import { Millis } from '../domain/ids.js';
-import { MAX_PUSH, SyncResponse, type SyncRequest } from '../protocol.js';
+import { MAX_PUSH, SyncReply, type SyncRequest } from '../protocol.js';
 import type { Replica, Subscribable, SyncPort } from './replica.js';
 
 export type SyncState =
@@ -13,7 +13,7 @@ export type SyncState =
   | { readonly kind: 'error'; readonly message: string; readonly retryAt: Millis };
 
 /** Sends one request to the server and returns its parsed response. */
-export type Transport = (req: SyncRequest) => Promise<SyncResponse>;
+export type Transport = (req: SyncRequest) => Promise<SyncReply>;
 
 /** The mini could not be reached at all, as opposed to answering with an error. */
 export class OfflineError extends Error {}
@@ -27,7 +27,7 @@ export function httpTransport(url = '/api/sync'): Transport {
       throw new OfflineError(String(err));
     }
     if (!res.ok) throw new Error(`sync answered ${res.status}`);
-    return SyncResponse.parse(await res.json());
+    return SyncReply.parse(await res.json());
   };
 }
 
