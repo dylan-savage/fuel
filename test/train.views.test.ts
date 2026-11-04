@@ -3,7 +3,7 @@ import Dexie from 'dexie';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openReplica, type Replica } from '../src/client/replica.js';
-import { dayPreviewView, weekView, type WeekView } from '../src/client/views.js';
+import { dayPreviewView, weekView, type DayPreview, type WeekView } from '../src/client/views.js';
 import { weighInId } from '../src/domain/body.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import type { Performance } from '../src/domain/lifts.js';
@@ -101,6 +101,24 @@ describe('weekView', () => {
   });
 });
 
+describe('weekView as a live query', () => {
+  it('re-reads the version before when it arrives after the one in effect, as a re-pull can bring them', async () => {
+    Object.assign(Dexie.dependencies, { indexedDB: new IDBFactory(), IDBKeyRange });
+    const replica = await replicaWith({ programs: [program(MONDAY, [benchDay, rowDay], { report: { text: 'This week.' } })] });
+    const weeks: (WeekView | null)[] = [];
+    const stop = replica.live((r) => weekView(r, LATER)).subscribe((week) => weeks.push(week));
+    await vi.waitFor(() => expect(weeks).toHaveLength(1));
+    expect(weeks[0]?.coach).toMatchObject({ kind: 'checked-in', changes: [] });
+
+    await put(replica, { programs: [program('2030-02-25', [benchDay])] });
+    await vi.waitFor(() => {
+      const coach = weeks.at(-1)?.coach;
+      expect(coach?.kind === 'checked-in' ? coach.changes.map((c) => c.target) : []).toEqual(['day:pull']);
+    });
+    stop();
+  });
+});
+
 describe('dayPreviewView', () => {
   const superset = liftsBlock('pair', [slot('a1', 'bench-press', 3, { target: target(3, 8, 12) }), slot('a2', 'cable-row', 3, { target: target(3, 8, 12, { perSide: 'left-first' }) })], { restSeconds: 75 });
   const version = program(MONDAY, [
@@ -136,18 +154,20 @@ describe('dayPreviewView', () => {
     expect(lasts?.get(slotId('e1'))).toBeNull();
   });
 
-  it('does not re-run when a set is logged today, while the week does', async () => {
+  it('does not re-run when a set is logged today, while the week does, and does when an earlier day changes', async () => {
     // A live query only runs where Dexie found a global indexedDB, which Node has none of.
     Object.assign(Dexie.dependencies, { indexedDB: new IDBFactory(), IDBKeyRange });
-    const replica = await replicaWith({ programs: [version], performances: [performance({ date: '2030-03-01', lift: 'bench-press', sets: [lb(100, 8)] })] });
+    const older = performance({ date: '2030-03-01', lift: 'bench-press', sets: [lb(100, 8)] });
+    const replica = await replicaWith({ programs: [version], performances: [older] });
     let previewRuns = 0;
+    const previews: (DayPreview | null)[] = [];
     const weeks: (WeekView | null)[] = [];
     const stopPreview = replica
       .live((r) => {
         previewRuns++;
         return dayPreviewView(r, PUSH, LATER);
       })
-      .subscribe(() => undefined);
+      .subscribe((preview) => previews.push(preview));
     const stopWeek = replica.live((r) => weekView(r, LATER)).subscribe((week) => weeks.push(week));
     await vi.waitFor(() => expect(weeks).toHaveLength(1));
     expect(weeks[0]?.done).toBe(0);
@@ -157,6 +177,10 @@ describe('dayPreviewView', () => {
     await vi.waitFor(() => expect(weeks.at(-1)?.done).toBe(1));
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(previewRuns).toBe(1);
+
+    await put(replica, { performances: [{ ...older, sets: [lb(105, 8)] }] });
+    await vi.waitFor(() => expect(previews.at(-1)?.lasts.get(slotId('a1'))?.line).toBe('105 lb × 8'));
+    expect(previewRuns).toBe(2);
     stopPreview();
     stopWeek();
   });

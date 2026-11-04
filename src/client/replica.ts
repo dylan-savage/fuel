@@ -242,7 +242,9 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
     },
     live: (query) => ({
       subscribe: (listener) => {
-        const subscription = liveQuery(() => query(read)).subscribe({
+        // Dexie carries a live query's tracking across native awaits only for an async function. A
+        // plain arrow loses it after a nested await, and whatever is read next could never re-run it.
+        const subscription = liveQuery(async () => await query(read)).subscribe({
           next: listener,
           error: (err: unknown) => console.error('live query failed', err),
         });
