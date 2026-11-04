@@ -166,7 +166,6 @@ export async function plannedDayView(r: ReplicaReader, key: DayKey, date: LocalD
 }
 
 export interface DayPreview {
-  readonly label: string;
   readonly notes: readonly ProgramNote[];
   readonly parts: readonly DayPart[];
   /** Slot ids are unique within a day. Null before the lift was done. */
@@ -181,7 +180,6 @@ export async function dayPreviewView(r: ReplicaReader, key: DayKey, today: Local
   const slots = plan.blocks.flatMap((block) => (block.kind === 'lifts' ? block.slots : []));
   const rows = await lastTimesView(r, [...new Set(slots.flatMap((slot) => book.members(slot.liftId)))], today);
   return {
-    label: plan.label,
     notes,
     parts: dayParts(plan),
     lasts: new Map(slots.map((slot) => [slot.id, lastLineOf({ lift: slot.liftId, rows, book, before: today })])),

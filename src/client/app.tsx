@@ -8,14 +8,16 @@ import { Add } from './screens/Add.js';
 import { Diary } from './screens/Diary.js';
 import type { OnLogged } from './screens/flow.js';
 import { GoalScreen } from './screens/Goal.js';
+import { Train } from './screens/Train.js';
 import { Icon, useToast } from './screens/ui.js';
 
-type Tab = 'diary' | 'add' | 'scan' | 'goal';
+type Tab = 'diary' | 'add' | 'scan' | 'train' | 'goal';
 
 const TABS: readonly { readonly tab: Tab; readonly label: string }[] = [
   { tab: 'diary', label: 'Diary' },
   { tab: 'add', label: 'Add' },
   { tab: 'scan', label: 'Scan' },
+  { tab: 'train', label: 'Train' },
   { tab: 'goal', label: 'Goal' },
 ];
 
@@ -102,6 +104,7 @@ export function App() {
         )}
         {tab === 'add' && <Add slot={slot} today={today} onMeal={setMeal} onLogged={onLogged} onScan={() => setTab('scan')} />}
         {tab === 'scan' && (scan === null ? <p class="empty">Loading the scanner…</p> : <scan.Scan slot={slot} onLogged={onLogged} />)}
+        {tab === 'train' && <Train today={today} />}
         {tab === 'goal' && <GoalScreen today={today} />}
       </main>
       <nav class="tab-bar" aria-label="Sections">

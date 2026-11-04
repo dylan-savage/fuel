@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { LocalDate, Millis, SessionId, type ProgramId } from '../src/domain/ids.js';
 import { LiftId, SlotId, performanceId, type Performance, type SetLog, type Target } from '../src/domain/lifts.js';
-import { BlockId, DayKey, programId, type Block, type ChecklistBlock, type LiftsBlock, type Program, type Slot } from '../src/domain/program.js';
+import { BlockId, DayKey, programId, type Block, type CardioBlock, type ChecklistBlock, type LiftsBlock, type Program, type Slot } from '../src/domain/program.js';
 import type { Session } from '../src/domain/session.js';
 import type { FoodSources } from '../src/server/foods.js';
 
@@ -47,6 +47,10 @@ export function liftsBlock(id: string, slots: readonly Slot[], extra: Partial<Li
 
 export function checklist(id: string, extra: Partial<ChecklistBlock> = {}): ChecklistBlock {
   return { kind: 'checklist', id: blockId(id), items: ['Arm circles', 'Hip openers'], ...extra };
+}
+
+export function cardio(id: string, extra: Partial<CardioBlock> = {}): CardioBlock {
+  return { kind: 'cardio', id: blockId(id), ...extra };
 }
 
 export function program(effectiveFrom: string, days: readonly { readonly key: string; readonly blocks: readonly Block[]; readonly label?: string; readonly weekday?: number; readonly minutes?: number }[], extra: Partial<Program> = {}): Program {

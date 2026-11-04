@@ -279,6 +279,7 @@ const ICONS = {
   diary: 'M5 4.5h14M5 9.5h14M5 14.5h9M5 19.5h6',
   add: 'M12 5v14M5 12h14',
   scan: 'M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3M8 8v8M11 8v8M14 8v8M17 8v8',
+  train: 'M3 10v4M6.5 7v10M17.5 7v10M21 10v4M6.5 12h11',
   goal: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM12 12h.01',
   chevronLeft: 'M15 5l-7 7 7 7',
   chevronRight: 'M9 5l7 7-7 7',

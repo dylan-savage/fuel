@@ -56,7 +56,27 @@ export async function openOffline(page: Page, context: BrowserContext) {
   await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
 }
 
-export function tab(page: Page, name: 'Diary' | 'Add' | 'Scan' | 'Goal') {
+/** Rows the phone holds in one of its IndexedDB tables. */
+export function countOnPhone(page: Page, table: string): Promise<number> {
+  return page.evaluate(
+    (name) =>
+      new Promise<number>((resolve, reject) => {
+        const opening = indexedDB.open('fuel');
+        opening.onerror = () => reject(new Error('could not open fuel'));
+        opening.onsuccess = () => {
+          const db = opening.result;
+          const count = db.transaction(name).objectStore(name).count();
+          count.onsuccess = () => {
+            db.close();
+            resolve(count.result);
+          };
+        };
+      }),
+    table,
+  );
+}
+
+export function tab(page: Page, name: 'Diary' | 'Add' | 'Scan' | 'Train' | 'Goal') {
   return page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name, exact: true });
 }
 

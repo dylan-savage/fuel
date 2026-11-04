@@ -3,7 +3,9 @@ import type { FoodSnapshot, Quantity, Serving } from '../../domain/food.js';
 import { KG_PER_LB } from '../../domain/goals.js';
 import { ML_PER_FL_OZ } from '../../domain/habits.js';
 import { addDays, type LocalDate } from '../../domain/ids.js';
+import type { Target } from '../../domain/lifts.js';
 import type { FoodUnit } from '../../domain/units.js';
+import { localDate } from '../clock.js';
 
 export const MEAL_LABEL: Readonly<Record<Meal, string>> = {
   breakfast: 'Breakfast',
@@ -143,4 +145,35 @@ const FULL_DATE = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numer
 export function shortDate(date: LocalDate, today: LocalDate): string {
   const at = new Date(`${date}T00:00:00Z`);
   return date.slice(0, 4) === today.slice(0, 4) ? SHORT_DATE.format(at) : FULL_DATE.format(at);
+}
+
+const SHORT_WEEKDAY = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' });
+
+/** "Mon". */
+export function weekdayName(date: LocalDate): string {
+  return SHORT_WEEKDAY.format(new Date(`${date}T00:00:00Z`));
+}
+
+const LONG_WEEKDAY = new Intl.DateTimeFormat('en-US', { weekday: 'long' });
+
+/** A past moment on the phone's clock: "Sunday 7:02 AM" within the last week, when a weekday is enough to place it, else "Mar 3, 7:02 AM". */
+export function pastMoment(at: number, today: LocalDate): string {
+  const date = localDate(new Date(at));
+  return date > addDays(today, -7) ? `${LONG_WEEKDAY.format(new Date(at))} ${timeOfDay(at)}` : `${shortDate(date, today)}, ${timeOfDay(at)}`;
+}
+
+const PER_SIDE: Readonly<Record<NonNullable<Target['perSide']>, string>> = { 'left-first': 'per side, left first', 'right-first': 'per side, right first', either: 'per side' };
+
+/** "3 × 8–12", "2 × 10, per side, left first", "3 × 15, band". */
+export function prescriptionText({ sets, reps, perSide, load }: Target): string {
+  const range = reps.min === reps.max ? `${reps.max}` : `${reps.min}–${reps.max}`;
+  return [`${sets} × ${range}`, ...(perSide === undefined ? [] : [PER_SIDE[perSide]]), ...(load === undefined || load === 'weight' ? [] : [load])].join(', ');
+}
+
+/** The start of a long text, cut at a word. Null when the whole text fits. */
+export function clipped(text: string, limit: number): string | null {
+  if (text.length <= limit) return null;
+  const start = text.slice(0, limit);
+  const word = start.search(/\s\S*$/);
+  return `${word > 0 ? start.slice(0, word) : start}…`;
 }
