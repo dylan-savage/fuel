@@ -7,6 +7,7 @@
 // so nothing touches the live server. The copy and the shots hold real data, so both stay under
 // .private/ui-review, which git ignores. Food screens use invented data in e2e/shots.spec.ts,
 // because the live diary is empty. --serve keeps the server up for a live look at port 8796.
+/* global window, document */
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -81,54 +82,77 @@ const close = async () => {
 };
 const button = (name) => page.getByRole('button', { name }).first();
 
+const train = page.locator('.train');
+
 await tab('Train');
-await page.getByRole('list', { name: 'Days' }).waitFor({ timeout: 20_000 });
+await page.getByTestId('week-count').waitFor({ timeout: 20_000 });
 
 await shot('train-week');
 await shot('train-week-bottom', () => page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)));
 await page.evaluate(() => window.scrollTo(0, 0));
 
-await shot('train-day', () => page.getByRole('list', { name: 'Days' }).getByRole('button').nth(2).click({ timeout: 4000 }));
-await shot('train-day-bottom', scrollSheet);
-await close();
-
-await shot('what-changed', () => button(/What changed/).click({ timeout: 2000 }));
+await shot('coach', () => train.getByRole('button', { name: /^Coach/ }).click({ timeout: 4000 }));
+await shot('coach-bottom', scrollSheet);
 await close();
 await shot('program', () => button(/^Program/).click({ timeout: 4000 }));
 await close();
-await shot('tell-coach', () => button('Tell the coach').click({ timeout: 4000 }));
+
+const nextDay = page.getByRole('region', { name: 'Next day' });
+await shot('train-day', () => nextDay.getByRole('button').first().click({ timeout: 4000 }));
+await shot('train-day-exercise', () => dialog().locator('details.expand').filter({ hasNotText: /moves|Optional/ }).nth(1).locator('summary').click({ timeout: 4000 }));
+await shot('train-day-bottom', async () => {
+  await dialog().getByRole('region', { name: 'Optional' }).locator('summary').first().click({ timeout: 2000 }).catch(() => {});
+  await scrollSheet();
+});
 await close();
 
 await shot('progress', () => button('Progress').click({ timeout: 4000 }));
 await shot('progress-bottom', scrollSheet);
 await dialog().locator('.sheet-body').evaluate((el) => el.scrollTo(0, 0));
-await shot('lift', () => dialog().getByRole('button', { name: /Lat pulldown|Machine chest press/ }).first().click({ timeout: 4000 }));
+await shot('lift', () => page.getByTestId('board').getByRole('button').filter({ hasText: /[+−]\d/ }).first().click({ timeout: 4000 }));
 await shot('lift-bottom', scrollSheet);
 await close();
 await page.waitForTimeout(150);
-await tab('Train');
 await shot('all-lifts', async () => {
   await button('Progress').click({ timeout: 4000 });
   await dialog().getByRole('button', { name: /All lifts/ }).click({ timeout: 4000 });
 });
 await close();
 
-// A day that opens on lifts, since a checklist block has no set card to photograph.
-await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /Pull|Push|Upper/ }).first().click({ timeout: 4000 });
-await shot('session-card', () => dialog().getByRole('button', { name: /^Start/ }).click({ timeout: 4000 }));
+// A real session, on the copy: the first lifts it reaches, a rest once a round ends, and each sheet over it.
+await nextDay.getByRole('button', { name: 'Start', exact: true }).click({ timeout: 4000 });
+await page.waitForTimeout(400);
+for (let i = 0; i < 6; i++) {
+  if (await page.getByRole('region', { name: 'Set', exact: true }).count()) break;
+  await page.getByRole('button', { name: 'Done', exact: true }).first().click({ timeout: 2000 }).catch(() => {});
+  await page.waitForTimeout(400);
+}
+await shot('session-card');
 await shot('session-logged', async () => {
-  await page.getByRole('status').first().waitFor({ state: 'hidden', timeout: 8000 }).catch(() => {});
   await button('Log set').click({ timeout: 4000 });
+  await page.waitForTimeout(450);
 });
+for (let i = 0; i < 6 && (await page.getByRole('timer').count()) === 0; i++) {
+  await button('Log set').click({ timeout: 2000 }).catch(() => {});
+  await page.waitForTimeout(450);
+}
+await shot('session-rest', () => page.getByRole('status').first().waitFor({ state: 'hidden', timeout: 8000 }).catch(() => {}));
+await shot('session-plan', () => button('Plan').click({ timeout: 4000 }));
+await shot('session-plan-bottom', scrollSheet);
+await close();
 await shot('session-swap', () => button('Swap').click({ timeout: 4000 }));
 await close();
 await shot('session-note', () => button('Note').click({ timeout: 4000 }));
 await close();
-await shot('session-cues', () => button('Cues').click({ timeout: 4000 }));
+await shot('session-cue', () => button('Cue').click({ timeout: 4000 }));
+await close();
+await shot('session-edit-set', () => page.getByRole('group', { name: "Today's sets" }).getByRole('button').first().click({ timeout: 2000 }));
 await close();
 
 await shot('diary', () => tab('Diary'));
 await shot('add', () => tab('Add'));
+await shot('scan', () => page.getByRole('button', { name: 'Scan', exact: true }).click({ timeout: 4000 }));
+await close();
 await shot('goal', () => tab('Goal'));
 
 await context.close();
@@ -151,9 +175,9 @@ for (let i = 0; i < files.length; i += 10) {
 }
 await browser.close();
 
-console.log(JSON.stringify({ out, shots: files.length, sheets: Math.ceil(files.length / 10), failures }));
+process.stdout.write(`${JSON.stringify({ out, shots: files.length, sheets: Math.ceil(files.length / 10), failures })}\n`);
 if (args.includes('--serve')) {
-  console.log(`serving the copy at ${base}, Ctrl-C to stop`);
+  process.stdout.write(`serving the copy at ${base}, Ctrl-C to stop\n`);
   await new Promise(() => {});
 }
 stopServer();
