@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { checklistLabel, clipped, editable, lbField, parseNumber, pastMoment, planSections, prescriptionText, supersetLabel, targetNotes, weekdayName } from '../src/client/screens/format.js';
+import { checklistLabel, clipped, editable, lbField, macrosLine, parseNumber, pastMoment, planSections, prescriptionText, servingLabel, supersetLabel, targetNotes, weekdayName } from '../src/client/screens/format.js';
 import { KG_PER_LB } from '../src/domain/goals.js';
 import { dayParts, type PlannedDay } from '../src/domain/program.js';
 import { checklist, day, dayKey, liftsBlock, slot, target } from './training.fixtures.js';
@@ -21,6 +21,20 @@ describe('form field prefills', () => {
   it('show a body weight in lb to a tenth with no grouping', () => {
     expect(lbField(182.2 * KG_PER_LB)).toBe('182.2');
     expect(lbField(1399.9 * KG_PER_LB)).toBe('1399.9');
+  });
+});
+
+describe('a food\'s wording', () => {
+  it('gives a serving its size once, even when the label is more exact than the rounded size', () => {
+    expect(servingLabel('g', { label: '1 slice', amount: 30 })).toBe('1 slice (30 g)');
+    expect(servingLabel('g', { label: '1 portion (28.3 g)', amount: 28.3 })).toBe('1 portion (28.3 g)');
+    expect(servingLabel('ml', { label: '330ml can', amount: 330 })).toBe('330ml can');
+    expect(servingLabel('portion', { label: '1 bar', amount: 1 })).toBe('1 bar');
+  });
+
+  it('leaves a dash for a macro the food does not say, and zero as zero', () => {
+    expect(macrosLine({ protein: 18.25, carbs: 0 })).toBe('Protein 18 · Carbs 0 · Fat –');
+    expect(macrosLine(null)).toBe('Protein – · Carbs – · Fat –');
   });
 });
 
