@@ -182,6 +182,14 @@ describe('restClock', () => {
   });
 });
 
+describe('prefillSet past last time', () => {
+  it('repeats the set before it today when last time had no set at this position', () => {
+    const last = performance({ lift: 'bench-press', date: '2030-02-01', sets: [lb(50, 12)] });
+    const today = performance({ lift: 'bench-press', sets: [lb(50, 11)] });
+    expect(prefillSet({ lift: lift('bench-press'), book: noCatalog, target: target(3, 8, 12), today: [today], last }).reps).toEqual({ kind: 'total', reps: 11 });
+  });
+});
+
 describe('prefillSet', () => {
   const benchPress = lift('bench-press');
   const threeByTen = target(3, 8, 10);
@@ -196,11 +204,15 @@ describe('prefillSet', () => {
     expect(fill([a1(lb(105, 8, 1))], lastTime)).toEqual({ load: lb(105, 8).load, reps: { kind: 'total', reps: 9 } });
   });
 
-  it('falls to last time\'s last load and the bottom of the range past its sets', () => {
+  it('falls to last time\'s last load, and past its sets to the set before it today', () => {
     const short = performance({ date: '2030-02-25', lift: 'bench-press', sets: [lb(100, 10)] });
     expect(prefillSet({ lift: benchPress, book: noCatalog, target: threeByTen, today: [], last: short }).load).toEqual(lb(100, 10).load);
     const pastEnd = fill([a1(lb(100, 10, 1), lb(100, 10, 2), lb(100, 10, 3), lb(100, 10, 4))], lastTime);
-    expect(pastEnd).toEqual({ load: lb(100, 10).load, reps: { kind: 'total', reps: 8 } });
+    expect(pastEnd).toEqual({ load: lb(100, 10).load, reps: { kind: 'total', reps: 10 } });
+  });
+
+  it('starts at the bottom of the range with nothing to repeat', () => {
+    expect(fill([], undefined)).toMatchObject({ reps: { kind: 'total', reps: 8 } });
   });
 
   it('never fills a working set from a warm-up, today or last time', () => {

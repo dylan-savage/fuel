@@ -275,7 +275,7 @@ function bottomOfRange(target: Target | undefined): SetDraft['reps'] {
 /**
  * The next working set, for the lift he is doing now. Load: the previous working set of this
  * lift today, else last time's at this position, else last time's last, else blank. Reps: last
- * time's at this position, else the bottom of the range. A lift logged in kg comes back in kg.
+ * time's at this position, else the set before it today, else the bottom of the range. A lift logged in kg comes back in kg.
  *
  * Everything is filtered to `lift`, so after a swap the old lift's weight cannot land here even
  * when the caller hands over the slot's whole session. Warm-ups neither fill nor count, though a
@@ -302,7 +302,7 @@ export function prefillSet(input: {
   const loadFrom = doneToday.at(-1) ?? atPosition ?? lastSets.at(-1);
   return {
     load: loadFrom?.load ?? blankLoad(input.target, newestLoad?.kind === 'weight' ? newestLoad.unit : 'lb'),
-    reps: atPosition?.reps ?? bottomOfRange(input.target),
+    reps: atPosition?.reps ?? doneToday.at(-1)?.reps ?? bottomOfRange(input.target),
   };
 }
 
