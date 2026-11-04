@@ -710,7 +710,7 @@ test('Tell the coach writes a loose note beside the chip that was there, with an
   await tab(page, 'Train').click();
   await expect(page.getByTestId('week-count')).toBeVisible({ timeout: 15_000 });
   const chips: Locator = page.locator('.train > .pills .pill');
-  await expect(chips).toHaveText(['Weigh in', 'Tell the coach']);
+  await expect(chips).toHaveText(['Progress', 'Weigh in', 'Tell the coach']);
 
   await page.getByRole('button', { name: 'Tell the coach' }).click();
   const sheet = page.getByRole('dialog', { name: 'Tell the coach' });

@@ -17,13 +17,13 @@ const H = 190;
 const PLOT = { left: 4, right: W - 40, top: 10, bottom: H - 24 } as const;
 /** Dense ranges get smaller dots so a year of daily weigh-ins stays legible. */
 const DOT_R: Readonly<Record<RangeDays, number>> = { 30: 4, 90: 3, 365: 2 };
-const STEPS_LB = [0.5, 1, 2, 5, 10, 20, 50] as const;
+const STEPS_LB = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500] as const;
 
-/** Round tick values in lb covering [lo, hi], at most five of them. */
-function ticksLb(lo: number, hi: number): number[] {
+/** Round tick values covering [lo, hi], at most five of them, no finer than `finest`. */
+export function ticksLb(lo: number, hi: number, finest = 0.5): number[] {
   const mid = (lo + hi) / 2;
   const [low, high] = hi - lo < 2 ? [mid - 1, mid + 1] : [lo, hi];
-  const step = STEPS_LB.find((s) => (high - low) / s <= 4) ?? 100;
+  const step = STEPS_LB.find((s) => s >= finest && (high - low) / s <= 4) ?? 1000;
   const first = Math.floor(low / step) * step;
   const count = Math.ceil(high / step) - Math.floor(low / step);
   return Array.from({ length: count + 1 }, (_, i) => first + i * step);

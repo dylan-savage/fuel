@@ -6,6 +6,7 @@ import type { WeekDay } from '../../domain/progress.js';
 import { TrainingNote, type SessionLogs } from '../../domain/session.js';
 import { dayPreviewView, useIntents, useLive, weekView, type DayPreview, type WeekView } from '../views.js';
 import { blockHeading, clipped, pastMoment, prescriptionText, shortDate, weekdayName } from './format.js';
+import { ProgressSheet } from './Progress.js';
 import { SessionScreen, useKeyboardAvoidance } from './Session.js';
 import { Icon, NoteField, Sheet, TitleBar, useToast } from './ui.js';
 import { WeighInSheet } from './Weight.js';
@@ -256,8 +257,13 @@ function Week({ week, today }: { readonly week: WeekView; readonly today: LocalD
   const [weighing, setWeighing] = useState(false);
   const [reading, setReading] = useState(false);
   const [telling, setTelling] = useState(false);
+  const [charting, setCharting] = useState(false);
   const planned = week.days.length;
-  const chips = [...(week.weighedInToday ? [] : [{ label: 'Weigh in', onClick: () => setWeighing(true) }]), { label: 'Tell the coach', onClick: () => setTelling(true) }];
+  const chips = [
+    { label: 'Progress', onClick: () => setCharting(true) },
+    ...(week.weighedInToday ? [] : [{ label: 'Weigh in', onClick: () => setWeighing(true) }]),
+    { label: 'Tell the coach', onClick: () => setTelling(true) },
+  ];
   const start = (key: DayKey, label: string) => {
     setOpen(null);
     void intents.startSession(key, today).then((undo) => {
@@ -315,6 +321,7 @@ function Week({ week, today }: { readonly week: WeekView; readonly today: LocalD
       {reading && <ProgramSheet standing={week.standing} onClose={() => setReading(false)} />}
       {weighing && <WeighInSheet date={today} today={today} onClose={() => setWeighing(false)} />}
       {telling && <TellCoachSheet today={today} onClose={() => setTelling(false)} />}
+      {charting && <ProgressSheet today={today} onClose={() => setCharting(false)} />}
     </>
   );
 }

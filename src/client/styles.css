@@ -1691,6 +1691,7 @@ main {
 .train > .card,
 .train > .list,
 .train > .pills {
+  flex-wrap: wrap;
   margin-top: 12px;
 }
 
@@ -2400,4 +2401,321 @@ body:has(.session) .toast {
 
 .keyboard-up .sheet-body .note-field textarea {
   height: 3.2em;
+}
+
+/* Progress */
+
+.sheet:has(.full-sheet) {
+  height: calc(100dvh - env(safe-area-inset-top) - 10px);
+}
+
+.full-sheet {
+  display: contents;
+}
+
+.group-title.question {
+  margin: 20px 4px 8px;
+  font-size: 15px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.full-sheet > .group-title.question:first-child {
+  margin-top: 0;
+}
+
+.progress-head {
+  font-size: 19px;
+  line-height: 1.25;
+}
+
+.progress-head strong {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.progress-sub {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+/* A chart card pads less so its plot runs wider, and its text insets back, as .chart-readout does. */
+.chart-card .progress-head,
+.chart-card .progress-sub {
+  margin-inline: 4px;
+}
+
+.show-up svg {
+  margin-top: 8px;
+}
+
+.show-up-block {
+  fill: var(--tint);
+}
+
+.show-up-block.open {
+  fill: none;
+  stroke: var(--tint);
+  stroke-width: 1.5;
+}
+
+.show-up-active {
+  fill: var(--fill);
+}
+
+.chart-minimum {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 4;
+}
+
+.board {
+  padding: 12px 16px 4px;
+}
+
+.board-rows {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.board-rows > li + li {
+  border-top: 0.5px solid var(--separator);
+}
+
+.board-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 72px;
+  align-items: center;
+  column-gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 8px 0;
+  text-align: left;
+}
+
+.board-name {
+  overflow-wrap: anywhere;
+}
+
+.board-name small,
+.board-value small {
+  display: block;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.board-spark {
+  display: block;
+  width: 72px;
+  height: 30px;
+}
+
+.board-spark path {
+  fill: none;
+  stroke: var(--tint);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.board-value {
+  grid-column: 3;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.board-value.none {
+  grid-column: 2 / 4;
+}
+
+.board-value strong {
+  font-weight: 600;
+}
+
+.all-lifts-row,
+.all-lifts {
+  margin-top: 12px;
+}
+
+.all-lifts .entry-kcal {
+  grid-row: auto;
+}
+
+
+.chart-swap {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+
+.chart-swap-label {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart-best circle {
+  fill: none;
+  stroke: var(--tint);
+  stroke-width: 2;
+}
+
+.chart-best text {
+  fill: var(--text);
+  stroke: var(--card);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  paint-order: stroke;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lift-readout {
+  min-height: 2.6em;
+}
+
+.to-go-ready {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.to-go-check {
+  width: 22px;
+  height: 22px;
+  color: var(--goal-line);
+  stroke-width: 3;
+}
+
+.to-go-sets {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.to-go-sets > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  font-size: 15px;
+}
+
+.to-go-name {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.to-go-track {
+  display: block;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--bar);
+}
+
+.to-go-fill {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+  background: var(--tint);
+}
+
+.to-go-count {
+  min-width: 60px;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.to-go-count strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.add-weight-rule {
+  margin: 14px 0;
+  border: 0;
+  border-top: 0.5px solid var(--separator);
+}
+
+.recent-title {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.recent-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recent-rows > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+  padding: 5px 0;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.recent-date {
+  min-width: 50px;
+  color: var(--muted);
+}
+
+.recent-load {
+  min-width: 52px;
+  font-weight: 500;
+}
+
+.recent-reps {
+  color: var(--muted);
+}
+
+.recent-added {
+  margin-left: auto;
+  color: var(--goal-line);
+  font-weight: 500;
+}
+
+/* The charts scale down with the card on a small iPhone, so their text starts larger to land at a readable size. */
+@media (max-width: 360px) {
+  .board-row {
+    grid-template-columns: minmax(0, 1fr) 52px 70px;
+    column-gap: 8px;
+  }
+
+  .board-spark {
+    width: 52px;
+  }
+
+  .show-up .chart-axis text,
+  .lift-card .chart-axis text,
+  .lift-card .chart-grid text,
+  .chart-swap-label {
+    font-size: 13px;
+  }
+
+  .chart-best text {
+    font-size: 14px;
+  }
+
+  .recent-rows > li {
+    column-gap: 8px;
+  }
+
+  .recent-date,
+  .recent-load {
+    min-width: 44px;
+  }
 }

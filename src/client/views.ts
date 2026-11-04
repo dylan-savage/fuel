@@ -24,11 +24,35 @@ import {
   type Streak,
   type Water,
 } from '../domain/habits.js';
-import { addDays, mondayOf, type LocalDate, type Millis } from '../domain/ids.js';
+import { LocalDate, addDays, mondayOf, type Millis } from '../domain/ids.js';
 import { liftBook, type Lift, type LiftBook, type LiftId, type Performance, type SlotId } from '../domain/lifts.js';
 import { RECENT_DAYS, recents, type Library, type RecentFood } from '../domain/library.js';
 import { dayNotesFor, dayParts, notesFor, plannedDay, type DayKey, type DayPart, type PlannedDay, type Program, type ProgramNote, type StandingText } from '../domain/program.js';
-import { lastLineOf, weekProgress, type LastLine, type WeekProgress } from '../domain/progress.js';
+import {
+  BOARD_WEEKS,
+  SHOW_UP_WEEKS,
+  boardRow,
+  lastLineOf,
+  latestOf,
+  latestRepsToGo,
+  liftSeriesByRange,
+  loggedLifts,
+  recentSessions,
+  showUp,
+  weekProgress,
+  weekUnfinished,
+  type BoardRow,
+  type ChartMode,
+  type LastLine,
+  type LiftPoint,
+  type LiftRange,
+  type LiftSeries,
+  type LoggedLift,
+  type RecentSession,
+  type RepsToGo,
+  type ShowUp,
+  type WeekProgress,
+} from '../domain/progress.js';
 import { refreshFor, type EditedRef, type Recipe, type Refresh, type SavedMeal } from '../domain/reuse.js';
 import { cardioDoneOn, isUnfinished, sessionPhase, type Session, type SessionLogs } from '../domain/session.js';
 import { localDate } from './clock.js';
@@ -237,6 +261,77 @@ export async function sessionPlanView(r: ReplicaReader, session: Session): Promi
 export function sessionLiftIds({ plan, book }: SessionPlan, performances: readonly Performance[], swaps: readonly { readonly liftId: LiftId }[]): readonly LiftId[] {
   const slots = plan.blocks.flatMap((block) => (block.kind === 'lifts' ? block.slots : []));
   return [...new Set([...slots, ...performances, ...swaps].flatMap(({ liftId }) => book.members(liftId)))].toSorted();
+}
+
+export interface ShowUpView extends ShowUp {
+  /** Sessions done this week. */
+  readonly done: number;
+  /** Days the version in effect holds this week. */
+  readonly planned: number;
+  readonly unfinished: boolean;
+}
+
+/** Twelve weeks of sessions against the minimum. The reads are bounded by those weeks, whatever the history holds. */
+export async function showUpView(r: ReplicaReader, today: LocalDate): Promise<ShowUpView> {
+  const monday = mondayOf(today);
+  const from = addDays(monday, -7 * (SHOW_UP_WEEKS - 1));
+  const to = addDays(monday, 6);
+  const [program, sessions, performances] = await Promise.all([r.programOn(today), r.between('session', from, to), r.between('performance', from, to)]);
+  const shown = showUp({ sessions, performances, minimum: program?.weeklyMinimum ?? null, today });
+  const planned = program === undefined ? 0 : weekProgress({ program, sessions: [], performances: [], today }).days.length;
+  const done = shown.weeks.at(-1)?.done ?? 0;
+  return { ...shown, done, planned, unfinished: weekUnfinished(done, shown.minimum, planned) };
+}
+
+/** The key lifts in catalog order. Two seeks per id, so the rest of the history is never read. */
+export async function boardView(r: ReplicaReader, today: LocalDate): Promise<readonly BoardRow[]> {
+  const program = await r.programOn(today);
+  if (program === undefined) return [];
+  const book = liftBook(program.lifts);
+  const keys = program.lifts.filter((lift) => lift.key === true);
+  const rows = await r.performancesFrom(
+    keys.flatMap((lift) => book.members(lift.id)),
+    addDays(today, -7 * BOARD_WEEKS),
+  );
+  return keys.map((lift) => boardRow({ lift: lift.id, rows, book, today }));
+}
+
+/** Every lift ever logged, most recent first, including names the catalog has not placed yet. */
+export async function loggedLiftsView(r: ReplicaReader, today: LocalDate): Promise<readonly LoggedLift[]> {
+  const [program, newest] = await Promise.all([r.programOn(today), r.newestOfEachLift()]);
+  return loggedLifts(newest, liftBook(program?.lifts ?? []));
+}
+
+export interface LiftChartView {
+  /** Whichever range is shown, so the headline does not change under him. */
+  readonly latest: LiftPoint | null;
+  readonly latestMode: ChartMode;
+  readonly ranges: Readonly<Record<LiftRange, LiftSeries>>;
+  readonly toGo: RepsToGo | null;
+  /** Every session, newest first. */
+  readonly recent: readonly RecentSession[];
+}
+
+/** Earlier than any training log, so a read from here is a lift's whole history. */
+const BEFORE_ANY_LOG = LocalDate.parse('2000-01-01');
+
+/**
+ * One lift's whole history, read once and cut by range in memory: the rows under the bars need
+ * the sessions before any range, and two seeks per id stay small however much else is stored.
+ */
+export async function liftChartView(r: ReplicaReader, lift: LiftId, today: LocalDate): Promise<LiftChartView> {
+  const program = await r.programOn(today);
+  const book = liftBook(program?.lifts ?? []);
+  const rows = (await r.performancesFrom(book.members(lift), BEFORE_ANY_LOG)).filter((row) => row.date <= today);
+  const read = { lift, rows, book };
+  const ranges = liftSeriesByRange({ ...read, today });
+  return {
+    latest: latestOf(ranges.all),
+    latestMode: ranges.all.mode,
+    ranges,
+    toGo: latestRepsToGo({ ...read, before: addDays(today, 1) }),
+    recent: recentSessions(read, Number.POSITIVE_INFINITY),
+  };
 }
 
 export interface GoalView {

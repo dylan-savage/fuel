@@ -1,6 +1,6 @@
 import { KG_PER_LB } from './goals.js';
 import { addDays, mondayOf, weekdayOf, type LocalDate, type SessionId } from './ids.js';
-import type { LiftBook, LiftId, Load, Performance, SetLog, SetReps, SlotId } from './lifts.js';
+import type { LiftBook, LiftId, Load, Performance, SetLog, SetReps, SlotId, Unit } from './lifts.js';
 import { plannedDay, type DayKey, type PlannedDay, type Program } from './program.js';
 import type { Session, SessionPhase } from './session.js';
 
@@ -65,7 +65,8 @@ export function totalsOf(sets: readonly SetLog[]): ExerciseTotals {
   return { topLb, volumeLb, e1rmLb };
 }
 
-function loadText(load: Load): string {
+/** "55 lb", "25 kg", "BW", "green". */
+export function loadText(load: Load): string {
   switch (load.kind) {
     case 'weight':
       return `${load.amount} ${load.unit}`;
@@ -94,12 +95,19 @@ export function typedLine(sets: readonly SetLog[], times = 'x'): string {
   return `${loads.join('/')} ${times} ${reps}`;
 }
 
+/** "50 × 12, 50 × 12, 20 kg × 8, BW × 11": set by set as typed. Pounds are the app's unit, so they go unwritten. */
+export function setsLine(sets: readonly SetLog[]): string {
+  return sets.map(({ load, reps }) => `${load.kind === 'weight' && load.unit === 'lb' ? load.amount : loadText(load)} × ${repsText(reps)}`).join(', ');
+}
+
 export interface RepsToGo {
   readonly topLb: number;
   /** The heaviest load as he typed it. */
   readonly load: Load;
   /** The top of the range. */
   readonly top: number;
+  /** The sets the range asks for. */
+  readonly prescribed: number;
   /** One row per set at the top load in the order done, then one per prescribed set not done, whose `reps` is null. */
   readonly sets: readonly { readonly reps: number | null; readonly missing: number }[];
   /** Reps from adding weight, counted over the prescribed number of sets, the best ones when there are extras. */
@@ -132,7 +140,7 @@ export function repsToGo(performance: Performance): RepsToGo | null {
     .toSorted((a, b) => a - b)
     .slice(0, target.sets)
     .reduce((sum, n) => sum + n, 0);
-  return { topLb, load: first.load, top, sets, missing, ready: missing === 0 };
+  return { topLb, load: first.load, top, prescribed: target.sets, sets, missing, ready: missing === 0 };
 }
 
 /** The add-weight hint: the full prescribed set count at the top of the range. */
@@ -231,6 +239,12 @@ export interface RecentSession {
   readonly topLb: number | null;
   /** The top load went up against the session before that had one. */
   readonly rose: boolean;
+  /** The top load as typed. With no weight on the bar, whatever it was loaded with. */
+  readonly load: string;
+  /** Reps at that load in the order done, such as "12, 12, 10" or "10+9, 9+9". */
+  readonly reps: string;
+  /** How far the top load rose, in the unit it was typed in, to a tenth. Null when it did not rise. */
+  readonly added: { readonly amount: number; readonly unit: Unit } | null;
 }
 
 /** Newest first. */
@@ -238,11 +252,28 @@ export function recentSessions(read: LiftRead, limit: number): readonly RecentSe
   let previousTop: number | null = null;
   const rows = pointsOf(read).map((point) => {
     const { topLb } = point.totals;
-    const rose = topLb !== null && previousTop !== null && topLb > previousTop;
+    const atTop = topLb === null ? point.sets : point.sets.filter((set) => lbOf(set.load) === topLb);
+    const unit = atTop.flatMap((set) => (set.load.kind === 'weight' ? [set.load.unit] : []))[0] ?? 'lb';
+    const gainLb = topLb !== null && previousTop !== null && topLb > previousTop ? topLb - previousTop : null;
     if (topLb !== null) previousTop = topLb;
-    return { date: point.date, label: point.label, line: typedLine(point.sets), topLb, rose };
+    return {
+      date: point.date,
+      label: point.label,
+      line: typedLine(point.sets),
+      topLb,
+      rose: gainLb !== null,
+      load: [...new Set(atTop.map((set) => loadText(set.load)))].join('/'),
+      reps: atTop.map((set) => repsText(set.reps)).join(', '),
+      added: gainLb === null ? null : { amount: Math.round((unit === 'lb' ? gainLb : gainLb * KG_PER_LB) * 10) / 10, unit },
+    };
   });
   return rows.toReversed().slice(0, limit);
+}
+
+/** How close the lift's newest session with a working set is to adding weight. A day of only warm-ups says nothing about it. */
+export function latestRepsToGo(read: LiftRead & { readonly before: LocalDate }): RepsToGo | null {
+  const last = lastTimeOf({ ...read, rows: read.rows.filter((row) => workingSets(row.sets).length > 0) });
+  return last === undefined ? null : repsToGo(last);
 }
 
 /** 'reps' when no point has a weighted set, so a lift never loaded plots reps instead of an empty pound axis. */
@@ -252,7 +283,8 @@ function modeOf(points: readonly LiftPoint[]): ChartMode {
   return points.some((point) => point.totals.e1rmLb !== null) ? 'load' : 'reps';
 }
 
-function valueOf(point: LiftPoint, mode: ChartMode): number | null {
+/** What a chart plots for this date. Null on a bodyweight or band day of a loaded lift, never 0. */
+export function valueOf(point: LiftPoint, mode: ChartMode): number | null {
   return mode === 'load' ? point.totals.e1rmLb : point.bestReps;
 }
 
@@ -290,6 +322,51 @@ export function liftSeries(read: LiftRead): LiftSeries {
   return { mode, points, best: bestOf(points, mode), swaps };
 }
 
+/** What the line connects. A date with no value is left out, so the line bridges it rather than dipping to 0. */
+export function lineOf({ mode, points }: LiftSeries): readonly { readonly date: LocalDate; readonly value: number }[] {
+  return points.flatMap((point) => {
+    const value = valueOf(point, mode);
+    return value === null ? [] : [{ date: point.date, value }];
+  });
+}
+
+/** The newest point with something to plot, so a headline's number and its date come from one session. */
+export function latestOf({ mode, points }: LiftSeries): LiftPoint | null {
+  return points.findLast((point) => valueOf(point, mode) !== null) ?? null;
+}
+
+/** How far back a lift chart looks, in days, with `all` having no limit. */
+export const LIFT_RANGE_DAYS = { '3m': 91, '1y': 365, all: null } as const;
+export type LiftRange = keyof typeof LIFT_RANGE_DAYS;
+
+/** The series as each range sees it, so a best is the best of what is on screen and a range change reads nothing. */
+export function liftSeriesByRange(read: LiftRead & { readonly today: LocalDate }): Readonly<Record<LiftRange, LiftSeries>> {
+  const within = (days: number | null) => {
+    if (days === null) return liftSeries(read);
+    const from = addDays(read.today, -days);
+    return liftSeries({ ...read, rows: read.rows.filter((row) => row.date > from) });
+  };
+  return { '3m': within(LIFT_RANGE_DAYS['3m']), '1y': within(LIFT_RANGE_DAYS['1y']), all: within(LIFT_RANGE_DAYS.all) };
+}
+
+/** A row of the list of every lift ever logged. */
+export interface LoggedLift {
+  readonly liftId: LiftId;
+  readonly name: string;
+  readonly lastDate: LocalDate;
+}
+
+/** `newest` holds each lift's newest row, as the index gives them. Aliases fold into their lift. Most recent first. */
+export function loggedLifts(newest: readonly Performance[], book: LiftBook): readonly LoggedLift[] {
+  const lifts = new Map<LiftId, LoggedLift>();
+  for (const row of newest) {
+    const liftId = book.canonical(row.liftId);
+    const known = lifts.get(liftId);
+    if (known === undefined || row.date > known.lastDate) lifts.set(liftId, { liftId, name: book.nameOf(liftId) ?? row.label, lastDate: row.date });
+  }
+  return [...lifts.values()].toSorted((a, b) => b.lastDate.localeCompare(a.lastDate) || a.name.localeCompare(b.name));
+}
+
 export const BOARD_WEEKS = 12;
 
 export interface BoardRow {
@@ -323,6 +400,13 @@ export function boardRow(read: LiftRead & { readonly today: LocalDate }): BoardR
     change: latest === null || first === undefined || spark.length < 2 ? null : latest - first,
     sessionsSinceBest: best === null ? null : spark.length - 1 - best,
   };
+}
+
+const STALE_BEST_SESSIONS = 3;
+
+/** Sessions since the best when that is worth saying. A session or two past a best is ordinary, and says nothing about being stuck. */
+export function staleBest({ sessionsSinceBest }: BoardRow): number | null {
+  return sessionsSinceBest !== null && sessionsSinceBest >= STALE_BEST_SESSIONS ? sessionsSinceBest : null;
 }
 
 /** A session counts when it has a working set, a finish, or came from the import. A session opened and left empty does not. */
@@ -440,4 +524,9 @@ export function showUp(input: { readonly sessions: readonly Session[]; readonly 
     return { monday, done, met: minimum !== null && done >= minimum };
   });
   return { minimum, weeks };
+}
+
+/** A week still short of its minimum, or of its plan when there is no minimum. */
+export function weekUnfinished(done: number, minimum: number | null, planned: number): boolean {
+  return done < (minimum ?? planned);
 }

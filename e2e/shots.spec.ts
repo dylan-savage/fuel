@@ -4,7 +4,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { localDate } from '../src/client/clock.js';
 import { weighInId } from '../src/domain/body.js';
 import { makeWorkout, metDraft } from '../src/domain/burn.js';
@@ -14,7 +14,7 @@ import { KG_PER_LB } from '../src/domain/goals.js';
 import { FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, WorkoutId, addDays } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import type { Recipe, SavedMeal } from '../src/domain/reuse.js';
-import { band, bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, target } from '../test/training.fixtures.js';
+import { band, bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, target, warm } from '../test/training.fixtures.js';
 import { seed, setGoal, stored, tab, typeBarcode } from './app.js';
 
 const dir = process.env.FUEL_SHOTS_DIR ?? join('test-results', 'shots');
@@ -189,6 +189,67 @@ function trainDocs(): Mutation[] {
   ];
 }
 
+/** A Wednesday after every other spec's dates, with a version of its own in effect. */
+const PROGRESS_NOON = new Date('2033-03-02T12:00:00');
+const PROGRESS_MONDAY = '2033-02-28';
+const LONG_LIFT = 'Single-arm cable press with a pause and a slow three-second lowering phase';
+
+/**
+ * Invented training photographed at its awkward cases: a swap, a best long ago, kg beside lb, a
+ * very long name, a value past a thousand, a lift with no weight, and lifts done once or never.
+ */
+function progressDocs(): Mutation[] {
+  const monday = day(PROGRESS_MONDAY);
+  const weeksBack = (weeks: number, weekday = 0) => addDays(monday, weekday - 7 * weeks);
+  const days = ['press', 'row', 'squat', 'full'].map((key, i) => ({ key, label: `Day ${key}`, weekday: i + 1, blocks: [liftsBlock('main', [slot(`${key}1`, 'floor-press', 3)])] }));
+  const names = [
+    ['floor-press', 'Floor press', true],
+    ['meadows-row', 'Meadows row', true],
+    ['long-press', LONG_LIFT, true],
+    ['sled-leg-press', 'Sled leg press', true],
+    ['dragon-flag', 'Dragon flag', true],
+    ['yates-row', 'Yates row', true],
+    ['nordic-curl', 'Nordic curl', true],
+    ['landmine-press', 'Landmine press', false],
+    ['band-pull-apart', 'Band pull-apart', false],
+  ] as const;
+  const version = program('2033-01-03', days, { weeklyMinimum: 3, lifts: names.map(([id, name, key]) => ({ id: lift(id), name, aliases: [], key })) });
+
+  const counts = [3, 4, 2, 3, 4, 3, 1, 3, 2, 4, 3];
+  const sessions = counts.flatMap((n, i) => Array.from({ length: n }, (_, s) => session({ date: weeksBack(counts.length - i, s), finishedAt: minutes(60) })));
+  const thisWeek = session({ date: monday, finishedAt: minutes(60) });
+
+  const pressRange = target(3, 8, 12);
+  const press = Array.from({ length: 60 }, (_, w) => w).flatMap((w) => {
+    const date = String(weeksBack(w, 0));
+    if (w === 5) return [performance({ lift: 'landmine-press', planned: 'floor-press', label: 'Landmine press', date, sets: [lb(35, 12), lb(35, 12), lb(35, 10)] })];
+    if (w === 22) return [performance({ lift: 'landmine-press', planned: 'floor-press', label: 'Landmine press', date, sets: [lb(30, 12)] })];
+    if (w === 23) return [performance({ lift: 'landmine-press', planned: 'floor-press', label: 'Landmine press', date, sets: [lb(30, 12)] })];
+    if (w === 0) return [performance({ session: thisWeek.id, lift: 'floor-press', date, target: pressRange, sets: [warm(lb(30, 10)), lb(55, 10), lb(55, 9), lb(55, 9)] })];
+    const load = 55 - Math.floor(w / 4) * 2.5;
+    const reps = 12 - (w % 4);
+    return [performance({ lift: 'floor-press', date, target: pressRange, sets: [lb(load, reps), lb(load, reps), lb(load, Math.max(6, reps - 1))] })];
+  });
+  const row = [0, 1, 2, 3, 4, 5, 6, 7].map((w) => performance({ lift: 'meadows-row', date: String(weeksBack(w, 1)), target: target(3, 8, 12), sets: w === 5 ? [lb(135, 12), lb(135, 12), lb(135, 12)] : [lb(130, 12), lb(130, 12), lb(130, 12)] }));
+  const longPress = [
+    performance({ lift: 'long-press', label: LONG_LIFT, date: String(weeksBack(6, 2)), target: target(3, 8, 12, { perSide: 'left-first' }), sets: [sides(30, 10, 9), sides(30, 9, 9), sides(30, 9, 8)] }),
+    performance({ lift: 'long-press', label: LONG_LIFT, date: String(weeksBack(4, 2)), target: target(3, 8, 12, { perSide: 'left-first' }), sets: [kg(15, 11), kg(15, 10), kg(15, 10)] }),
+    performance({ lift: 'long-press', label: LONG_LIFT, date: String(weeksBack(2, 2)), target: target(3, 8, 12, { perSide: 'left-first' }), sets: [sides(35, 10, 10), sides(35, 10, 9), sides(35, 9, 9)] }),
+    performance({ lift: 'long-press', label: LONG_LIFT, date: String(weeksBack(1, 2)), target: target(3, 8, 12, { perSide: 'left-first' }), sets: [kg(17.5, 11), kg(17.5, 10), kg(17.5, 9)] }),
+  ];
+  const sled = [8, 6, 4, 2, 1].map((w, i) => performance({ lift: 'sled-leg-press', date: String(weeksBack(w, 3)), target: target(3, 8, 10), sets: [lb(850 + i * 20, 10), lb(850 + i * 20, 10), lb(850 + i * 20, 9)] }));
+  const flag = [10, 8, 6, 4, 2, 1].map((w, i) => performance({ lift: 'dragon-flag', date: String(weeksBack(w, 4)), target: target(2, 12, 15, { load: 'bodyweight' }), sets: [bw(8 + i), bw(7 + i)] }));
+  const once = [performance({ lift: 'yates-row', date: String(weeksBack(3, 2)), target: target(3, 8, 12), sets: [lb(95, 10), lb(95, 9), lb(95, 8)] })];
+  const banded = [3, 1].map((w, i) => performance({ lift: 'band-pull-apart', date: String(weeksBack(w, 0)), sets: [band('green', 15 + i), band('green', 14 + i)] }));
+  const unplaced = [performance({ lift: 'sled-push', label: 'Sled push', date: String(weeksBack(9, 1)), sets: [lb(180, 20)] })];
+
+  return [
+    { op: 'put', kind: 'program', doc: version },
+    ...[...sessions, thisWeek].map((doc): Mutation => ({ op: 'put', kind: 'session', doc })),
+    ...[...press, ...row, ...longPress, ...sled, ...flag, ...once, ...banded, ...unplaced].map((doc): Mutation => ({ op: 'put', kind: 'performance', doc })),
+  ];
+}
+
 /** A session left open at its second round, on a day holding every kind of card. */
 function sessionDocs(): Mutation[] {
   const press = slot('s1', 'single-arm-cable-press', 3, {
@@ -231,7 +292,7 @@ function sessionDocs(): Mutation[] {
 }
 
 test('seeds a day worth photographing', async ({ page, request }) => {
-  await seed(request, [...reuseDocs(), ...habitDocs(), ...bodyDocs(), ...trainDocs(), ...sessionDocs()]);
+  await seed(request, [...reuseDocs(), ...habitDocs(), ...bodyDocs(), ...trainDocs(), ...progressDocs(), ...sessionDocs()]);
   await page.goto('/');
   await setGoal(page);
   await page.getByLabel('Goal weight').fill('170');
@@ -397,9 +458,83 @@ async function photographSession(page: Page, name: (shot: string) => string) {
   await shoot('cardio');
 }
 
+/** The Progress sheet and every lift sheet worth a look, at the suffix's width and scheme. */
+async function photographProgress(page: Page, suffix: string) {
+  const shot = (name: string) => page.screenshot({ path: join(dir, `${name}-${suffix}.png`), animations: 'disabled' });
+  const fits = async (sheet: Locator, what: string) => {
+    const body = sheet.locator('.sheet-body');
+    expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth), `${what} does not scroll sideways`).toBe(true);
+    await shot(what);
+    await body.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await shot(`${what}-bottom`);
+    await body.evaluate((el) => el.scrollTo(0, 0));
+  };
+
+  await page.clock.setFixedTime(PROGRESS_NOON);
+  await page.goto('/');
+  await tab(page, 'Train').click();
+  await page.getByRole('button', { name: 'Progress', exact: true }).click();
+  const progress = page.getByRole('dialog', { name: 'Progress' });
+  await expect(progress.getByTestId('show-up-count')).toHaveText('1 of 4 this week', { timeout: 15_000 });
+  await fits(progress, 'progress');
+  const blocks = await progress.locator('.show-up svg').boundingBox();
+  await page.mouse.move((blocks?.x ?? 0) + (blocks?.width ?? 0) * 0.45, (blocks?.y ?? 0) + 20);
+  await expect(progress.getByTestId('show-up-readout')).toHaveText(/^Week of .*: \d sessions?$/);
+  await shot('progress-scrub');
+  await page.mouse.move(0, 0);
+
+  const openLift = async (name: string | RegExp, label: string, what: string) => {
+    await progress.getByTestId('board').getByRole('button', { name }).click();
+    const sheet = page.getByRole('dialog', { name: label });
+    await expect(sheet.getByTestId('lift-head')).toBeVisible();
+    await fits(sheet, what);
+    return sheet;
+  };
+  const closeLift = (sheet: Locator) => sheet.getByRole('button', { name: 'Done' }).click();
+
+  const lifted = await openLift(/^Floor press/, 'Floor press', 'lift');
+  const chart = lifted.getByTestId('lift-chart');
+  const box = await chart.boundingBox();
+  await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) * 0.4, (box?.y ?? 0) + (box?.height ?? 0) / 2);
+  await expect(lifted.getByTestId('chart-readout')).toContainText('lb volume');
+  await shot('lift-scrub');
+  await page.mouse.move(0, 0);
+  await lifted.getByRole('radio', { name: '1 year' }).click();
+  await shot('lift-1y');
+  await lifted.getByRole('radio', { name: 'All' }).click();
+  await shot('lift-all');
+  await closeLift(lifted);
+
+  await closeLift(await openLift(/^Meadows row/, 'Meadows row', 'lift-ready'));
+  await closeLift(await openLift(/^Single-arm cable press/, LONG_LIFT, 'lift-long-name'));
+  await closeLift(await openLift(/^Sled leg press/, 'Sled leg press', 'lift-heavy'));
+  await closeLift(await openLift(/^Dragon flag/, 'Dragon flag', 'lift-reps'));
+  await closeLift(await openLift(/^Yates row/, 'Yates row', 'lift-one'));
+  await closeLift(await openLift(/^Nordic curl/, 'Nordic curl', 'lift-none'));
+
+  await progress.getByRole('button', { name: 'All lifts' }).click();
+  const all = page.getByRole('dialog', { name: 'All lifts' });
+  await expect(all.getByRole('list', { name: 'Every lift' })).toBeVisible();
+  await fits(all, 'all-lifts');
+  await all.getByLabel('Search lifts').fill('press');
+  await shot('all-lifts-search');
+}
+
 for (const colorScheme of ['light', 'dark'] as const) {
   test.describe(colorScheme, () => {
     test.use({ colorScheme });
+
+    test(`photographs Progress and its lift sheets in ${colorScheme}`, async ({ page }) => {
+      await photographProgress(page, colorScheme);
+    });
+
+    test.describe('on a small iPhone', () => {
+      test.use({ viewport: { width: 320, height: 568 } });
+
+      test(`photographs Progress and its lift sheets in ${colorScheme}`, async ({ page }) => {
+        await photographProgress(page, `small-${colorScheme}`);
+      });
+    });
 
     test(`photographs Today, habits, the food and reuse sheets and the goal screen in ${colorScheme}`, async ({ page }) => {
       await page.goto('/');
