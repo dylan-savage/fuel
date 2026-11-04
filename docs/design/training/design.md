@@ -1,6 +1,6 @@
 # Training in fuel
 
-Status: approved by Dylan, 2026-11-03. Replaces a program kept in Notion. This repo is public, so examples here are invented and real data stays in `.private/`.
+Status: approved by Dylan, 2026-11-03. Replaces a program kept in Notion. On 2026-11-04 he dropped the guided live workout for a plain log, and the Session and Screens sections below describe that. This repo is public, so examples here are invented and real data stays in `.private/`.
 
 ## Problem
 
@@ -11,13 +11,12 @@ Dylan logs lifting between sets on an iPhone with poor signal, and a weekly Clau
 ```tsx
 // The Train screen. A week exists because the calendar says so.
 const week = useLive((r) => weekView(r, today), [today]);
-await intents.startSession(week.suggested);                         // pins today's program version
 
-// The set card. Position and rest come from stored sets, so a reload loses nothing.
-const card = cardFor(plan, logs, draft.focus);                      // a tap on the plan, else nextUp
-const rest = restClock(plan, logs);
-const rows = useLive((r) => lastTimesView(r, liftIds, session.date), [liftIds.join(), session.date]);
-const undo = await intents.logSet({ session, slot, lift }, entry);  // one tap, one commit, one undo
+// A day and its exercises. What they show comes from stored sets, so a reload loses nothing.
+const view = useLive((r) => dayScreenView(r, day), [day.key, day.date]);
+const log = slotLog(slot, view);                                    // "Set 2 of 3" is log.done + 1, for this exercise alone
+const rows = useLive((r) => lastTimesView(r, liftIds, day.date), [liftIds.join(), day.date]);
+const undo = await intents.logSet({ day, slot, lift }, entry);      // one tap, one commit, one undo, and the day's session if this is its first write
 ```
 
 ```
@@ -48,12 +47,12 @@ Block     = lifts { slots; restSeconds? } | checklist { items } | cardio    // p
 Day       = { key; label; weekday?; minutes?; blocks }
 Lift      = { id: slug; name; aliases; key? }
 Program   = { id; effectiveFrom; days; lifts; weeklyMinimum?; notes; standing; report?; changes; publishedAt }
-Note      = { title?; text; onlyWeek?; day? }                       // with day, on that day's preview and not the week's
+Note      = { title?; text; onlyWeek?; day? }                       // with day, on that day's screen and not the week's
 ```
 
 **No week document and no rollover.** A week is `mondayOf(date)`. Its plan is `plannedDay(program, day, date)`, a pure function over the version in effect. If the coach never runs again, next week still renders with correct last-time lines and hints, one-week items gone, and "No coach check-in this week" derived from the missing version. One-week blocks and notes share one mechanism, `onlyWeek`.
 
-**Versions freeze when their date arrives.** A session pins a version, and the publish route refuses to replace a version already in effect. This calendar rule also protects a session started offline that the mini has not heard of. A mid-week change is a new version from today or tomorrow.
+**Versions freeze when their date arrives.** A session pins a version, and the publish route refuses to replace a version already in effect. This calendar rule also protects a session made offline that the mini has not heard of. A mid-week change is a new version from today or tomorrow.
 
 **Sets live on performances, indexed by lift and date.** Each set writes a small document, so the outbox and sync stay unchanged. The last-time read is two seeks per slot on `[doc.liftId+doc.date]` and `[doc.plannedLiftId+doc.date]`. On Dylan's iPhone with 10,000 invented performances, on 2026-11-03: opening a day took 5 ms (range 4 to 8), storing a set 2 ms (range 1 to 3), twelve last-time reads 3 ms against 43 ms for a scan, and a five-year lift chart 4 ms. Medians of 25 runs, in Firefox for iOS, which uses the same WebKit engine as the Home Screen app. They time storage, not drawing the screen. The upper bound is the closed day before, because an open bound re-ran `liveQuery` on every set.
 
@@ -63,39 +62,53 @@ Note      = { title?; text; onlyWeek?; day? }                       // with day,
 
 **Weights stay as typed.** This departs from fuel's stored-in-kg rule for body weight, because the number on the stack is the fact and converting it lost data in Notion. `lbOf` is the only conversion and it runs on read. A bodyweight or band load returns null, never 0.
 
-**Swaps stay light.** A swap lasts for that session. Next time, the card offers "last time here you did X". The coach reads swaps on Sunday and makes the keepers permanent. Dylan can also ask Claude any time. So the app has no plan editor and no second writer of the plan.
+**Swaps stay light.** A swap lasts for that day. Next time, the exercise offers "last time here you did X". The coach reads swaps on Sunday and makes the keepers permanent. Dylan can also ask Claude any time. So the app has no plan editor and no second writer of the plan.
 
-**Diary.** Finish writes a `workout` whose id is the session's, so finishing twice converges. Minutes run first set to finish, less cardio logged inside that span, so burn is not counted twice. Cardio blocks open the existing workout logger. Weigh-ins reuse `weighIn` and the Weight sheet.
+**Diary.** Settling writes a `workout` whose id is the session's, so settling twice converges. Minutes run first set to last, less cardio logged inside that span, so burn is not counted twice. Cardio blocks open the existing workout logger and make no session. Weigh-ins reuse `weighIn` and the Weight sheet.
 
 ### Screens
 
-A fifth tab, Train. An open session comes first, including after a reload.
-
-With none open, the tab shows the week: its count and strip, the next day with Start, the other days, and rows for Coach, Progress, Program and Weigh in. Each day opens a preview. `weekView` re-runs on a logged set, and `dayPreviewView` does not, because its reads stop at the day before.
+The Train tab shows the week: its count and strip, the days as equal rows, and rows for Coach, Progress, Program and Weigh in. Each day opens its own screen, and each exercise on it opens its own. `Train` holds where he is above the tab, so a tab switch loses nothing. A reload starts on the Diary as other tabs do, unless a set in the last three hours starts it on the week. `weekView` and `dayScreenView` re-run on a logged set. `lastTimesView` does not, because its reads stop at the day before.
 
 The Coach sheet holds everything the coach says, and comes from which versions took effect this week. With none it reads "No check-in this week". A draft starts with no report, so a mid-week version keeps the report Monday's brought, and "What changed" lists every version of the week against the one before it. A version effective Monday is not in effect on the Sunday it is published, so its report shows from Monday.
 
-A tap on Train paints the day list by 48 ms (range 47 to 50, 25 runs after a tab switch) and by 47 ms (38 to 49, 5 runs after a reload), with 810 sessions, 6,492 performances and a 25.6 KB version on the phone. With only the versions on the phone it is 48 ms (40 to 49), so history does not bound it. The list reaches the DOM at 18 ms, and the rest is the two frames the check waits for, which is inferred from that split and not profiled. Measured on 2026-11-03 in desktop WebKit under Playwright against a production build. It has not been measured on the iPhone.
+A tap on Train paints the day list by 48 ms (range 47 to 48, 25 runs after a tab switch) and by 47 ms (46 to 48, 5 runs after a reload), with 810 sessions, 6,647 performances and a 25.6 KB version on the phone. With only the versions on the phone it is 49 ms (46 to 49), so history does not bound it. The list reaches the DOM at 22 ms, and the rest is the two frames the check waits for, which is inferred from that split and not profiled. Measured on 2026-11-04 in desktop WebKit under Playwright against a production build. It has not been measured on the iPhone.
+
+A day's rows are its exercises, its checklists and its cardio, in the plan's order with optional blocks folded at the end. Nothing is highlighted, numbered or suggested, because machine availability decides the order. A superset keeps its label as plain information. The day stays mounted under an open exercise, so what he expanded is still expanded on Back, and Back restores his scroll.
 
 | Event | Result |
 |---|---|
-| Log set | One commit, stored before the screen moves, with an undo toast |
-| Superset order | `stepsOf` walks A1, A2, rest, A1, A2, rest. Warm-ups do not count as rounds. A slot with fewer sets drops out of the last round |
+| Log set | One commit, stored before the screen moves, with an undo toast. It stays on the exercise and fills in the next set |
+| Any order | Any exercise opens at any time. "Set 2 of 3" counts that exercise's working sets alone, across a swap. Warm-ups do not count. Past the prescription it reads "Extra set" and keeps logging |
 | Prefill | Load from the previous set of this lift today, else last time at this position. After a swap, the swapped lift's own history, never the old lift's weight |
-| Tab switch, reload or killed page | Same card. Only typed digits, a swap with no set yet and a tap on the plan wait in one localStorage value |
-| Locked phone | The rest timer reads right on return because it is clock arithmetic. iOS gives no alert while locked (guess until tried on the phone) |
-| Never tapped Finish | Six hours after its last set, or its start with none, the session is forgotten. Launch or a return to the app finishes it at its last set's time, with its workout |
-| Finish with nothing done | No set, tick, skip, note or cardio means a mistaken Start, so the session is removed with an undo, and the day stays undone |
+| Tab switch | The same screen |
+| Reload or killed page | The week or the Diary. Each exercise's typed digits and a swap with no set wait in one localStorage value for that day and date |
+| Skip | Back to the day, with the row marked and an undo. A later set on it takes the skip back |
+| Undo of a day's first write | Takes the session with it |
+| Delete of the only set | The day is not done. The session goes at the next settle |
 
 ### The session
 
-Top to bottom: the day and elapsed minutes with Finish, the plan scrolling with the current slot tinted, the rest pill, and the card fixed above the tab bar. A tap on any slot sets a focus and `cardFor` reads it, so an extra set and an optional block have no path of their own. A focus on an optional block stays there until its gaps are filled, because `nextUp` never walks in. A note can sit on an exercise only once it has a set, since a performance is the proof of one, so before that it goes on the session. A required cardio block he passes over goes in `session.checked`, which moves the card on and tells the coach nothing it did not already read from the diary.
+A session is a record, not a mode. Nothing on screen names one, and nothing starts or finishes it.
 
-The tab bar stays during a session. Screenshots at 402 by 681 points leave the plan several rows with it, and at 320 by 568 the tallest card, a long name with per-side reps, clipped the current slot with or without it. So the card tightens below 620 points of height and the plan keeps room for a two-line slot, which holds with the bar in place. Keeping it means the Diary and water stay one tap away between sets, and a tab switch is a real path that loses nothing.
+- **Made by the first write.** The first set, skip, note or checklist tick for a day on a date makes it through one helper in `intents`, in that write's own commit, pinned to the version in effect. Opening a screen, typing and choosing a swap write nothing. Cardio writes a workout and no session.
+- **One per day per date.** Later writes that date for that day reuse it, and another date makes a new one, including a set just past midnight. An import is never written to.
+- **Done means a set.** A day is done when it has a working set, as `weekProgress` already derives. So a tick, skip or note alone does not count, and removing the only set takes the mark off.
+- **It settles by itself.** `settleLapsed` runs at launch and on each return to the app, and says nothing. Six hours after its last set it writes `finishedAt` at that set's time and the workout. With no timed set left, it removes any workout the session once earned, and removes the session too if nothing else is in it.
+- **A new set reopens it.** A set or an edit in a session settled earlier that date clears `finishedAt`, so the workout converges at the next settle. Undo restores the settled session.
+- **It keeps its version.** Once a day holds a write, it reads the version it pinned, so a publish changes nothing under him until another date. Before that it follows the version in effect, and an open exercise the new plan lacks gives way to the day. A phone not holding the pin reads the version in effect.
 
-iOS does not resize the layout for its keyboard, so the session reads the visual viewport, shrinks to fit above the keyboard and drops the plan and the action row, leaving the field and Log set. Playwright shows no keyboard, so this is checked against a keyboard reported the way iOS reports one (inferred). It has not been tried on the phone.
+The coach still reads `open` for a session under six hours old, and required slots with no set become skips only after that.
 
-A tap on Log set shows the next step in the DOM by 9 ms (range 4 to 14) and paints it by 30 ms (25 to 47), over 48 taps across two sessions, with 810 sessions, 6,525 performances and 28 versions on the phone. Every tap's next step was checked against `stepsOf`, and every set reached the server. The rest of the time is the two frames the check waits for, inferred from that split and not profiled. Measured on 2026-11-03 in desktop WebKit under Playwright against a production build. It has not been measured on the iPhone.
+### The exercise
+
+Top to bottom: Back, the exercise, today's sets as small values, then the steppers, Log set and the five quiet actions in thumb reach above the tab bar. Rest shows only as plain text under Cue, because the coach writes it and nothing counts it down. A note can sit on an exercise only once it has a set, since a performance is the proof of one, so before that it goes on the day.
+
+The tab bar stays. Keeping it means the Diary and water stay one tap away between sets, and a tab switch is a real path that loses nothing. At 320 by 568 the tallest exercise, a long name with per-side reps, fits with the bar in place because the controls tighten below 620 points of height.
+
+iOS does not resize the layout for its keyboard, so the screen reads the visual viewport, shrinks to fit above the keyboard and drops the action row, leaving the field and Log set. Playwright shows no keyboard, so this is checked against a keyboard reported the way iOS reports one (inferred). It has not been tried on the phone.
+
+A tap on Log set shows the next set in the DOM by 9 ms (range 4 to 14) and paints it by 31 ms (23 to 48), over 48 taps across two days logged last exercise first, with 810 sessions, 6,647 performances and 36 versions on the phone. Every tap stayed on its exercise and showed its next set, and every set reached the server. The rest of the time is the two frames the check waits for, inferred from that split and not profiled. Measured on 2026-11-04 in desktop WebKit under Playwright against a production build. It has not been measured on the iPhone.
 
 ### Charts
 

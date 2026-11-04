@@ -6,7 +6,7 @@ This is a simplification of the existing look, not a new brand. iOS system color
 
 ## The rules
 
-1. **One screen, one job.** Each screen names its one primary action. That action is the only filled blue control on screen.
+1. **One screen, one job.** A screen has at most one primary action, and it is the only filled blue control on screen.
 2. **Numbers first, words on request.** A row shows a name and a number. Explanations, cues, formulas and history open on a tap. No row carries more than one line of muted text.
 3. **Say it once.** Nothing repeats what is already on screen: no heading that restates its only row, no caption that restates its heading, no subtitle that restates a selected control.
 4. **Plain nouns.** A section heading is a noun, such as "Key lifts". Never a question, and never a sentence.
@@ -24,26 +24,29 @@ Four tabs: Diary, Add, Train, Goal. The Scan tab goes, and scanning becomes a bu
 
 **Train tab.**
 - Title "Week of Nov 2", then "1 of 5 done" with the strip. "Minimum 3" moves to Progress.
-- The next day is the hero: its label, "35 min · 8 exercises", and Start as the screen's one primary action. Tapping the card previews the day.
-- The other days are plain rows: label, then "Done Mon" or a chevron.
+- The days as equal plain rows: label, then "Done Mon" or a chevron. No hero, no suggested day and no primary action, because he picks the day.
 - Then three rows with chevrons: Coach, Progress, Program. Coach shows one truncated line of the report. A "Weigh in" row appears only when today has no weigh-in.
 - Week notes, chips and the What changed link all leave this screen.
 
 **Coach sheet.** Everything the coach says, in one place, in this order: the report in full, What changed, This week's notes as plain rows with no "More" links, then "Tell the coach" with its text box at the bottom.
 
-**Day preview.**
-- A one-lift block has no heading. A superset gets one short label: "Superset · 3 rounds · rest 60s".
-- An exercise row shows the name, "3 × 10–15" at the right, and one muted line with last time: "60 lb × 12/12/12 · Oct 14". Mixed weights read as a range, "40–60 lb × 12/12/12". Tapping the row expands the swaps, the rest time and the cue.
-- A checklist is one row, "Warm-up · 3 moves", that expands.
+**A day.** Tapping a day opens it, with Back to the list and no primary action. Nothing is highlighted as current or next, and nothing implies an order, because machine availability decides that.
+- One muted line under the title: "35 min · 8 exercises".
+- An exercise row shows the name, "3 × 10–15" at the right with a dot per set under it, today's filled, and one muted line with last time: "60 lb × 12/12/12 · Oct 14". Mixed weights read as a range, "40–60 lb × 12/12/12". Tapping the row opens the exercise.
+- A one-lift block has no heading. A superset gets one short label as plain information: "Superset · 3 rounds · rest 60s".
+- A checklist is one row, "Warm-up · 3 moves", that expands with a Done.
+- Cardio is a row that opens the workout logger, with its note in full at the top.
 - Optional blocks collapse into one row at the end.
 - A day note is one line that expands.
 
-**Session.** A focus screen for one exercise, not a plan with a card below it.
-- Top: day label, elapsed time, Finish, and one thin progress bar of sets done.
-- Middle: the exercise name large, "Set 2 of 3", the target, last time, and an "Add weight" mark when earned. Sets logged so far today sit under it as small tappable values.
-- Rest shows as a clear timer in place when it runs, with "Next: Cable lateral raise".
-- Bottom, in thumb reach: the load and reps steppers, with the unit as a small toggle beside the load, then Log set. Below it, quiet text actions: Swap, Skip, Note, Cue, Warm-up.
-- The whole plan moves into a "Plan" sheet opened from the top, which still jumps to any exercise.
+**An exercise.** Tapping an exercise opens it, and Back returns to the day.
+- Top: the exercise name large, "Set 2 of 3" counted for this exercise alone, the target, last time, and an "Add weight" mark when earned. Sets logged today sit under it as small tappable values, for editing and deleting.
+- Bottom, in thumb reach: the load and reps steppers, with the unit as a small toggle beside the load, then Log set as the screen's one primary action. Below it, quiet text actions: Swap, Skip, Note, Cue, Warm-up.
+- After Log set it stays here and fills in the next set. It never moves him on, never says what is next, and shows no rest timer. Past the prescribed count it keeps logging, as "Extra set".
+- Cue holds the words behind the numbers: the cue, the block's note, the side and load notes, and the rest as plain text.
+- Skip goes back to the day and marks the row.
+
+**No session on screen.** Nothing names one, and nothing starts or finishes. The first write for a day makes it, and the diary's workout appears by itself once he has been idle for six hours.
 
 **Progress.** No question headings and no captions.
 - "1 of 5 this week" with the twelve-week chart, and its minimum line labelled once.
@@ -89,4 +92,4 @@ Four tabs: Diary, Add, Train, Goal. The Scan tab goes, and scanning becomes a bu
 
 ## Seeing it
 
-`npm run build && node scripts/ui-review.mjs <label>` copies the live database to `.private/ui-review`, serves the copy on its own port, and walks the training screens on an iPhone-sized WebKit browser, with contact sheets of every shot. `--dark` does dark mode. Food screens come from `npx playwright test e2e/shots.spec.ts`, which writes to `test-results/shots` with invented data, because the live diary is empty. Everything under `.private/` holds real data and never enters git.
+`npm run build && node scripts/ui-review.mjs <label>` copies the live database to `.private/ui-review`, serves the copy on its own port, and walks the training screens on an iPhone-sized WebKit browser, logging a set on the copy, with contact sheets of every shot. `--dark` does dark mode. Food screens come from `npx playwright test e2e/shots.spec.ts`, which writes to `test-results/shots` with invented data, because the live diary is empty. Everything under `.private/` holds real data and never enters git.
