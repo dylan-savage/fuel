@@ -7,19 +7,11 @@
 // nothing stands unwaived and no waiver is stale, 1 when something does, 2 when the file fails
 // its schema or a document fails its own. .private/training/import/EXPORT.md says how the input
 // is made.
-import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { runnerImport } from 'vite';
 
-const domain = join(import.meta.dirname, '..', 'src', 'domain', 'notionImport.ts');
-
-/** RFC 9562 version 5 layout, so a session id is a valid UUID that depends only on its seed. */
-function uuidFrom(seed) {
-  const hash = createHash('sha1').update(`fuel-notion-import:${seed}`).digest('hex');
-  const variant = ((Number.parseInt(hash[16], 16) & 0x3) | 0x8).toString(16);
-  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-${variant}${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
-}
+const src = join(import.meta.dirname, '..', 'src');
 
 function refuse(message) {
   process.stderr.write(`${message}\n`);
@@ -29,7 +21,9 @@ function refuse(message) {
 const path = process.argv[2];
 if (path === undefined) refuse('usage: node scripts/reconcile-history.mjs <notion-history.json>');
 
-const { module: importer } = await runnerImport(domain, { configFile: false, logLevel: 'silent' });
+const { module: importer } = await runnerImport(join(src, 'domain', 'notionImport.ts'), { configFile: false, logLevel: 'silent' });
+// The route's own ids and digest, so this report and an import of the same file name the same documents.
+const { module: route } = await runnerImport(join(src, 'server', 'import.ts'), { configFile: false, logLevel: 'silent' });
 const parsed = importer.NotionHistory.safeParse(JSON.parse(readFileSync(path, 'utf8')));
 if (!parsed.success) {
   refuse(parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('\n'));
@@ -39,12 +33,11 @@ const history = parsed.data;
 const result = importer.reconcile(history);
 let docs;
 try {
-  docs = importer.importDocs(history, uuidFrom);
+  docs = importer.importDocs(history, route.uuidFrom);
 } catch (error) {
   refuse(`a document failed its schema: ${error.message}`);
 }
-const digest = createHash('sha256').update(JSON.stringify(docs)).digest('hex');
-const summary = importer.summaryOf({ history, result, docs, digest });
+const summary = importer.summaryOf({ history, result, docs, digest: route.digestOf(docs) });
 
 writeFileSync(join(dirname(path), 'reconcile-report.md'), `${summary}${importer.detailsOf(history, result)}`);
 process.stdout.write(summary);

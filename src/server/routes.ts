@@ -18,6 +18,7 @@ import {
 } from '../protocol.js';
 import type { AiParser } from './ai.js';
 import type { FoodSources } from './foods.js';
+import { mountImport } from './import.js';
 import { log } from './log.js';
 import type { DocStore } from './store.js';
 import { mountTrain } from './train.js';
@@ -88,6 +89,7 @@ export function buildApp({ store, foods, ai, staticDir, now }: AppDeps): Hono {
   });
 
   mountTrain(app, { store, now });
+  mountImport(app, { store, now });
 
   app.get('/healthz', (c) => c.json({ ok: true, ...store.stats() } satisfies Healthz));
 

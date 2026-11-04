@@ -72,6 +72,21 @@ export interface LookupCache {
   put(source: string, key: string, answer: CachedAnswer): void;
 }
 
+/** The kinds the Notion import writes. It has no parameter for a workout or a diary day. */
+export type ImportKind = 'session' | 'performance' | 'weighIn';
+
+/** What an import does, or would do, to one kind. */
+export interface ImportOutcome {
+  /** New, or changed since the import last wrote it. */
+  readonly written: readonly string[];
+  /** Same bytes as stored. */
+  readonly unchanged: readonly string[];
+  /** A phone last wrote it and the bytes differ, so it stays as Dylan left it. Includes a document he deleted. */
+  readonly conflicts: readonly string[];
+  /** The import wrote it earlier and this file no longer holds it. Left in place, because deleting is not this write's job. */
+  readonly orphans: readonly string[];
+}
+
 export interface DocStore {
   readonly lookupCache: LookupCache;
   /**
@@ -90,6 +105,12 @@ export interface DocStore {
    * program, so sessions and performances are out of its reach.
    */
   writeProgram(program: Program, ctx: { readonly now: Millis }): Arrived<Program>;
+  /**
+   * The Notion import's one write, one transaction per kind, so a re-run after a crash resumes
+   * from the kinds that landed. A dry run answers from the same comparison and writes nothing.
+   * Deleted at cutover with src/server/import.ts.
+   */
+  importKind<K extends ImportKind>(kind: K, docs: readonly DocOf<K>[], ctx: { readonly now: Millis; readonly dryRun: boolean }): ImportOutcome;
   stats(): { readonly epoch: string; readonly rev: Rev; readonly phoneBuild: PhoneBuild | null };
   /** Online backup to `destination`, safe while the server keeps writing. */
   backup(destination: string): Promise<void>;
@@ -104,11 +125,15 @@ export interface DocStore {
 const DocRow = z.object({ kind: KindName, id: z.string(), rev: Rev, body: z.string().nullable() });
 const ClientRow = z.object({ last_mutation_id: z.number().int().nonnegative() });
 const LiveRow = z.object({ rev: Rev, body: z.string() });
+const WriterRow = z.object({ body: z.string().nullable(), written_by: z.string() });
+const IdRow = z.object({ id: z.string() });
 const MaxRow = z.object({ rev: Rev });
 const MetaRow = z.object({ value: z.string() });
 const CacheRow = z.object({ fetched_at: Millis, status: z.number().int(), body: z.string() });
 
 const ZERO = Rev.parse(0);
+
+const IMPORT_WRITER = 'import';
 
 function toRecord(row: z.infer<typeof DocRow>): DocRecord {
   return { kind: row.kind, id: row.id, rev: row.rev, doc: row.body === null ? null : parseJson(row.body) };
@@ -173,6 +198,8 @@ export function openStore(path: string, opts: { readonly pageSize?: number } = {
       INSERT OR IGNORE INTO rejection (client_id, mutation_id, at, reason, mutation)
       VALUES (?, ?, ?, ?, ?)`),
     doc: db.prepare('SELECT kind, id, rev, body FROM doc WHERE kind = ? AND id = ?'),
+    writer: db.prepare('SELECT body, written_by FROM doc WHERE kind = ? AND id = ?'),
+    writtenBy: db.prepare('SELECT id FROM doc WHERE kind = ? AND written_by = ? AND body IS NOT NULL'),
     changes: db.prepare('SELECT kind, id, rev, body FROM doc WHERE rev > ? ORDER BY rev LIMIT ?'),
     cached: db.prepare('SELECT fetched_at, status, body FROM lookup_cache WHERE source = ? AND key = ?'),
     cache: db.prepare(`
@@ -241,6 +268,29 @@ export function openStore(path: string, opts: { readonly pageSize?: number } = {
     return readStored('program', LiveRow.parse(q.doc.get('program', program.id)));
   });
 
+  const importKind = db.transaction((kind: ImportKind, docs: readonly { readonly id: string; readonly body: string }[], now: Millis, dryRun: boolean): ImportOutcome => {
+    const written: string[] = [];
+    const unchanged: string[] = [];
+    const conflicts: string[] = [];
+    let rev: number = readRev();
+    for (const { id, body } of docs) {
+      const found = q.writer.get(kind, id);
+      const stored = found === undefined ? undefined : WriterRow.parse(found);
+      if (stored?.body === body) {
+        unchanged.push(id);
+      } else if (stored !== undefined && stored.written_by !== IMPORT_WRITER) {
+        conflicts.push(id);
+      } else {
+        written.push(id);
+        rev += 1;
+        if (!dryRun) q.upsertDoc.run({ kind, id, rev, body, writtenBy: IMPORT_WRITER, now });
+      }
+    }
+    const inFile = new Set(docs.map((doc) => doc.id));
+    const imported = q.writtenBy.all(kind, IMPORT_WRITER).map((row) => IdRow.parse(row).id);
+    return { written, unchanged, conflicts, orphans: imported.filter((id) => !inFile.has(id)) };
+  });
+
   const lookupCache: LookupCache = {
     get: (source, key) => {
       const found = q.cached.get(source, key);
@@ -259,6 +309,10 @@ export function openStore(path: string, opts: { readonly pageSize?: number } = {
     liveDocs: (kind) => q.live.all(kind).map((row) => readStored(kind, LiveRow.parse(row))),
     highestRev: (kind) => MaxRow.parse(q.maxRevOfKind.get(kind)).rev,
     writeProgram: (program, ctx) => writeProgram.immediate(program, ctx.now),
+    importKind: (kind, docs, ctx) => {
+      const rows = docs.map((doc) => ({ id: doc.id, body: JSON.stringify(doc) }));
+      return ctx.dryRun ? importKind.deferred(kind, rows, ctx.now, true) : importKind.immediate(kind, rows, ctx.now, false);
+    },
     stats: () => ({ epoch: readEpoch(), rev: readRev(), phoneBuild: readPhoneBuild() }),
     backup: async (destination) => {
       await db.backup(destination);
