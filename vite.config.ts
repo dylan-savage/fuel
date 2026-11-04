@@ -51,7 +51,7 @@ export default defineConfig(({ command }) => ({
         globPatterns: ['**/*.{html,js,css,wasm,png,webmanifest}'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//, /^\/healthz/, /^\/bench\.html$/],
+        navigateFallbackDenylist: [/^\/api\//, /^\/healthz/],
         cleanupOutdatedCaches: true,
       },
     }),
