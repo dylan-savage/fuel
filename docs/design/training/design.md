@@ -48,6 +48,7 @@ Block     = lifts { slots; restSeconds? } | checklist { items } | cardio    // p
 Day       = { key; label; weekday?; minutes?; blocks }
 Lift      = { id: slug; name; aliases; key? }
 Program   = { id; effectiveFrom; days; lifts; weeklyMinimum?; notes; standing; report?; changes; publishedAt }
+Note      = { title?; text; onlyWeek?; day? }                       // with day, on that day's preview and not the week's
 ```
 
 **No week document and no rollover.** A week is `mondayOf(date)`. Its plan is `plannedDay(program, day, date)`, a pure function over the version in effect. If the coach never runs again, next week still renders with correct last-time lines and hints, one-week items gone, and "No coach check-in this week" derived from the missing version. One-week blocks and notes share one mechanism, `onlyWeek`.
@@ -69,6 +70,12 @@ Program   = { id; effectiveFrom; days; lifts; weeklyMinimum?; notes; standing; r
 ### Screens
 
 A fifth tab, Train. An open session comes first, including after a reload.
+
+With none open, the tab shows the week: its count and strip, the coach card, week notes, the day list, chips and the standing text. Each day opens a preview. `weekView` re-runs on a logged set, and `dayPreviewView` does not, because its reads stop at the day before.
+
+The coach card comes from which versions took effect this week. With none it reads "No coach check-in this week". A draft starts with no report, so a mid-week version keeps the report Monday's brought, and "What changed" lists every version of the week against the one before it. A version effective Monday is not in effect on the Sunday it is published, so its report shows from Monday.
+
+A tap on Train paints the day list by 48 ms (range 47 to 50, 25 runs after a tab switch) and by 47 ms (38 to 49, 5 runs after a reload), with 810 sessions, 6,492 performances and a 25.6 KB version on the phone. With only the versions on the phone it is 48 ms (40 to 49), so history does not bound it. The list reaches the DOM at 18 ms, and the rest is the two frames the check waits for, which is inferred from that split and not profiled. Measured on 2026-11-03 in desktop WebKit under Playwright against a production build. It has not been measured on the iPhone.
 
 | Event | Result |
 |---|---|

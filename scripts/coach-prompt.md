@@ -26,6 +26,7 @@ Change the program only for what his logs and notes imply. Do not redesign it.
 
 - Name every item you remove or change in `changes`, with `target` set to the name the dry run gives it, such as `slot:push/a2`, `cue:push/a1` or `prescription:push/a1`, and `why` set to the reason he will read on his phone. A removal or a changed prescription with no reason is refused, and the refusal names the target. Name a cue edit or rename too.
 - A block or note for one week sets `onlyWeek` to that week's Monday, and lapses by itself.
+- A note for one day sets `day` to that day's key, and shows on that day's preview instead of the week. The day must be in this version.
 - A change to a prescription does not revert by itself. If it must revert, such as a light week, publish this version, then a following version dated a week later that restores it, explained in its own `changes`, with `basedOnRev` set to the `rev` the first publish printed.
 - Place each `uncataloged` name in `lifts`, as an alias of a lift it is the same as, or as its own lift. The catalog only grows, so never remove a lift or alias. Every slot and swap must name a lift in the catalog. A lift id is a slug of its name.
 - To make a swap permanent, point the slot at the new lift with a new `label`, list the old one in `swaps`, and explain the prescription change.
