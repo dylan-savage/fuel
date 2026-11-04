@@ -33,6 +33,8 @@ async function contactSheets(browser, from, to, prefix) {
       figure{margin:0}figcaption{padding:2px 0}img{width:100%;display:block}
     </style>${cells.join('')}`);
     await sheet.waitForLoadState('load');
+    // WebKit decodes a large image late, and an undecoded one photographs as nothing.
+    await sheet.evaluate(() => Promise.all([...document.images].map((image) => image.decode())));
     await sheet.screenshot({ path: join(to, `${prefix}-${i / 10 + 1}.png`), fullPage: true });
   }
   await context.close();
