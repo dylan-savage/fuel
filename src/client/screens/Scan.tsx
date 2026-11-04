@@ -17,9 +17,9 @@ type ScanState =
   | { readonly kind: 'failed'; readonly message: string };
 
 const UNKNOWN_TEXT: Readonly<Record<Extract<ScanState, { kind: 'unknown' }>['why'], string>> = {
-  not_found: 'Open Food Facts does not know this product.',
-  offline: 'The mini cannot be reached, so this product cannot be looked up now.',
-  unavailable: 'Open Food Facts did not answer.',
+  not_found: 'Not in Open Food Facts',
+  offline: 'Cannot reach the mini to look this up',
+  unavailable: 'Open Food Facts did not answer',
 };
 
 const describe = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -75,7 +75,7 @@ export function Scan({ slot, onLogged, onClose }: ScanProps) {
       await resolve(await scanCamera(video.current, controller.signal));
     } catch (err) {
       if (camera.current !== controller) return;
-      setState(controller.signal.aborted ? { kind: 'idle' } : { kind: 'failed', message: `Camera: ${describe(err)}. Try a photo instead.` });
+      setState(controller.signal.aborted ? { kind: 'idle' } : { kind: 'failed', message: `Camera: ${describe(err)}. Try a photo.` });
     }
   };
 
@@ -88,7 +88,7 @@ export function Scan({ slot, onLogged, onClose }: ScanProps) {
     setState({ kind: 'decoding' });
     try {
       const gtin = await decodePhoto(photo);
-      if (gtin === null) setState({ kind: 'failed', message: 'No barcode found in that photo.' });
+      if (gtin === null) setState({ kind: 'failed', message: 'No barcode in that photo' });
       else await resolve(gtin);
     } catch (err) {
       setState({ kind: 'failed', message: describe(err) });
@@ -101,67 +101,60 @@ export function Scan({ slot, onLogged, onClose }: ScanProps) {
   return (
     <>
       <Sheet title="Scan" onClose={onClose}>
-      <video class="scan-video" ref={video} playsInline muted hidden={state.kind !== 'camera'} />
-      <div class="actions-row">
-        {state.kind === 'camera' ? (
-          <button type="button" onClick={() => camera.current?.abort()}>
-            Stop
-          </button>
-        ) : (
-          <button type="button" class="primary" onClick={() => void startCamera()}>
-            Scan with camera
-          </button>
-        )}
-        <label class="button">
-          Take a photo
-          <input type="file" accept="image/*" capture="environment" hidden onChange={(e) => void onPhoto(e.currentTarget)} />
-        </label>
-      </div>
-
-      <form
-        class="group typed-barcode"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (typedValue !== null) void resolve(typedValue);
-        }}
-      >
-        <label class="field">
-          <span class="field-label">Barcode</span>
-          <input
-            inputMode="numeric"
-            autoComplete="off"
-            aria-label="Barcode number"
-            placeholder="Type the digits"
-            value={typed}
-            onInput={(event) => setTyped(event.currentTarget.value)}
-          />
-        </label>
-        <button type="submit" class="row-button" disabled={typedValue === null}>
-          Look up
-        </button>
-      </form>
-
-      {state.kind === 'decoding' && <p class="empty">Reading the barcode…</p>}
-      {gtin !== null && (
-        <p class="gtin">
-          GTIN <output data-testid="gtin">{gtin}</output>
-        </p>
-      )}
-      {state.kind === 'resolving' && <p class="empty">Looking it up…</p>}
-      {state.kind === 'unknown' && (
-        <div class="card unknown">
-          <p>{UNKNOWN_TEXT[state.why]}</p>
-          <div class="actions-row">
-            <button type="button" onClick={() => flow.open({ kind: 'editor', seed: { kind: 'new', barcodes: [state.gtin] } })}>
-              Create food
+        <video class="scan-video" ref={video} playsInline muted hidden={state.kind !== 'camera'} />
+        <div class="sheet-actions scan-start">
+          {state.kind === 'camera' ? (
+            <button type="button" class="text-button" onClick={() => camera.current?.abort()}>
+              Stop
             </button>
-            <button type="button" onClick={() => flow.open({ kind: 'quick-add' })}>
-              Quick add
+          ) : (
+            <button type="button" class="primary" onClick={() => void startCamera()}>
+              Scan with camera
             </button>
-          </div>
+          )}
+          <label class="button text-button">
+            Take a photo
+            <input type="file" accept="image/*" capture="environment" hidden onChange={(e) => void onPhoto(e.currentTarget)} />
+          </label>
         </div>
-      )}
-      {state.kind === 'failed' && <p class="error">{state.message}</p>}
+
+        <form
+          class="group"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (typedValue !== null) void resolve(typedValue);
+          }}
+        >
+          <label class="field">
+            <span class="field-label">Barcode</span>
+            <input inputMode="numeric" autoComplete="off" aria-label="Barcode number" placeholder="Type the digits" value={typed} onInput={(event) => setTyped(event.currentTarget.value)} />
+          </label>
+          <button type="submit" class="row-button" disabled={typedValue === null}>
+            Look up
+          </button>
+        </form>
+
+        {state.kind === 'decoding' && <p class="hint">Reading the barcode…</p>}
+        {gtin !== null && gtin !== typedValue && (
+          <p class="hint">
+            Barcode <output data-testid="gtin">{gtin}</output>
+          </p>
+        )}
+        {state.kind === 'resolving' && <p class="hint">Looking it up…</p>}
+        {state.kind === 'unknown' && (
+          <>
+            <p class="hint">{UNKNOWN_TEXT[state.why]}</p>
+            <div class="quiet-actions start scan-unknown">
+              <button type="button" class="text-button" onClick={() => flow.open({ kind: 'editor', seed: { kind: 'new', barcodes: [state.gtin] } })}>
+                Create food
+              </button>
+              <button type="button" class="text-button" onClick={() => flow.open({ kind: 'quick-add' })}>
+                Quick add
+              </button>
+            </div>
+          </>
+        )}
+        {state.kind === 'failed' && <p class="error">{state.message}</p>}
       </Sheet>
       {flow.sheet}
     </>

@@ -2,26 +2,14 @@ import { useState } from 'preact/hooks';
 import type { Meal } from '../../domain/diary.js';
 import { quickAddItem, type Ingredient } from '../../domain/food.js';
 import { MACROS, type Nutrients } from '../../domain/nutrients.js';
-import { MEAL_LABEL, parseNumber } from './format.js';
-import { MealPicker } from './FoodSheet.js';
+import { MACRO_LABEL, MEAL_LABEL, parseNumber } from './format.js';
 import { NumberField, Sheet, TextField } from './ui.js';
 
-const MACRO_LABEL = { protein: 'Protein', carbs: 'Carbs', fat: 'Fat' } as const;
-
 /** A one-off item with only kcal required, such as a restaurant meal. Macros are optional. */
-export function QuickAddSheet({
-  meal: initialMeal,
-  onLog,
-  onClose,
-}: {
-  readonly meal: Meal;
-  readonly onLog: (item: Ingredient, meal: Meal) => void;
-  readonly onClose: () => void;
-}) {
+export function QuickAddSheet({ meal, onLog, onClose }: { readonly meal: Meal; readonly onLog: (item: Ingredient) => void; readonly onClose: () => void }) {
   const [label, setLabel] = useState('');
   const [energy, setEnergy] = useState('');
   const [macros, setMacros] = useState({ protein: '', carbs: '', fat: '' });
-  const [meal, setMeal] = useState(initialMeal);
 
   const kcal = parseNumber(energy);
   const nutrients: Nutrients | null = kcal !== null && kcal > 0 ? { kcal } : null;
@@ -38,19 +26,11 @@ export function QuickAddSheet({
       </div>
       <div class="group">
         {MACROS.map((macro) => (
-          <NumberField
-            key={macro}
-            label={MACRO_LABEL[macro]}
-            unit="g"
-            value={macros[macro]}
-            placeholder="Optional"
-            onInput={(value) => setMacros({ ...macros, [macro]: value })}
-          />
+          <NumberField key={macro} label={MACRO_LABEL[macro]} unit="g" value={macros[macro]} placeholder="Optional" onInput={(value) => setMacros({ ...macros, [macro]: value })} />
         ))}
       </div>
-      <MealPicker value={meal} onChange={setMeal} />
       <div class="sheet-actions">
-        <button type="button" class="primary" disabled={nutrients === null} onClick={() => nutrients && onLog(quickAddItem(label, nutrients), meal)}>
+        <button type="button" class="primary" disabled={nutrients === null} onClick={() => nutrients && onLog(quickAddItem(label, nutrients))}>
           Log to {MEAL_LABEL[meal]}
         </button>
       </div>

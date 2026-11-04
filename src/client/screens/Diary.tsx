@@ -55,7 +55,7 @@ function Summary({ day, onGoal }: { readonly day: DayView; readonly onGoal: () =
                 {totals.incomplete.has(macro) && totals.sum[macro] > 0 ? '≥ ' : ''}
                 {amount(totals.sum[macro])}
               </strong>{' '}
-              / {amount(budget.macros[macro])} g
+              / {amount(budget.macros[macro])}
             </dd>
           </div>
         ))}

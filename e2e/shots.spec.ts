@@ -334,10 +334,11 @@ test('seeds a day worth photographing', async ({ page, request }) => {
     ['Protein', '18'],
     ['Carbs', '52'],
     ['Fat', '11'],
-    ['Fiber', '8'],
   ] as const) {
     await editor.getByLabel(label).fill(value);
   }
+  await editor.getByText('Fiber, sugar, sodium').click();
+  await editor.getByLabel('Fiber').fill('8');
   await editor.getByRole('button', { name: 'Save food' }).click();
   await page.getByRole('dialog', { name: 'Log food' }).getByRole('button', { name: 'Log to Breakfast' }).click();
 
@@ -495,6 +496,70 @@ async function photographSession(page: Page, name: (shot: string) => string) {
   await shoot('cardio');
 }
 
+/** What every food screen promises: nothing to tap under 44 points, and nothing wider than the phone. */
+async function expectFullTapTargets(page: Page, what: string) {
+  const small = await page.evaluate(() =>
+    [...document.querySelectorAll('button, summary, select, label.button')].flatMap((el) => {
+      const { width, height } = el.getBoundingClientRect();
+      return width > 0 && (width < 44 || height < 44) ? [`${el.getAttribute('aria-label') ?? el.textContent?.trim()}: ${Math.round(width)}×${Math.round(height)}`] : [];
+    }),
+  );
+  expect(small, `${what} has nothing to tap under 44 points`).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${what} does not scroll sideways`).toBe(true);
+}
+
+/** The food screens at the suffix's width and scheme, each checked for its tap targets. */
+async function photographFood(page: Page, suffix: string) {
+  const shot = async (name: string, what: string) => {
+    await expectFullTapTargets(page, what);
+    await page.screenshot({ path: join(dir, `${name}-${suffix}.png`), animations: 'disabled', style: '.toast { display: none; }' });
+  };
+  await page.goto('/');
+  await expect(page.getByRole('region', { name: 'Breakfast' }).getByText('Overnight oats')).toBeVisible({ timeout: 15_000 });
+  await shot('today', 'the diary');
+
+  await page.getByRole('button', { name: /^Fasting/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Fasting' }).getByTestId('fast-clock')).toBeVisible();
+  await shot('fast-timer', 'the Fasting sheet');
+  await page.getByRole('dialog', { name: 'Fasting' }).getByRole('button', { name: 'Done' }).click();
+
+  await page.getByRole('button', { name: /^Water/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Water' }).getByRole('list', { name: 'Drinks' })).toBeVisible();
+  await shot('water-sheet', 'the Water sheet');
+  await page.getByRole('dialog', { name: 'Water' }).getByRole('button', { name: 'Done' }).click();
+
+  await page.getByRole('button', { name: /^Weight/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Weight' }).getByTestId('trend-weight')).toBeVisible();
+  await shot('weight', 'the Weight sheet');
+  await page.getByRole('dialog', { name: 'Weight' }).getByRole('button', { name: 'Done' }).click();
+
+  await page.getByRole('button', { name: 'Breakfast options' }).click();
+  await shot('meal-menu', 'the meal menu');
+  await page.getByRole('dialog', { name: 'Breakfast' }).getByRole('button', { name: 'Cancel' }).click();
+
+  await page.getByRole('region', { name: 'Workouts' }).getByRole('button', { name: 'Add workout' }).click();
+  const logger = page.getByRole('dialog', { name: 'Add workout' });
+  await shot('workout-picker', 'the workout picker');
+  await logger.getByRole('region', { name: 'Running' }).getByRole('button', { name: /^Running, 6 mph/ }).click();
+  await shot('workout-logger', 'the workout logger');
+  await logger.getByRole('button', { name: 'Cancel' }).click();
+
+  await tab(page, 'Add').click();
+  await expect(page.getByRole('list', { name: 'Recent foods' }).getByRole('button', { name: /^Overnight oats/ })).toBeVisible();
+  await shot('add', 'Add');
+  await page.getByRole('list', { name: 'Recent foods' }).getByRole('button', { name: /^Overnight oats/ }).click();
+  const log = page.getByRole('dialog', { name: 'Log food' });
+  await shot('food-sheet', 'the Log food sheet');
+  await log.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'New food' }).click();
+  const editor = page.getByRole('dialog', { name: 'New food' });
+  await shot('food-editor', 'the food editor');
+  await editor.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Scan', exact: true }).click();
+  await shot('scan', 'the Scan sheet');
+  await page.getByRole('dialog', { name: 'Scan' }).getByRole('button', { name: 'Cancel' }).click();
+}
+
 /** The Progress sheet and every lift sheet worth a look, at the suffix's width and scheme. */
 async function photographProgress(page: Page, suffix: string) {
   const shot = (name: string) => page.screenshot({ path: join(dir, `${name}-${suffix}.png`), animations: 'disabled' });
@@ -570,6 +635,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
       test(`photographs Progress and its lift sheets in ${colorScheme}`, async ({ page }) => {
         await photographProgress(page, `small-${colorScheme}`);
       });
+
+      test(`photographs the food screens in ${colorScheme}`, async ({ page }) => {
+        await photographFood(page, `small-${colorScheme}`);
+      });
     });
 
     test(`photographs Today, habits, the food and reuse sheets and the goal screen in ${colorScheme}`, async ({ page }) => {
@@ -602,24 +671,67 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.screenshot({ path: join(dir, `water-sheet-${colorScheme}.png`), animations: 'disabled' });
       await water.getByRole('button', { name: 'Done' }).click();
 
+      await page.getByRole('region', { name: 'Breakfast' }).getByRole('button', { name: /^Overnight oats/ }).click();
+      const entry = page.getByRole('dialog', { name: 'Edit entry' });
+      await expect(entry.getByRole('radiogroup', { name: 'Meal' })).toBeVisible();
+      await page.screenshot({ path: join(dir, `edit-entry-${colorScheme}.png`), animations: 'disabled' });
+      await entry.getByRole('button', { name: 'Cancel' }).click();
+
       await tab(page, 'Add').click();
+      await expect(page.getByRole('list', { name: 'Recent foods' }).getByRole('button', { name: /^Overnight oats/ })).toBeVisible();
+      await page.screenshot({ path: join(dir, `add-${colorScheme}.png`), animations: 'disabled' });
       await page.getByRole('list', { name: 'Recent foods' }).getByRole('button', { name: /^Overnight oats/ }).click();
       const sheet = page.getByRole('dialog', { name: 'Log food' });
       await expect(sheet.getByTestId('preview-kcal')).toHaveText('380');
       await sheet.getByLabel('Amount').fill('1.5');
       await expect(sheet.getByTestId('preview-kcal')).toHaveText('570');
       await page.screenshot({ path: join(dir, `food-sheet-${colorScheme}.png`), animations: 'disabled' });
+      await expect(sheet.getByText('Fiber 12 g')).toBeHidden();
+      await sheet.getByTestId('preview-kcal').click();
+      await expect(sheet.getByText('Fiber 12 g')).toBeVisible();
+      await page.screenshot({ path: join(dir, `food-sheet-open-${colorScheme}.png`), animations: 'disabled' });
       await sheet.getByRole('button', { name: 'Cancel' }).click();
+
+      await page.getByRole('button', { name: 'Quick add' }).click();
+      const quick = page.getByRole('dialog', { name: 'Quick add' });
+      await page.screenshot({ path: join(dir, `quick-add-${colorScheme}.png`), animations: 'disabled' });
+      await quick.getByRole('button', { name: 'Cancel' }).click();
+
+      await page.getByRole('button', { name: 'New food' }).click();
+      const created = page.getByRole('dialog', { name: 'New food' });
+      await page.screenshot({ path: join(dir, `food-editor-${colorScheme}.png`), animations: 'disabled' });
+      await created.locator('.sheet-body').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await page.screenshot({ path: join(dir, `food-editor-bottom-${colorScheme}.png`), animations: 'disabled' });
+      await created.getByRole('button', { name: 'Cancel' }).click();
+
+      await page.getByLabel('Search foods').fill('greek yogurt');
+      await expect(page.getByRole('list', { name: 'Online results' }).getByRole('listitem').first()).toBeVisible();
+      await page.screenshot({ path: join(dir, `add-search-${colorScheme}.png`), animations: 'disabled' });
+      await page.getByLabel('Search foods').fill('');
+
+      await page.getByRole('button', { name: 'Scan', exact: true }).click();
+      await expect(page.getByRole('dialog', { name: 'Scan' }).getByRole('button', { name: 'Look up' })).toBeDisabled();
+      await page.screenshot({ path: join(dir, `scan-${colorScheme}.png`), animations: 'disabled' });
+      await page.getByRole('dialog', { name: 'Scan' }).getByRole('button', { name: 'Cancel' }).click();
+
+      await typeBarcode(page, '4006381333931');
+      await expect(page.getByRole('dialog', { name: 'Scan' }).getByRole('button', { name: 'Create food' })).toBeVisible();
+      await page.screenshot({ path: join(dir, `scan-unknown-${colorScheme}.png`), animations: 'disabled' });
+      await page.getByRole('dialog', { name: 'Scan' }).getByRole('button', { name: 'Cancel' }).click();
 
       await typeBarcode(page, LAYS);
       const confirm = page.getByRole('dialog', { name: 'Confirm food' });
       await expect(confirm.getByLabel('Name')).toHaveValue('Classic Potato Chips');
       await page.screenshot({ path: join(dir, `confirm-sheet-${colorScheme}.png`), animations: 'disabled' });
+      await confirm.getByText('Per 100 g').click();
+      await page.screenshot({ path: join(dir, `confirm-sheet-open-${colorScheme}.png`), animations: 'disabled' });
       await confirm.getByRole('button', { name: 'Cancel' }).click();
       await page.getByRole('dialog', { name: 'Scan' }).getByRole('button', { name: 'Cancel' }).click();
 
       await tab(page, 'Add').click();
       await page.getByRole('radio', { name: 'Recipes' }).click();
+      await expect(page.getByRole('list', { name: 'Recipes' }).getByRole('button', { name: /^Chicken rice bowl/ })).toBeVisible();
+      await page.screenshot({ path: join(dir, `recipes-${colorScheme}.png`), animations: 'disabled' });
       await page.getByRole('list', { name: 'Recipes' }).getByRole('button', { name: /^Chicken rice bowl/ }).click();
       await page.getByRole('dialog', { name: 'Log food' }).getByRole('button', { name: 'Edit recipe' }).click();
       const builder = page.getByRole('dialog', { name: 'Edit recipe' });
@@ -643,19 +755,28 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.getByRole('radio', { name: 'Saved meals' }).click();
       const saved = page.getByRole('list', { name: 'Saved meals' });
       await expect(saved.getByText('Usual breakfast')).toBeVisible();
-      await page.screenshot({ path: join(dir, `saved-meals-${colorScheme}.png`), animations: 'disabled' });
+      await page.screenshot({ path: join(dir, `saved-meals-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
       await saved.getByRole('button', { name: /^Usual breakfast/ }).click();
       const mealSheet = page.getByRole('dialog', { name: 'Saved meal' });
       await expect(mealSheet.getByText('Granola')).toBeVisible();
-      await page.screenshot({ path: join(dir, `saved-meal-sheet-${colorScheme}.png`), animations: 'disabled' });
+      await page.screenshot({ path: join(dir, `saved-meal-sheet-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
       await mealSheet.getByRole('button', { name: 'Cancel' }).click();
 
       await tab(page, 'Diary').click();
       await page.getByRole('button', { name: 'Breakfast options' }).click();
       const menu = page.getByRole('dialog', { name: 'Breakfast' });
       await expect(menu.getByRole('button', { name: /^Save as a meal/ })).toBeEnabled();
-      await page.screenshot({ path: join(dir, `meal-menu-${colorScheme}.png`), animations: 'disabled' });
-      await menu.getByRole('button', { name: 'Cancel' }).click();
+      await page.screenshot({ path: join(dir, `meal-menu-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
+      await menu.getByRole('button', { name: 'Copy from another day' }).click();
+      const copying = page.getByRole('dialog', { name: 'Copy from another day' });
+      await expect(copying.getByRole('radiogroup', { name: 'Meal' })).toBeVisible();
+      await page.screenshot({ path: join(dir, `copy-pick-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
+      await copying.getByRole('button', { name: 'Cancel' }).click();
+      await page.getByRole('button', { name: 'Breakfast options' }).click();
+      await page.getByRole('dialog', { name: 'Breakfast' }).getByRole('button', { name: /^Save as a meal/ }).click();
+      const saving = page.getByRole('dialog', { name: 'Save as a meal' });
+      await page.screenshot({ path: join(dir, `save-meal-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
+      await saving.getByRole('button', { name: 'Cancel' }).click();
 
       await tab(page, 'Goal').click();
       await expect(page.getByTestId('goal-kcal')).not.toHaveText('–');

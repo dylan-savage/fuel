@@ -59,6 +59,7 @@ test('builds a recipe from library foods and logs a serving', async ({ page }) =
   await newFood(page, 'Kidney beans', ['127', '8.7', '22.8', '0.5']);
 
   await tab(page, 'Add').click();
+  await page.getByRole('radiogroup', { name: 'Meal' }).getByRole('radio', { name: 'Dinner' }).click();
   await page.getByRole('radio', { name: 'Recipes' }).click();
   await page.getByRole('button', { name: 'New recipe' }).click();
   const builder = page.getByRole('dialog', { name: 'New recipe' });
@@ -74,7 +75,6 @@ test('builds a recipe from library foods and logs a serving', async ({ page }) =
   const log = page.getByRole('dialog', { name: 'Log food' });
   await expect(log.getByRole('radio', { name: '1 serving (400 g)' })).toHaveAttribute('aria-checked', 'true');
   await expect(log.getByTestId('preview-kcal')).toHaveText('440');
-  await log.getByRole('radiogroup', { name: 'Meal' }).getByRole('radio', { name: 'Dinner' }).click();
   await log.getByRole('button', { name: 'Log to Dinner' }).click();
 
   await expect(meal(page, 'Dinner').getByText('Chili')).toBeVisible();
@@ -106,6 +106,9 @@ test('saves a meal from the diary and logs it into another meal in one tap', asy
 test("copies yesterday's breakfast into today", async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Previous day' }).click();
+  await page.getByRole('button', { name: 'Add to Breakfast' }).click();
+  await expect(page.getByRole('heading', { name: 'Add to yesterday' }), 'Add says which day it logs to when it is not today').toBeVisible();
+  await tab(page, 'Diary').click();
   await quickAdd(page, 'Breakfast', 'Yesterday eggs', '300');
   await quickAdd(page, 'Breakfast', 'Yesterday toast', '150');
   await page.getByRole('button', { name: 'Next day' }).click();
@@ -114,7 +117,7 @@ test("copies yesterday's breakfast into today", async ({ page }) => {
   await meal(page, 'Breakfast').getByRole('button', { name: 'Breakfast options' }).click();
   await page
     .getByRole('dialog', { name: 'Breakfast' })
-    .getByRole('button', { name: /^Copy Breakfast from yesterday/ })
+    .getByRole('button', { name: /^Copy from yesterday/ })
     .click();
   await expect(page.getByRole('status').filter({ hasText: 'Copied 2 items to Breakfast' })).toBeVisible();
   await expect(meal(page, 'Breakfast').getByText('Yesterday eggs')).toBeVisible();

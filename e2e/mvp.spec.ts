@@ -37,7 +37,7 @@ test('a day: goal, barcode to log, offline recents and scans, synced to fuel.db'
     const confirm = page.getByRole('dialog', { name: 'Confirm food' });
     await expect(confirm.getByLabel('Name')).toHaveValue('Coca-Cola');
     await expect(confirm.getByTestId('preview-kcal')).toHaveText(String(BOTTLE_KCAL));
-    await confirm.getByRole('button', { name: /^Add to library and log/ }).click();
+    await confirm.getByRole('button', { name: /^Log to/ }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Logged Coca-Cola' })).toBeVisible();
     await expectDay(page, target, eaten + BOTTLE_KCAL);
     await expect.poll(() => stored('food').filter((f) => f.barcodes.includes(COKE) && !f.archived).length, { timeout: 15_000 }).toBe(1);
@@ -112,5 +112,5 @@ test('search shows library foods at once and Open Food Facts results below', asy
   await tab(page, 'Add').click();
   await page.getByLabel('Search foods').fill('greek yogurt');
   await expect(page.getByRole('list', { name: 'Online results' }).getByRole('listitem').first()).toBeVisible();
-  await expect(page.getByText('No match in your foods.')).toBeVisible();
+  await expect(page.getByText('No match', { exact: true })).toBeVisible();
 });

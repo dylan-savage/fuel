@@ -193,11 +193,6 @@ main {
   color: var(--tint);
 }
 
-.subtitle {
-  color: var(--muted);
-  margin-bottom: 12px;
-}
-
 /* One heading over a list. A plain noun, in line with the rows' text. */
 .section-heading {
   display: block;
@@ -347,6 +342,12 @@ main {
   font-weight: 600;
 }
 
+.row-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .row-end .icon {
   width: 18px;
   height: 18px;
@@ -382,13 +383,18 @@ main {
 }
 
 /* A list opened inside a row is already on its card. */
-.expand-body .list {
+.expand-body :is(.list, .group) {
   background: none;
   border-radius: 0;
 }
 
-.expand-body .list > li {
+.expand-body .list > li,
+.expand-body .group > * {
   margin-left: 0;
+}
+
+.expand-body .field {
+  padding-right: 0;
 }
 
 .expand.clamp > summary .row-name {
@@ -421,68 +427,6 @@ main {
   gap: 16px;
 }
 
-.entry-row,
-.food-row-main {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  column-gap: 12px;
-  width: 100%;
-  min-height: 56px;
-  padding: 8px 16px 8px 0;
-  text-align: left;
-}
-
-.food-name {
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.food-detail {
-  grid-column: 1;
-  color: var(--muted);
-  font-size: 15px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.entry-kcal {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-
-.food-row {
-  display: flex;
-  align-items: center;
-}
-
-.food-row-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.add-button {
-  width: 44px;
-  height: 44px;
-  margin-right: 8px;
-  display: grid;
-  place-items: center;
-  color: var(--tint);
-}
-
-.add-button .icon {
-  width: 28px;
-  height: 28px;
-  padding: 3px;
-  border-radius: 50%;
-  background: var(--fill);
-}
-
 .row-button {
   display: flex;
   align-items: center;
@@ -499,17 +443,9 @@ main {
   height: 20px;
 }
 
-.disclosure {
-  color: var(--text);
-}
-
-.disclosure .icon {
-  margin-left: auto;
-  color: var(--muted);
-}
-
 .empty {
   color: var(--muted);
+  font-size: var(--text-detail);
   padding: 12px 16px;
 }
 
@@ -578,9 +514,9 @@ main {
 }
 
 .macros {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
   margin: 12px 0 0;
 }
 
@@ -730,9 +666,13 @@ main {
   padding-right: 0;
 }
 
-.split-row > .remove {
+.split-row > .icon-button {
   flex: none;
-  color: var(--muted);
+}
+
+/* A row that acts as soon as it is tapped, rather than opening anything. */
+.acts .row-name {
+  color: var(--tint);
 }
 
 /* Sheets */
@@ -760,7 +700,7 @@ main {
   color: var(--text);
 }
 
-.sheet-body > :is(.card, .list, .group, .pills, .quantity-picker, .segmented, .hint, .sheet-actions) + :is(.card, .list, .group, .pills) {
+.sheet-body > :is(.card, .list, .group, .pills, .quantity-picker, .segmented, .hint, .sheet-actions, .sheet-heading) + :is(.card, .list, .group, .pills) {
   margin-top: 12px;
 }
 
@@ -768,8 +708,10 @@ main {
   display: block;
 }
 
-.remove {
-  margin-right: 2px;
+.mark-bad {
+  color: var(--red);
+  font-size: var(--text-detail);
+  font-weight: 600;
 }
 
 /* Add */
@@ -808,31 +750,6 @@ main {
   min-height: 40px;
 }
 
-.actions-row {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  gap: 8px;
-  margin: 12px 0;
-}
-
-.actions-row > button,
-.actions-row > .button {
-  display: grid;
-  place-items: center;
-  min-height: 44px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  background: var(--card);
-  color: var(--tint);
-  font-weight: 500;
-}
-
-.actions-row > .primary {
-  background: var(--tint);
-  color: #fff;
-}
-
 /* Segmented controls and chips */
 
 .segmented {
@@ -846,7 +763,7 @@ main {
 }
 
 .segmented button {
-  min-height: 40px;
+  min-height: 44px;
   border-radius: 7px;
   font-size: var(--text-detail);
   font-weight: 500;
@@ -888,18 +805,29 @@ main {
 
 .chips button {
   flex: none;
-  min-height: 36px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0 14px;
-  border-radius: 18px;
-  background: var(--card);
-  border: 1px solid var(--separator);
-  font-size: 15px;
+  border-radius: 12px;
+  background: var(--fill);
+  font-size: var(--text-detail);
+  font-weight: 500;
 }
 
 .chips button[aria-checked='true'] {
-  background: var(--tint);
-  border-color: var(--tint);
-  color: #fff;
+  background: var(--segment);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
+  font-weight: 700;
+}
+
+.field > .segmented {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.field > .segmented button {
+  padding: 0 2px;
 }
 
 /* Form fields inside groups */
@@ -936,6 +864,7 @@ main {
 }
 
 .field select {
+  min-height: 44px;
   color: var(--muted);
   text-align-last: right;
 }
@@ -955,6 +884,13 @@ main {
 
 .field.toggle {
   justify-content: space-between;
+}
+
+/* A toggle's name, with its one line beneath. */
+.field-text {
+  display: grid;
+  gap: 2px;
+  padding: 9px 0;
 }
 
 .field input[role='switch'] {
@@ -991,11 +927,10 @@ main {
 
 .serving-row {
   display: grid;
-  grid-template-columns: 1fr 72px auto auto;
+  grid-template-columns: 1fr 72px auto 44px;
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  padding-right: 12px;
 }
 
 .serving-row input {
@@ -1010,9 +945,9 @@ main {
   text-align: right;
 }
 
-.serving-row .text-button {
-  color: var(--red);
-  font-size: 15px;
+/* A remove mark is quiet until it is the one thing being looked for. */
+.remove {
+  color: var(--muted);
 }
 
 .choice {
@@ -1026,33 +961,21 @@ main {
 .choice-detail {
   grid-column: 1;
   color: var(--muted);
-  font-size: 15px;
+  font-size: var(--text-detail);
 }
 
-.choice .check {
+.choice .icon {
   grid-column: 2;
   grid-row: 1 / span 2;
   align-self: center;
+  width: 20px;
+  height: 20px;
   color: var(--tint);
-  font-weight: 600;
-}
-
-.action-row {
-  display: grid;
-  align-content: center;
-  min-height: 56px;
-  padding: 8px 16px 8px 0;
-  text-align: left;
-  color: var(--tint);
-}
-
-.group.spaced {
-  margin-top: 20px;
 }
 
 .hint {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-detail);
   padding: 8px 16px 0;
 }
 
@@ -1062,7 +985,7 @@ main {
 
 .build-id {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-detail);
   padding: 24px 16px 0;
   text-align: center;
 }
@@ -1104,6 +1027,11 @@ main {
 
 .sheet-actions .text-button {
   justify-self: center;
+}
+
+.sheet-actions.scan-start {
+  margin-top: 0;
+  gap: 4px;
 }
 
 /* Sheets */
@@ -1153,7 +1081,7 @@ main {
 }
 
 .sheet-bar h2 {
-  font-size: 17px;
+  font-size: var(--text-row);
   font-weight: 600;
   text-align: center;
 }
@@ -1168,63 +1096,60 @@ main {
   margin-top: 0;
 }
 
-.food-heading {
-  margin-bottom: 8px;
+/* A sheet's own name for what it is holding, in line with the rows' text. */
+.sheet-heading {
+  margin: 0 16px 8px;
 }
 
-.food-heading h3 {
-  font-size: 22px;
-  font-weight: 700;
+.sheet-heading h3 {
+  font-size: var(--text-row);
+  font-weight: 600;
 }
 
-.food-heading p,
-.source-note,
-.extras {
-  color: var(--muted);
-  font-size: 15px;
+/* Kcal and macros on one line, and whichever others the food knows on a tap, anywhere on the card. */
+.nutrition {
+  padding: 0;
 }
 
-.extras {
-  padding: 8px 16px 0;
-}
-
-.preview {
-  background: var(--card);
-  border-radius: 14px;
-  padding: 14px 16px;
-  margin: 12px 0;
-}
-
-.preview-kcal {
-  color: var(--muted);
-}
-
-.preview-kcal strong {
-  font-size: 34px;
-  font-weight: 700;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-
-.preview-macros {
+.nutrition > summary {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin: 8px 0 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 44px;
+  padding: 14px 16px;
+  list-style: none;
+  cursor: pointer;
 }
 
-.preview-macros dt {
-  font-size: 13px;
-  color: var(--muted);
+.nutrition > summary::-webkit-details-marker {
+  display: none;
 }
 
-.preview-macros dd {
-  margin: 0;
+.nutrition-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+}
+
+.nutrition-line .detail {
   font-variant-numeric: tabular-nums;
 }
 
-.preview-macros .extra dd {
+.nutrition > summary .icon {
+  width: 18px;
+  height: 18px;
   color: var(--muted);
+  transition: transform 0.2s ease-out;
+}
+
+.nutrition[open] > summary .icon {
+  transform: rotate(90deg);
+}
+
+.nutrition-extras {
+  padding: 0 16px 14px;
 }
 
 .quantity-picker {
@@ -1240,7 +1165,7 @@ main {
   border-radius: 12px;
   background: var(--card);
   text-align: center;
-  font-size: 28px;
+  font-size: var(--text-hero);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   outline: none;
@@ -1287,13 +1212,13 @@ main {
 }
 
 .alert-text h2 {
-  font-size: 17px;
+  font-size: var(--text-row);
   font-weight: 600;
 }
 
 .alert-text p {
   margin-top: 4px;
-  font-size: 13px;
+  font-size: var(--text-detail);
 }
 
 .alert-actions {
@@ -1316,15 +1241,20 @@ main {
 
 /* Goal */
 
-.target {
-  margin-top: 20px;
+.goal > :is(.list, .group) {
+  margin-top: 12px;
 }
 
-.target-detail,
-.target-macros {
-  color: var(--muted);
-  font-size: 15px;
-  margin-top: 4px;
+/* An open row shows its value in the field beneath it, so it does not also say it here. */
+.goal .expand[open] > summary .row-value {
+  display: none;
+}
+
+/* Save only shows once something has changed, so it stays in view above the tab bar however far the rows have opened. */
+.screen-actions {
+  position: sticky;
+  bottom: calc(var(--tab-height) + env(safe-area-inset-bottom) + 8px);
+  z-index: 5;
 }
 
 /* Scan */
@@ -1336,23 +1266,19 @@ main {
   margin-top: 8px;
 }
 
-.typed-barcode {
-  margin-top: 8px;
+/* A label is not a button, so it centers its own text across the same 44 points. */
+.scan-start .button {
+  display: grid;
+  place-items: center;
+  justify-self: center;
 }
 
-.gtin {
-  padding: 12px 4px;
-  color: var(--muted);
+.scan-start + .group {
+  margin-top: 12px;
 }
 
-.gtin output {
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 20px;
-  color: var(--text);
-}
-
-.unknown p {
-  margin-bottom: 4px;
+.scan-unknown {
+  padding-left: 12px;
 }
 
 /* Tab bar and toast */

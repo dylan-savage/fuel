@@ -6,9 +6,9 @@ import { RecipeDraft, perServing, type Recipe } from '../../domain/reuse.js';
 import { libraryView, useIntents, useLive } from '../views.js';
 import { ConfirmSheet, type Confirmed } from './ConfirmSheet.js';
 import { FoodHeading, NutritionPreview, useQuantityPicker } from './FoodSheet.js';
-import { brandOf, kcal, parseNumber, quantityLabel } from './format.js';
+import { foodRowParts, parseNumber } from './format.js';
 import { FoodRow, OnlineSection } from './search.js';
-import { Icon, NumberField, Sheet, TextField, useToast } from './ui.js';
+import { Icon, NumberField, Row, Sheet, TextField, useToast } from './ui.js';
 import { useUpdatePrompt } from './UpdatePrompt.js';
 
 export type RecipeSeed = { readonly kind: 'new' } | { readonly kind: 'edit'; readonly recipe: Recipe };
@@ -95,7 +95,7 @@ function IngredientPicker({
       </div>
       <h2 class="section-heading">Your foods</h2>
       {shown.length === 0 ? (
-        <p class="empty">{trimmed === '' ? 'Foods you create or import show up here.' : 'No match in your foods.'}</p>
+        <p class="empty">{trimmed === '' ? 'No foods yet' : 'No match'}</p>
       ) : (
         <ul class="list" aria-label="Your foods">
           {shown.map((food) => (
@@ -203,7 +203,7 @@ export function RecipeBuilder({
           action={(confirmed) => (
             <div class="sheet-actions">
               <button type="button" class="primary" disabled={confirmed === null} onClick={() => confirmed && void importIngredient(confirmed)}>
-                Add to library and recipe
+                Add to recipe
               </button>
             </div>
           )}
@@ -233,20 +233,16 @@ export function RecipeBuilder({
             invalid={cooked.trim() !== '' && !positive(cookedGrams)}
           />
         </div>
-        <p class="hint">Weigh the finished dish to log servings by the gram.</p>
+        <p class="hint">Weigh the dish to log it by the gram.</p>
 
         <h4 class="section-heading">Per serving</h4>
         <NutritionPreview nutrients={serving} />
 
         <h4 class="section-heading">Ingredients</h4>
-        <ul class="list" aria-label="Ingredients">
+        <ul class="list foods" aria-label="Ingredients">
           {ingredients.map((item, i) => (
             <li key={i}>
-              <button type="button" class="entry-row" onClick={() => setStep({ kind: 'amount', food: item.food, quantity: item.quantity, index: i })}>
-                <span class="food-name">{item.food.name}</span>
-                <span class="food-detail">{[brandOf(item.food), quantityLabel(item.food, item.quantity)].filter(Boolean).join(' · ')}</span>
-                <span class="entry-kcal">{kcal(nutrientsFor(item.food, item.quantity).kcal)}</span>
-              </button>
+              <Row {...foodRowParts(item.food, item.quantity)} onClick={() => setStep({ kind: 'amount', food: item.food, quantity: item.quantity, index: i })} />
             </li>
           ))}
           <li>

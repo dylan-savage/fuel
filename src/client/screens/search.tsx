@@ -1,11 +1,11 @@
 /** Food rows and online search, shared by the Add screen and the recipe ingredient picker. */
 import { useEffect, useState } from 'preact/hooks';
-import { nutrientsFor, type Food, type FoodCandidate, type FoodSnapshot, type Quantity, type SearchHit } from '../../domain/food.js';
+import type { Food, FoodCandidate, FoodSnapshot, Quantity, SearchHit } from '../../domain/food.js';
 import { inLibrary } from '../../domain/library.js';
 import { lookupFood, searchFoods, type Online } from '../api.js';
 import { foodWithBarcode, useRead } from '../views.js';
-import { BASIS_LABEL, amount, brandOf, kcal, quantityLabel } from './format.js';
-import { Icon } from './ui.js';
+import { BASIS_LABEL, amount, brandOf, foodRowParts } from './format.js';
+import { Icon, Row } from './ui.js';
 
 /** A food or recipe in the amount a tap would use. The plus logs it at once, where offered. */
 export function FoodRow({
@@ -19,17 +19,12 @@ export function FoodRow({
   readonly onOpen: () => void;
   readonly onQuickLog?: () => void;
 }) {
-  const source = food.origin.kind === 'recipe' ? 'Recipe' : brandOf(food);
+  const parts = foodRowParts(food, quantity);
   return (
-    <li class="food-row">
-      <button type="button" class="food-row-main" onClick={onOpen}>
-        <span class="food-name">{food.name}</span>
-        <span class="food-detail">
-          {[source, quantityLabel(food, quantity), `${kcal(nutrientsFor(food, quantity).kcal)} kcal`].filter(Boolean).join(' · ')}
-        </span>
-      </button>
+    <li class="split-row">
+      <Row {...parts} detail={food.origin.kind === 'recipe' ? `Recipe · ${parts.detail}` : parts.detail} onClick={onOpen} />
       {onQuickLog && (
-        <button type="button" class="add-button" aria-label={`Log ${food.name}`} onClick={onQuickLog}>
+        <button type="button" class="icon-button" aria-label={`Log ${food.name}`} onClick={onQuickLog}>
           <Icon name="plus" />
         </button>
       )}
@@ -68,9 +63,9 @@ function useOnlineSearch(query: string): OnlineResults {
 }
 
 const FAILED_TEXT: Readonly<Record<Extract<OnlineResults, { kind: 'failed' }>['reason'], string>> = {
-  offline: 'Online results unavailable. The mini cannot be reached.',
-  unavailable: 'Online results unavailable right now.',
-  bad_response: 'Online results unavailable right now.',
+  offline: 'Cannot reach the mini',
+  unavailable: 'Unavailable right now',
+  bad_response: 'Unavailable right now',
 };
 
 /** What an online hit opens: the library food for a barcode already imported, else a candidate to confirm. */
@@ -116,24 +111,21 @@ export function OnlineSection({
       <h2 class="section-heading">Online</h2>
       {online.kind === 'loading' && <p class="empty">Searching…</p>}
       {online.kind === 'failed' && <p class="empty">{FAILED_TEXT[online.reason]}</p>}
-      {online.kind === 'done' && external.length === 0 && <p class="empty">No online results.</p>}
+      {online.kind === 'done' && external.length === 0 && <p class="empty">No results</p>}
       {external.length > 0 && (
-        <ul class="list" aria-label="Online results">
+        <ul class="list foods" aria-label="Online results">
           {external.map((hit, i) => {
             const key = hitKey(hit, i);
             const energy = hit.candidate.nutrients.kcal;
             return (
-              <li class="food-row" key={key}>
-                <button type="button" class="food-row-main" disabled={opening !== null} onClick={() => void open(hit, key)}>
-                  <span class="food-name">{hit.candidate.name}</span>
-                  <span class="food-detail">
-                    {opening === key
-                      ? 'Loading…'
-                      : [brandOf(hit.candidate), energy === undefined ? 'kcal unknown' : `${amount(energy)} kcal per ${BASIS_LABEL[hit.candidate.unit]}`]
-                          .filter(Boolean)
-                          .join(' · ')}
-                  </span>
-                </button>
+              <li key={key}>
+                <Row
+                  name={hit.candidate.name}
+                  detail={opening === key ? 'Loading…' : [brandOf(hit.candidate), `per ${BASIS_LABEL[hit.candidate.unit]}`].filter(Boolean).join(' · ')}
+                  end={energy === undefined ? '–' : amount(energy)}
+                  disabled={opening !== null}
+                  onClick={() => void open(hit, key)}
+                />
               </li>
             );
           })}

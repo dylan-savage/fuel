@@ -54,9 +54,10 @@ export function brandOf(food: Pick<FoodSnapshot, 'name' | 'brand'>): string | un
   return food.brand !== undefined && !food.name.toLowerCase().includes(food.brand.toLowerCase()) ? food.brand : undefined;
 }
 
+/** "1 slice (30 g)". A label that already gives its size keeps its own, which may be more exact than the rounded one. */
 export function servingLabel(unit: FoodUnit, serving: Serving): string {
-  const size = `${amount(serving.amount)} ${UNIT_LABEL[unit]}`;
-  return serving.label.includes(size) || unit === 'portion' ? serving.label : `${serving.label} (${size})`;
+  const sized = new RegExp(`\\d\\s*${UNIT_LABEL[unit]}\\b`).test(serving.label);
+  return sized || unit === 'portion' ? serving.label : `${serving.label} (${amount(serving.amount)} ${UNIT_LABEL[unit]})`;
 }
 
 export function quantityLabel(food: FoodSnapshot, q: Quantity): string {

@@ -34,7 +34,7 @@ function RowBody({ name, detail, end, chevron }: RowParts & { readonly chevron: 
       {detail !== undefined && <span class="row-detail">{detail}</span>}
       {(end !== undefined || chevron) && (
         <span class="row-end">
-          {end}
+          {end !== undefined && <span class="row-value">{end}</span>}
           {chevron && <Icon name="chevronRight" />}
         </span>
       )}
@@ -119,7 +119,7 @@ export function DaySection({
           {onOpen === undefined ? (
             heading
           ) : (
-            <button type="button" aria-label={`${name} options`} onClick={onOpen}>
+            <button type="button" aria-label={total === null ? `${name} options` : `${name} options, ${total} kcal`} onClick={onOpen}>
               {heading}
             </button>
           )}

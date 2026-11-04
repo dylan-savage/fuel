@@ -4,7 +4,7 @@ import { NUTRIENTS, type NutrientKey, type PartialNutrients } from '../../domain
 import { BASIS, type FoodUnit } from '../../domain/units.js';
 import { useIntents } from '../views.js';
 import { BASIS_LABEL, UNIT_LABEL, parseNumber } from './format.js';
-import { NumberField, Segmented, Sheet, TextField, useToast } from './ui.js';
+import { ExpandRow, Icon, NumberField, Segmented, Sheet, TextField, useToast } from './ui.js';
 import { useUpdatePrompt } from './UpdatePrompt.js';
 
 interface ServingRow {
@@ -62,6 +62,21 @@ export function FoodEditor({ seed, onSaved, onClose }: { readonly seed: EditorSe
     source: existing?.source ?? { kind: 'user' },
   });
 
+  const nutrientField = (n: (typeof NUTRIENTS)[number]) => (
+    <NumberField
+      key={n.key}
+      label={n.label}
+      unit={n.unit}
+      value={values[n.key] ?? ''}
+      placeholder={n.core ? 'Required' : 'Optional'}
+      invalid={n.core && (values[n.key] ?? '') !== '' && parseNumber(values[n.key] ?? '') === null}
+      onInput={(value) => setValues({ ...values, [n.key]: value })}
+    />
+  );
+  const extras = NUTRIENTS.filter((n) => !n.core);
+  /** A food that already says one of these keeps them in view when it is edited. */
+  const [extrasOpen] = useState(extras.some((n) => existing?.nutrients[n.key] !== undefined));
+
   const perOptions = [
     { value: '-1', label: BASIS_LABEL[unit] },
     ...servings.flatMap((row, i) => (row.label.trim() === '' ? [] : [{ value: String(i), label: row.label.trim() }])),
@@ -79,9 +94,11 @@ export function FoodEditor({ seed, onSaved, onClose }: { readonly seed: EditorSe
       <div class="group">
         <TextField label="Name" value={name} onInput={setName} placeholder="Required" />
         <TextField label="Brand" value={brand} onInput={setBrand} placeholder="Optional" />
+        <div class="field">
+          <span class="field-label">Measured in</span>
+          <Segmented label="Measured in" options={UNITS.map((u) => ({ value: u, label: UNIT_LABEL[u] }))} value={unit} onChange={setUnit} />
+        </div>
       </div>
-      <h4 class="section-heading">Measured in</h4>
-      <Segmented label="Measured in" options={UNITS.map((u) => ({ value: u, label: UNIT_LABEL[u] }))} value={unit} onChange={setUnit} />
 
       <h4 class="section-heading">Servings</h4>
       <div class="group">
@@ -105,14 +122,14 @@ export function FoodEditor({ seed, onSaved, onClose }: { readonly seed: EditorSe
             <span class="field-unit">{UNIT_LABEL[unit]}</span>
             <button
               type="button"
-              class="text-button"
+              class="icon-button remove"
               aria-label={`Remove serving ${i + 1}`}
               onClick={() => {
                 setServings(servings.filter((_, j) => j !== i));
                 setPer(per === i ? -1 : per > i ? per - 1 : per);
               }}
             >
-              Remove
+              <Icon name="close" />
             </button>
           </div>
         ))}
@@ -123,19 +140,14 @@ export function FoodEditor({ seed, onSaved, onClose }: { readonly seed: EditorSe
 
       <h4 class="section-heading">Nutrition per</h4>
       <Segmented label="Nutrition per" options={perOptions} value={String(per)} onChange={(v) => setPer(Number(v))} />
-      <div class="group">
-        {NUTRIENTS.map((n) => (
-          <NumberField
-            key={n.key}
-            label={n.label}
-            unit={n.unit}
-            value={values[n.key] ?? ''}
-            placeholder={n.core ? 'Required' : 'Optional'}
-            invalid={n.core && (values[n.key] ?? '') !== '' && parseNumber(values[n.key] ?? '') === null}
-            onInput={(value) => setValues({ ...values, [n.key]: value })}
-          />
-        ))}
-      </div>
+      <div class="group">{NUTRIENTS.filter((n) => n.core).map(nutrientField)}</div>
+      <ul class="list">
+        <li>
+          <ExpandRow name={extras.map((n, i) => (i === 0 ? n.label : n.label.toLowerCase())).join(', ')} open={extrasOpen}>
+            <div class="group">{extras.map(nutrientField)}</div>
+          </ExpandRow>
+        </li>
+      </ul>
 
       <div class="sheet-actions">
         <button type="button" class="primary" disabled={!draft.success} onClick={() => void save()}>

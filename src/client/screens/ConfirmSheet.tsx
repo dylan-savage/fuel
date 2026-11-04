@@ -2,13 +2,13 @@ import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { defaultQuantity, missingCore, nutrientsFor, type FoodCandidate, type FoodSnapshot, type Quantity } from '../../domain/food.js';
 import { CORE_KEYS, NUTRIENTS, type CoreKey, type PartialNutrients } from '../../domain/nutrients.js';
-import { BASIS_LABEL, amount, parseNumber } from './format.js';
+import { BASIS_LABEL, parseNumber } from './format.js';
 import { NutritionPreview, useQuantityPicker } from './FoodSheet.js';
-import { NumberField, Sheet, TextField } from './ui.js';
+import { ExpandRow, NumberField, Sheet, TextField } from './ui.js';
 
 const SOURCE_LABEL: Readonly<Record<FoodCandidate['source']['kind'], string>> = {
   off: 'Open Food Facts',
-  usda: 'USDA FoodData Central',
+  usda: 'USDA',
   user: 'you',
   ai: 'AI',
 };
@@ -63,33 +63,38 @@ export function ConfirmSheet({
       : { name: edited.name, unit: edited.unit, nutrients: { ...nutrients, kcal: nutrients.kcal }, servings: edited.servings, origin: { kind: 'adhoc' } };
   const [initial] = useState(() => defaultQuantity(candidate));
   const { quantity, picker } = useQuantityPicker(candidate, initial);
-  const extras = NUTRIENTS.filter((n) => !n.core && nutrients[n.key] !== undefined);
+  /** What the source left out cannot wait behind a tap. */
+  const [startOpen] = useState(() => missingCore(candidate.nutrients).length > 0);
 
   return (
     <Sheet title="Confirm food" onClose={onClose}>
-      <p class="source-note">From {SOURCE_LABEL[candidate.source.kind]}. Check it against the label.</p>
+      <p class="detail sheet-lead">From {SOURCE_LABEL[candidate.source.kind]}</p>
       <div class="group">
         <TextField label="Name" value={name} onInput={setName} />
         <TextField label="Brand" value={brand} onInput={setBrand} placeholder="Optional" />
       </div>
-      <h4 class="section-heading">Per {BASIS_LABEL[candidate.unit]}</h4>
-      <div class="group">
-        {CORE_KEYS.map((key) => (
-          <NumberField
-            key={key}
-            label={coreLabel(key)}
-            unit={coreUnit(key)}
-            value={shownCore(key)}
-            placeholder="Required"
-            invalid={missing.includes(key)}
-            onInput={(value) => setTyped({ ...typed, [key]: value })}
-          />
-        ))}
-      </div>
-      {extras.length > 0 && <p class="extras">{extras.map((n) => `${n.label} ${amount(nutrients[n.key] ?? 0)} ${n.unit}`).join(' · ')}</p>}
       <NutritionPreview nutrients={snapshot && quantity ? nutrientsFor(snapshot, quantity) : null} />
       {picker}
-      {missing.length > 0 && <p class="hint">Add {missing.map(coreLabel).join(', ').toLowerCase()} from the label to save this food.</p>}
+      <ul class="list">
+        <li>
+          <ExpandRow name={`Per ${BASIS_LABEL[candidate.unit]}`} open={startOpen}>
+            <div class="group">
+              {CORE_KEYS.map((key) => (
+                <NumberField
+                  key={key}
+                  label={coreLabel(key)}
+                  unit={coreUnit(key)}
+                  value={shownCore(key)}
+                  placeholder="Required"
+                  invalid={missing.includes(key)}
+                  onInput={(value) => setTyped({ ...typed, [key]: value })}
+                />
+              ))}
+            </div>
+          </ExpandRow>
+        </li>
+      </ul>
+      {missing.length > 0 && <p class="hint warn">Add {missing.map(coreLabel).join(', ').toLowerCase()} from the label.</p>}
       {action(missing.length === 0 && quantity !== null ? { candidate: edited, quantity } : null)}
     </Sheet>
   );

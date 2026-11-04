@@ -7,10 +7,10 @@ import { itemsNutrients, recipeSnapshot, type SavedMeal } from '../../domain/reu
 import { now } from '../clock.js';
 import { libraryView, recentsView, savedMealsView, useIntents, useLive } from '../views.js';
 import { useLogFlow, type OnLogged } from './flow.js';
-import { MEAL_LABEL, count, dayTitle, kcal } from './format.js';
+import { MEAL_LABEL, count, dayPhrase, kcal } from './format.js';
 import { MealPicker } from './FoodSheet.js';
 import { FoodRow, OnlineSection } from './search.js';
-import { Icon, Segmented, TitleBar, useToast } from './ui.js';
+import { Icon, Row, Segmented, TitleBar, useToast } from './ui.js';
 
 /** The scanner pulls in the zxing glue, so it loads on the first tap, never at startup. */
 const loadScan = () => import('./Scan.js');
@@ -27,14 +27,9 @@ const SHELVES: readonly { readonly value: Shelf; readonly label: string }[] = [
 
 function SavedMealRow({ meal, onOpen, onLog }: { readonly meal: SavedMeal; readonly onOpen: () => void; readonly onLog: () => void }) {
   return (
-    <li class="food-row">
-      <button type="button" class="food-row-main" onClick={onOpen}>
-        <span class="food-name">{meal.name}</span>
-        <span class="food-detail">
-          {count(meal.items.length, 'item')} · {kcal(itemsNutrients(meal.items).kcal)} kcal
-        </span>
-      </button>
-      <button type="button" class="add-button" aria-label={`Log ${meal.name}`} onClick={onLog}>
+    <li class="split-row">
+      <Row name={meal.name} detail={count(meal.items.length, 'item')} end={kcal(itemsNutrients(meal.items).kcal)} onClick={onOpen} />
+      <button type="button" class="icon-button" aria-label={`Log ${meal.name}`} onClick={onLog}>
         <Icon name="plus" />
       </button>
     </li>
@@ -91,16 +86,13 @@ export function Add({
 
   return (
     <section class="screen add">
-      <TitleBar title="Add food" />
-      <p class="subtitle">
-        {dayTitle(slot.date, today)}, {MEAL_LABEL[slot.meal]}
-      </p>
+      <TitleBar title={slot.date === today ? 'Add food' : `Add to ${dayPhrase(slot.date, today)}`} />
       <MealPicker value={slot.meal} onChange={onMeal} />
       <div class="search">
         <input
           type="search"
           aria-label="Search foods"
-          placeholder="Search foods, recipes and meals"
+          placeholder="Search"
           enterKeyHint="search"
           autoComplete="off"
           autoCorrect="off"
@@ -114,25 +106,25 @@ export function Add({
 
       {trimmed === '' ? (
         <>
-          <div class="actions-row">
-            <button type="button" onClick={() => flow.open({ kind: 'quick-add' })}>
+          <div class="quiet-actions start">
+            <button type="button" class="text-button" onClick={() => flow.open({ kind: 'quick-add' })}>
               Quick add
             </button>
-            <button type="button" onClick={() => flow.open({ kind: 'editor', seed: { kind: 'new', barcodes: [] } })}>
+            <button type="button" class="text-button" onClick={() => flow.open({ kind: 'editor', seed: { kind: 'new', barcodes: [] } })}>
               New food
             </button>
           </div>
-          <Segmented label="Show" options={SHELVES} value={shelf} onChange={setShelf} />
+          <Segmented quiet label="Show" options={SHELVES} value={shelf} onChange={setShelf} />
           {shelf === 'recent' &&
             (recentList !== undefined && recentList.length === 0 ? (
-              <p class="empty">Foods you log show up here for one-tap logging.</p>
+              <p class="empty">No recent foods</p>
             ) : (
-              <ul class="list" aria-label="Recent foods">
+              <ul class="list foods" aria-label="Recent foods">
                 {(recentList ?? []).slice(0, 25).map((recent) => foodRow(recent.key, recent.food, recent.lastQuantity))}
               </ul>
             ))}
           {shelf === 'recipes' && (
-            <ul class="list" aria-label="Recipes">
+            <ul class="list foods" aria-label="Recipes">
               {recipes.map((food) => foodRow(foodKey(food), food, defaultQuantity(food)))}
               <li>
                 <button type="button" class="row-button" onClick={() => flow.open({ kind: 'recipe', seed: { kind: 'new' } })}>
@@ -143,9 +135,9 @@ export function Add({
           )}
           {shelf === 'meals' &&
             (meals !== undefined && meals.length === 0 ? (
-              <p class="empty">Save any meal on the Diary from its ⋯ menu, then log it here in one tap.</p>
+              <p class="empty">No saved meals</p>
             ) : (
-              <ul class="list" aria-label="Saved meals">
+              <ul class="list foods" aria-label="Saved meals">
                 {(meals ?? []).map(mealRow)}
               </ul>
             ))}
@@ -153,11 +145,11 @@ export function Add({
       ) : (
         <>
           <h2 class="section-heading">Your foods</h2>
-          {local.length === 0 ? <p class="empty">No match in your foods.</p> : <ul class="list" aria-label="Your foods">{local.map(localRow)}</ul>}
+          {local.length === 0 ? <p class="empty">No match</p> : <ul class="list foods" aria-label="Your foods">{local.map(localRow)}</ul>}
           {mealHits.length > 0 && (
             <>
               <h2 class="section-heading">Saved meals</h2>
-              <ul class="list" aria-label="Saved meals">
+              <ul class="list foods" aria-label="Saved meals">
                 {mealHits.map(mealRow)}
               </ul>
             </>

@@ -1,13 +1,13 @@
 /** The sheets that end in a diary entry, as one state machine shared by the Add and Scan screens. */
 import { useCallback, useState } from 'preact/hooks';
-import type { Meal, Slot } from '../../domain/diary.js';
+import type { Slot } from '../../domain/diary.js';
 import { defaultQuantity, snapshotOf, type FoodCandidate, type FoodSnapshot, type Quantity } from '../../domain/food.js';
 import { recipeSnapshot, type SavedMeal } from '../../domain/reuse.js';
 import type { Logged } from '../intents.js';
 import { useIntents, useRead } from '../views.js';
 import { ConfirmSheet } from './ConfirmSheet.js';
 import { FoodEditor, type EditorSeed } from './FoodEditor.js';
-import { FoodSheet, LogAction, type SheetLink } from './FoodSheet.js';
+import { FoodSheet, type SheetLink } from './FoodSheet.js';
 import { MEAL_LABEL } from './format.js';
 import { QuickAddSheet } from './QuickAdd.js';
 import { RecipeBuilder, type RecipeSeed } from './RecipeBuilder.js';
@@ -30,11 +30,10 @@ export function useLogFlow(slot: Slot, onLogged: OnLogged) {
   const intents = useIntents();
   const read = useRead();
   const close = useCallback(() => setFlow({ kind: 'closed' }), []);
-  const logged = (name: string, meal: Meal) => (result: Logged) => {
+  const logged = (name: string) => (result: Logged) => {
     setFlow({ kind: 'closed' });
-    onLogged(`Logged ${name} to ${MEAL_LABEL[meal]}`, result);
+    onLogged(`Logged ${name} to ${MEAL_LABEL[slot.meal]}`, result);
   };
-  const at = (meal: Meal): Slot => ({ date: slot.date, meal });
 
   /** "Edit food" or "Edit recipe" under the log sheet, for whatever the snapshot came from. */
   const editLink = (food: FoodSnapshot): SheetLink | undefined => {
@@ -73,7 +72,7 @@ export function useLogFlow(slot: Slot, onLogged: OnLogged) {
           food={food}
           initial={flow.quantity}
           meal={slot.meal}
-          mode={{ kind: 'log', onLog: (quantity, meal) => void intents.logItems([{ food, quantity }], at(meal)).then(logged(food.name, meal)) }}
+          mode={{ kind: 'log', onLog: (quantity) => void intents.logItems([{ food, quantity }], slot).then(logged(food.name)) }}
           onClose={close}
           {...(link === undefined ? {} : { link })}
         />
@@ -86,17 +85,21 @@ export function useLogFlow(slot: Slot, onLogged: OnLogged) {
           candidate={flow.candidate}
           onClose={close}
           action={(confirmed) => (
-            <LogAction
-              meal={slot.meal}
-              label={(meal) => `Add to library and log to ${MEAL_LABEL[meal]}`}
-              disabled={confirmed === null}
-              onLog={(meal) => {
-                if (confirmed === null) return;
-                void intents.importAndLog(confirmed.candidate, confirmed.quantity, at(meal)).then((result) => {
-                  if (result.ok) logged(confirmed.candidate.name, meal)(result.logged);
-                });
-              }}
-            />
+            <div class="sheet-actions">
+              <button
+                type="button"
+                class="primary"
+                disabled={confirmed === null}
+                onClick={() => {
+                  if (confirmed === null) return;
+                  void intents.importAndLog(confirmed.candidate, confirmed.quantity, slot).then((result) => {
+                    if (result.ok) logged(confirmed.candidate.name)(result.logged);
+                  });
+                }}
+              >
+                Log to {MEAL_LABEL[slot.meal]}
+              </button>
+            </div>
           )}
         />
       );
@@ -120,12 +123,12 @@ export function useLogFlow(slot: Slot, onLogged: OnLogged) {
       break;
     case 'meal': {
       const saved = flow.meal;
-      sheet = <SavedMealSheet meal={saved} slotMeal={slot.meal} onLog={(meal) => void intents.logItems(saved.items, at(meal)).then(logged(saved.name, meal))} onClose={close} />;
+      sheet = <SavedMealSheet meal={saved} slotMeal={slot.meal} onLog={() => void intents.logItems(saved.items, slot).then(logged(saved.name))} onClose={close} />;
       break;
     }
     case 'quick-add':
       sheet = (
-        <QuickAddSheet meal={slot.meal} onLog={(item, meal) => void intents.logItems([item], at(meal)).then(logged(item.food.name, meal))} onClose={close} />
+        <QuickAddSheet meal={slot.meal} onLog={(item) => void intents.logItems([item], slot).then(logged(item.food.name))} onClose={close} />
       );
       break;
   }

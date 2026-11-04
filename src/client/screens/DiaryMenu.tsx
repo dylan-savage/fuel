@@ -5,7 +5,7 @@ import { dayView, useIntents, useLive } from '../views.js';
 import { MEAL_LABEL, count, dayPhrase, dayTitle, kcal } from './format.js';
 import { MealPicker } from './FoodSheet.js';
 import { ItemList } from './SavedMealSheet.js';
-import { Icon, Sheet, TextField, useToast } from './ui.js';
+import { Row, Sheet, TextField, useToast } from './ui.js';
 
 /** What a Diary ⋯ menu acts on: a whole day, or one meal of it. */
 export type MenuTarget = { readonly kind: 'day'; readonly date: LocalDate } | { readonly kind: 'meal'; readonly date: LocalDate; readonly meal: Meal };
@@ -13,9 +13,7 @@ export type MenuTarget = { readonly kind: 'day'; readonly date: LocalDate } | { 
 type Step = 'menu' | 'pick' | 'save';
 
 const summaryText = (source: MealSummary | null | undefined) =>
-  source === null || source === undefined || source.entries.length === 0
-    ? 'Nothing logged'
-    : `${count(source.entries.length, 'item')} · ${kcal(source.totals.sum.kcal)} kcal`;
+  source === null || source === undefined || source.entries.length === 0 ? 'Nothing logged' : `${count(source.entries.length, 'item')} · ${kcal(source.totals.sum.kcal)} kcal`;
 
 /**
  * Copy food in from the day before or any other day, or save a meal for one-tap logging.
@@ -66,7 +64,7 @@ export function DiaryMenu({
 
   const save = async () => {
     const meal = await intents.saveMeal({ name: name.trim(), items: entries.map(itemOf) });
-    toast({ text: `Saved ${meal.name}. Log it from Add.` });
+    toast({ text: `Saved ${meal.name}` });
     onClose();
   };
 
@@ -74,29 +72,19 @@ export function DiaryMenu({
   switch (step) {
     case 'menu':
       body = (
-        <>
-          <h4 class="section-heading">Copy into {into}</h4>
-          <div class="group">
-            <button type="button" class="action-row" disabled={toCopy.length === 0} onClick={() => void copy()}>
-              <span>
-                {target.kind === 'meal' ? `Copy ${MEAL_LABEL[target.meal]} from ${dayPhrase(dayBefore, today)}` : `Copy all of ${dayPhrase(dayBefore, today)}`}
-              </span>
-              <span class="choice-detail">{summaryText(source)}</span>
-            </button>
-            <button type="button" class="row-button disclosure" onClick={() => setStep('pick')}>
-              Copy from another day
-              <Icon name="chevronRight" />
-            </button>
-          </div>
+        <ul class="list" aria-label="Options">
+          <li class="acts">
+            <Row name={`Copy from ${dayPhrase(dayBefore, today)}`} detail={summaryText(source)} disabled={toCopy.length === 0} onClick={() => void copy()} />
+          </li>
+          <li>
+            <Row name="Copy from another day" chevron onClick={() => setStep('pick')} />
+          </li>
           {target.kind === 'meal' && (
-            <div class="group spaced">
-              <button type="button" class="action-row" disabled={entries.length === 0} onClick={() => setStep('save')}>
-                <span>Save as a meal</span>
-                <span class="choice-detail">{entries.length === 0 ? 'Nothing logged yet' : 'Log these items again in one tap'}</span>
-              </button>
-            </div>
+            <li>
+              <Row name="Save as a meal" chevron disabled={entries.length === 0} onClick={() => setStep('save')} />
+            </li>
           )}
-        </>
+        </ul>
       );
       break;
     case 'pick':
@@ -109,7 +97,7 @@ export function DiaryMenu({
             </label>
           </div>
           {fromMeal !== null && <MealPicker value={fromMeal} onChange={setFromMeal} />}
-          <h4 class="section-heading">{ontoItself ? `Pick another ${target.kind === 'day' ? 'day' : 'day or meal'}` : summaryText(source)}</h4>
+          {ontoItself ? <p class="empty">Pick another {target.kind === 'day' ? 'day' : 'day or meal'}</p> : <p class="detail sheet-lead">{summaryText(source)}</p>}
           {toCopy.length > 0 && <ItemList items={toCopy.map(itemOf)} label="To copy" />}
           <div class="sheet-actions">
             <button type="button" class="primary" disabled={toCopy.length === 0} onClick={() => void copy()}>
@@ -125,7 +113,6 @@ export function DiaryMenu({
           <div class="group">
             <TextField label="Name" value={name} onInput={setName} placeholder="Usual breakfast" />
           </div>
-          <h4 class="section-heading">{count(entries.length, 'item')}</h4>
           <ItemList items={entries.map(itemOf)} label="In this meal" />
           <div class="sheet-actions">
             <button type="button" class="primary" disabled={name.trim() === '' || entries.length === 0} onClick={() => void save()}>
