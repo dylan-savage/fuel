@@ -4,7 +4,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { localDate } from '../src/client/clock.js';
 import { weighInId } from '../src/domain/body.js';
 import { makeWorkout, metDraft } from '../src/domain/burn.js';
@@ -14,7 +14,7 @@ import { KG_PER_LB } from '../src/domain/goals.js';
 import { FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, WorkoutId, addDays } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import type { Recipe, SavedMeal } from '../src/domain/reuse.js';
-import { bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, target } from '../test/training.fixtures.js';
+import { band, bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, target } from '../test/training.fixtures.js';
 import { seed, setGoal, stored, tab, typeBarcode } from './app.js';
 
 const dir = process.env.FUEL_SHOTS_DIR ?? join('test-results', 'shots');
@@ -116,6 +116,10 @@ function bodyDocs(): Mutation[] {
 const TRAIN_MONDAY = '2031-12-01';
 const TRAIN_NOON = new Date('2031-12-03T12:00:00');
 const LAST_WEEK = '2031-11-25';
+/** A week after every other spec's clock, so the open session here is not settled by any of them. */
+const SESSION_DAY = '2032-01-07';
+const SESSION_LAST_WEEK = '2031-12-30';
+const SESSION_NOW = new Date(`${SESSION_DAY}T18:30:00`);
 
 /**
  * A week of invented training with the longest text the schema allows in spirit: a long report,
@@ -185,8 +189,49 @@ function trainDocs(): Mutation[] {
   ];
 }
 
+/** A session left open at its second round, on a day holding every kind of card. */
+function sessionDocs(): Mutation[] {
+  const press = slot('s1', 'single-arm-cable-press', 3, {
+    label: 'Single-arm cable press with a pause and a slow three-second lowering phase',
+    target: target(3, 8, 12, { perSide: 'left-first' }),
+    cue: 'Invented cue. Keep the tempo even and let the cable set the pace.',
+    swaps: [{ liftId: lift('landmine-press'), label: 'Landmine press' }, { liftId: lift('machine-press'), label: 'Machine press' }],
+  });
+  const row = slot('s2', 'seal-row', 3, { label: 'Seal row', target: target(3, 8, 12) });
+  const version = program('2032-01-05', [
+    {
+      key: 'full',
+      label: 'Upper body strength and accessory work',
+      weekday: 3,
+      minutes: 55,
+      blocks: [
+        checklist('warm', { title: 'Warm up', items: ['Band pull-apart', 'Easy row, 3 minutes'] }),
+        liftsBlock('pair', [press, row], { restSeconds: 75, note: 'Invented note: move straight from the press to the row, then rest.' }),
+        liftsBlock('main', [slot('s3', 'pin-press', 4, { label: 'Pin press', target: target(4, 5, 5) })], { title: 'Main lift', restSeconds: 150 }),
+        liftsBlock('carry', [slot('s4', 'farmer-carry', 2, { label: 'Farmer carry', target: target(2, 1, 1), setPrompt: 'Distance, if you measured it' })], { restSeconds: 60 }),
+        liftsBlock('bands', [slot('s5', 'band-face-pull', 2, { label: 'Band face pull', target: target(2, 15, 20, { load: 'band' }) })], { restSeconds: 45 }),
+        liftsBlock('extra', [slot('s6', 'reverse-crunch', 2, { label: 'Reverse crunch', target: target(2, 12, 15, { load: 'bodyweight' }) })], { title: 'Extras', optional: true }),
+        cardio('ride', { title: 'Easy ride', optional: true }),
+      ],
+    },
+  ]);
+  const open = session({ date: day(SESSION_DAY), day: { key: dayKey('full'), label: 'Upper body strength and accessory work' }, programId: version.id, startedAt: ms(SESSION_NOW.getTime() - 19 * 60_000), checked: [checklist('warm').id] });
+  const tap = (secondsAgo: number) => ({ at: ms(SESSION_NOW.getTime() - secondsAgo * 1000) });
+  const performances = [
+    performance({ date: SESSION_LAST_WEEK, lift: 'single-arm-cable-press', sets: [sides(32.5, 12, 11), sides(32.5, 11, 10), sides(32.5, 10, 10)] }),
+    performance({ date: SESSION_LAST_WEEK, lift: 'seal-row', sets: [kg(40, 12), kg(40, 12), kg(40, 12)], target: target(3, 8, 12) }),
+    performance({ date: '2031-12-23', lift: 'pin-press', sets: [lb(185, 5), lb(185, 5), lb(185, 5), lb(185, 4)] }),
+    performance({ date: SESSION_LAST_WEEK, lift: 'machine-press', planned: 'pin-press', label: 'Machine press', sets: [lb(140, 8), lb(140, 8)] }),
+    performance({ date: SESSION_LAST_WEEK, lift: 'band-face-pull', sets: [band('green', 18), band('green', 16)] }),
+    performance({ date: SESSION_LAST_WEEK, lift: 'reverse-crunch', sets: [bw(15), bw(14)] }),
+    performance({ session: open.id, date: SESSION_DAY, slot: 's1', lift: 'single-arm-cable-press', label: press.label, sets: [{ ...sides(25, 12, 12), warmup: true, ...tap(960) }, { ...sides(32.5, 12, 11), ...tap(240) }], target: press.target }),
+    performance({ session: open.id, date: SESSION_DAY, slot: 's2', lift: 'seal-row', label: row.label, sets: [{ ...kg(40, 12), ...tap(27) }], target: row.target }),
+  ];
+  return [...performances.map((doc): Mutation => ({ op: 'put', kind: 'performance', doc })), { op: 'put', kind: 'session', doc: open }, { op: 'put', kind: 'program', doc: version }];
+}
+
 test('seeds a day worth photographing', async ({ page, request }) => {
-  await seed(request, [...reuseDocs(), ...habitDocs(), ...bodyDocs(), ...trainDocs()]);
+  await seed(request, [...reuseDocs(), ...habitDocs(), ...bodyDocs(), ...trainDocs(), ...sessionDocs()]);
   await page.goto('/');
   await setGoal(page);
   await page.getByLabel('Goal weight').fill('170');
@@ -220,6 +265,137 @@ test('seeds a day worth photographing', async ({ page, request }) => {
   await quick.getByRole('button', { name: 'Log to Lunch' }).click();
   await expect.poll(() => stored('entry').map((e) => e.food.name), { timeout: 15_000 }).toContain('Chicken burrito bowl');
 });
+
+/**
+ * A keyboard, drawn so the shot shows it, and reported the way iOS reports one: the visual viewport
+ * shrinks and the layout viewport stays. Real keyboards do not appear under Playwright. It takes 45%
+ * of the screen, more than an iPhone's 336 of 874 points, and answers with the height left.
+ */
+async function raiseKeyboard(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const viewport = window.visualViewport;
+    if (viewport === null) throw new Error('no visual viewport');
+    const px = Math.round(document.documentElement.clientHeight * 0.45);
+    const height = document.documentElement.clientHeight - px;
+    Object.defineProperty(viewport, 'height', { configurable: true, get: () => height });
+    viewport.dispatchEvent(new Event('resize'));
+    const keys = document.createElement('div');
+    keys.id = 'drawn-keyboard';
+    keys.style.cssText = `position:fixed;left:0;right:0;bottom:0;height:${px}px;z-index:100;background:#8e8e93;`;
+    document.body.append(keys);
+    return height;
+  });
+}
+
+async function lowerKeyboard(page: Page) {
+  await page.evaluate(() => {
+    const viewport = window.visualViewport;
+    if (viewport === null) throw new Error('no visual viewport');
+    Reflect.deleteProperty(viewport, 'height');
+    viewport.dispatchEvent(new Event('resize'));
+    document.getElementById('drawn-keyboard')?.remove();
+  });
+}
+
+async function boxOf(page: Page, locator: ReturnType<Page['locator']>) {
+  const box = await locator.boundingBox();
+  if (box === null) throw new Error(`nothing to measure in ${page.url()}`);
+  return box;
+}
+
+/** What the mockup promises: the current slot in the plan, clear of the card, and the card clear of the tab bar. */
+async function expectClearLayout(page: Page) {
+  await expect(async () => {
+    const current = await boxOf(page, page.locator('[aria-current="step"]'));
+    const plan = await boxOf(page, page.locator('.session-plan'));
+    const card = await boxOf(page, page.locator('.set-card'));
+    const bar = await boxOf(page, page.getByRole('navigation', { name: 'Sections' }));
+    expect(current.y, 'the current slot starts inside the plan').toBeGreaterThanOrEqual(plan.y);
+    expect(current.y + current.height, 'the current slot ends inside the plan').toBeLessThanOrEqual(plan.y + plan.height + 0.5);
+    expect(current.y + current.height, 'the card does not cover the current slot').toBeLessThanOrEqual(card.y + 0.5);
+    expect(card.y + card.height, 'nothing sits under the tab bar').toBeLessThanOrEqual(bar.y + 0.5);
+  }).toPass({ timeout: 2000 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'the session does not scroll sideways').toBe(true);
+}
+
+/** One slot's card, jumped to from the plan. Jumps write nothing, so every photo starts from the same seeded session. */
+async function jumpTo(page: Page, slotLabel: string | RegExp) {
+  await page.locator('.session-plan').getByRole('button', { name: slotLabel }).first().click();
+}
+
+async function photographSession(page: Page, name: (shot: string) => string) {
+  const shoot = async (shot: string) => page.screenshot({ path: join(dir, name(shot)), animations: 'disabled' });
+  await page.clock.setFixedTime(SESSION_NOW);
+  await page.goto('/');
+  await tab(page, 'Train').click();
+  await expect(page.getByRole('region', { name: 'Session' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('round')).toHaveText('Round 2 of 3');
+  await expect(page.getByRole('timer')).toHaveText('Rest 0:48');
+  await expectClearLayout(page);
+  await shoot('tall-card');
+
+  await jumpTo(page, /^Seal row/);
+  await expect(page.getByLabel('Reps', { exact: true })).toHaveValue('12');
+  await expectClearLayout(page);
+  await shoot('card');
+
+  await page.getByRole('button', { name: 'Swap', exact: true }).click();
+  const swap = page.getByRole('dialog', { name: 'Swap' });
+  await swap.getByLabel('Another lift').fill('Zottman curl');
+  await shoot('swap');
+  await swap.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.getByRole('button', { name: 'Note', exact: true }).click();
+  const note = page.getByRole('dialog', { name: 'Note' });
+  await expect(note.getByRole('radio', { name: 'This exercise' })).toBeChecked();
+  const aboveNoteKeys = await raiseKeyboard(page);
+  await shoot('note-keyboard');
+  const saveNote = await boxOf(page, note.getByRole('button', { name: 'Save note' }));
+  expect(saveNote.y + saveNote.height, 'the keyboard does not hide Save note').toBeLessThanOrEqual(aboveNoteKeys);
+  await lowerKeyboard(page);
+  await note.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.locator('.session-plan').getByRole('button', { name: /Seal row/ }).first().scrollIntoViewIfNeeded();
+  await page.locator('.plan-set').first().click();
+  await expect(page.getByRole('dialog', { name: /^Edit/ })).toBeVisible();
+  await shoot('edit-set');
+  await page.getByRole('dialog', { name: /^Edit/ }).getByRole('button', { name: 'Cancel' }).click();
+
+  await jumpTo(page, /^Pin press/);
+  await expect(page.getByText('Last time here you did Machine press.')).toBeVisible();
+  await expectClearLayout(page);
+  await shoot('swap-hint');
+
+  await jumpTo(page, /^Farmer carry/);
+  await expect(page.getByLabel('Distance, if you measured it')).toBeVisible();
+  await expectClearLayout(page);
+  await shoot('prompt');
+  await page.getByLabel('Distance, if you measured it').focus();
+  const abovePromptKeys = await raiseKeyboard(page);
+  const logSet = await boxOf(page, page.getByRole('button', { name: 'Log set' }));
+  expect(logSet.y + logSet.height, 'the keyboard does not hide Log set on a note field').toBeLessThanOrEqual(abovePromptKeys);
+  const promptField = await boxOf(page, page.getByLabel('Distance, if you measured it'));
+  const cardBody = await boxOf(page, page.locator('.set-card-body'));
+  expect(promptField.y, 'nor the field being typed in').toBeGreaterThanOrEqual(cardBody.y);
+  expect(promptField.y + promptField.height, 'nor the field being typed in').toBeLessThanOrEqual(cardBody.y + cardBody.height + 1);
+  await shoot('prompt-keyboard');
+  await lowerKeyboard(page);
+
+  await jumpTo(page, /^Band face pull/);
+  await expect(page.getByLabel('Band', { exact: true })).toHaveValue('green');
+  await expectClearLayout(page);
+  await shoot('band');
+
+  await jumpTo(page, /^Reverse crunch/);
+  await expect(page.getByText('Bodyweight', { exact: true })).toBeVisible();
+  await expectClearLayout(page);
+  await shoot('bodyweight');
+
+  await jumpTo(page, /^Easy ride/);
+  await expect(page.getByRole('button', { name: 'Log cardio' })).toBeVisible();
+  await expectClearLayout(page);
+  await shoot('cardio');
+}
 
 for (const colorScheme of ['light', 'dark'] as const) {
   test.describe(colorScheme, () => {
@@ -398,8 +574,16 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.screenshot({ path: join(dir, `train-empty-${colorScheme}.png`), animations: 'disabled' });
     });
 
+    test(`photographs a session in ${colorScheme}`, async ({ page }) => {
+      await photographSession(page, (shot) => `session-${shot}-${colorScheme}.png`);
+    });
+
     test.describe('on a small iPhone', () => {
       test.use({ viewport: { width: 320, height: 568 } });
+
+      test(`photographs a session in ${colorScheme}`, async ({ page }) => {
+        await photographSession(page, (shot) => `session-small-${shot}-${colorScheme}.png`);
+      });
 
       test(`photographs the Train tab and a day in ${colorScheme}`, async ({ page }) => {
         await page.clock.setFixedTime(TRAIN_NOON);
