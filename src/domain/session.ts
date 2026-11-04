@@ -49,6 +49,11 @@ export function sessionPhase({ session, performances }: Pick<SessionLogs, 'sessi
   return Math.max(session.startedAt ?? 0, ...setTimes(performances)) + OPEN_HOURS * HOUR_MS > now ? 'open' : 'lapsed';
 }
 
+/** Neither finished nor imported, so the clock decides whether it is open or forgotten. */
+export function isUnfinished(session: Session): boolean {
+  return session.finishedAt === undefined && session.source !== 'notion';
+}
+
 export interface SessionLogs {
   readonly session: Session;
   readonly performances: readonly Performance[];

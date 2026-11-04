@@ -25,11 +25,12 @@ import {
   type Water,
 } from '../domain/habits.js';
 import { addDays, mondayOf, type LocalDate, type Millis } from '../domain/ids.js';
-import { liftBook, type LiftBook, type LiftId, type Performance, type SlotId } from '../domain/lifts.js';
+import { liftBook, type Lift, type LiftBook, type LiftId, type Performance, type SlotId } from '../domain/lifts.js';
 import { RECENT_DAYS, recents, type Library, type RecentFood } from '../domain/library.js';
 import { dayNotesFor, dayParts, notesFor, plannedDay, type DayKey, type DayPart, type PlannedDay, type Program, type ProgramNote, type StandingText } from '../domain/program.js';
 import { lastLineOf, weekProgress, type LastLine, type WeekProgress } from '../domain/progress.js';
 import { refreshFor, type EditedRef, type Recipe, type Refresh, type SavedMeal } from '../domain/reuse.js';
+import { cardioDoneOn, isUnfinished, sessionPhase, type Session, type SessionLogs } from '../domain/session.js';
 import { localDate } from './clock.js';
 import type { Intents } from './intents.js';
 import type { Replica, ReplicaReader, Subscribable } from './replica.js';
@@ -191,6 +192,45 @@ export async function dayPreviewView(r: ReplicaReader, key: DayKey, today: Local
     parts: dayParts(plan),
     lasts: new Map(slots.map((slot) => [slot.id, lastLineOf({ lift: slot.liftId, rows, book, before: today })])),
   };
+}
+
+/** A session's sets and whether cardio on its date satisfies its cardio blocks. */
+export async function sessionLogsView(r: ReplicaReader, session: Session): Promise<SessionLogs> {
+  const [performances, workouts] = await Promise.all([r.performancesOfSession(session.id), r.onDate('workout', session.date)]);
+  return { session, performances, cardioDone: cardioDoneOn(session, workouts) };
+}
+
+/** Enough to carry a session across a midnight, and few enough thin rows to read before the first paint. */
+const OPEN_SESSION_DAYS = 2;
+
+/** The session in progress, with its sets, so the position and the rest they imply come from one read. Null with none. */
+export async function openSessionView(r: ReplicaReader, at: { readonly today: LocalDate; readonly now: Millis }): Promise<SessionLogs | null> {
+  const recent = await r.between('session', addDays(at.today, -OPEN_SESSION_DAYS), at.today);
+  const reads = await Promise.all(recent.filter(isUnfinished).map((session) => sessionLogsView(r, session)));
+  return (
+    reads
+      .filter((logs) => sessionPhase(logs, at.now) === 'open')
+      .toSorted((a, b) => (a.session.startedAt ?? 0) - (b.session.startedAt ?? 0))
+      .at(-1) ?? null
+  );
+}
+
+export interface SessionPlan {
+  readonly plan: PlannedDay;
+  readonly parts: readonly DayPart[];
+  readonly notes: readonly ProgramNote[];
+  readonly book: LiftBook;
+  /** The catalog a swap searches. */
+  readonly lifts: readonly Lift[];
+}
+
+/** A session's plan from the version it pinned, so a version published since changes nothing on the card. Null when this phone does not hold that version. */
+export async function sessionPlanView(r: ReplicaReader, session: Session): Promise<SessionPlan | null> {
+  if (session.programId === undefined || session.day === undefined) return null;
+  const program = await r.get('program', session.programId);
+  const plan = program === undefined ? undefined : plannedDay(program, session.day.key, session.date);
+  if (program === undefined || plan === undefined) return null;
+  return { plan, parts: dayParts(plan), notes: dayNotesFor(program, plan.key, session.date), book: liftBook(program.lifts), lifts: program.lifts };
 }
 
 export interface GoalView {
