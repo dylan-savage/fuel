@@ -48,10 +48,12 @@ function useModal(onClose: () => void) {
 export function Sheet({
   title,
   onClose,
+  closeLabel = 'Cancel',
   children,
 }: {
   readonly title: string;
   readonly onClose: () => void;
+  readonly closeLabel?: string;
   readonly children: ComponentChildren;
 }) {
   useModal(onClose);
@@ -66,7 +68,7 @@ export function Sheet({
       <section class="sheet" role="dialog" aria-modal="true" aria-label={title}>
         <header class="sheet-bar">
           <button type="button" class="text-button" onClick={onClose}>
-            Cancel
+            {closeLabel}
           </button>
           <h2>{title}</h2>
           <span />

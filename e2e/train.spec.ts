@@ -76,7 +76,7 @@ test('a fake clock crosses two Mondays offline with no writes', async ({ page, c
   await expect(sheet.getByText('Retest one')).toBeVisible();
   await expect(sheet.getByText('Retest two')).toBeHidden();
   await expect(sheet.getByText(lastLine)).toBeVisible();
-  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await sheet.getByRole('button', { name: 'Done' }).click();
 
   await page.clock.fastForward(7 * DAY_MS);
   await expect(title(page, 'Week of Mar 10')).toBeVisible();
@@ -91,7 +91,7 @@ test('a fake clock crosses two Mondays offline with no writes', async ({ page, c
   await expect(sheet.getByText('Retest one')).toBeHidden();
   await expect(sheet.getByText('Retest two')).toBeVisible();
   await expect(sheet.getByText(lastLine)).toBeVisible();
-  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await sheet.getByRole('button', { name: 'Done' }).click();
 
   await page.clock.fastForward(7 * DAY_MS);
   await expect(title(page, 'Week of Mar 17')).toBeVisible();
@@ -100,7 +100,7 @@ test('a fake clock crosses two Mondays offline with no writes', async ({ page, c
   sheet = await openDay(page, 'Strength one');
   await expect(sheet.getByText('Retest two')).toBeHidden();
   await expect(sheet.getByText(lastLine)).toBeVisible();
-  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await sheet.getByRole('button', { name: 'Done' }).click();
 
   await page.reload();
   await tab(page, 'Train').click();
@@ -193,7 +193,7 @@ test('shows the week and a day as approved, from imports, a mid-week version and
   const changes = page.getByRole('dialog', { name: 'What changed' });
   await expect(changes.getByText('Press day / Trap bar deadlift went from 3 x 8-12 to 3 x 6-10')).toBeVisible();
   await expect(changes.getByText('Invented reason for fewer reps.')).toBeVisible();
-  await changes.getByRole('button', { name: 'Cancel' }).click();
+  await changes.getByRole('button', { name: 'Done' }).click();
 
   await expect(page.getByText('The very end of the note.')).toBeHidden();
   await page.getByRole('button', { name: 'More', exact: true }).click();
@@ -223,14 +223,14 @@ test('shows the week and a day as approved, from imports, a mid-week version and
   await expect(heavy.getByText('Add weight next time')).toBeVisible();
   await expect(pair.getByText('Add weight next time')).toBeHidden();
   await expect(sheet.getByRole('region', { name: 'Extras' })).toContainText('2 × 15, bodyweight');
-  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await sheet.getByRole('button', { name: 'Done' }).click();
 
   await page.getByRole('button', { name: 'Program', exact: true }).click();
   const standing = page.getByRole('dialog', { name: 'Program' });
   await expect(standing.getByText('Invented plan text that stays folded until tapped.')).toBeHidden();
   await standing.getByText('The long plan').click();
   await expect(standing.getByText('Invented plan text that stays folded until tapped.')).toBeVisible();
-  await standing.getByRole('button', { name: 'Cancel' }).click();
+  await standing.getByRole('button', { name: 'Done' }).click();
 
   await page.getByRole('button', { name: 'Weigh in', exact: true }).click();
   const entry = page.getByRole('dialog', { name: 'Weigh-in' });

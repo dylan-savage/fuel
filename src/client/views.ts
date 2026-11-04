@@ -117,6 +117,13 @@ async function coachWeekView(r: ReplicaReader, inEffect: Program, monday: LocalD
   return coachWeek(version ?? null, thisWeek);
 }
 
+/** The Sunday review publishes for Monday, so its report shows when it lands instead of a day later. */
+async function coachCard(r: ReplicaReader, inEffect: Program, monday: LocalDate, today: LocalDate): Promise<CoachWeek> {
+  const upcoming = await r.programOn(addDays(monday, 7));
+  if (upcoming !== undefined && upcoming.effectiveFrom > today && upcoming.report !== undefined) return coachWeek(inEffect, [upcoming]);
+  return coachWeekView(r, inEffect, monday);
+}
+
 export interface WeekView extends WeekProgress {
   readonly minimum: number | null;
   readonly coach: CoachWeek;
@@ -139,7 +146,7 @@ export async function weekView(r: ReplicaReader, today: LocalDate): Promise<Week
     r.between('session', monday, sunday),
     r.between('performance', monday, sunday),
     r.get('weighIn', weighInId(today)),
-    coachWeekView(r, program, monday),
+    coachCard(r, program, monday, today),
   ]);
   return {
     ...weekProgress({ program, sessions, performances, today }),

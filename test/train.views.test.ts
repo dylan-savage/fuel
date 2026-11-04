@@ -75,6 +75,21 @@ describe('weekView', () => {
     expect(week.strip).toEqual([true, true]);
   });
 
+  it('shows the Sunday report as soon as it lands, before its week starts', async () => {
+    const current = program(MONDAY, [benchDay], { report: { text: 'This week.' } });
+    const replica = await replicaWith({ programs: [current, program('2030-03-11', [benchDay, rowDay], { report: { text: 'Next week.' } })] });
+    const sunday = required(await weekView(replica.read, day('2030-03-10')));
+    expect(sunday.coach).toMatchObject({ kind: 'checked-in', report: { text: 'Next week.' } });
+    expect(sunday.coach.kind === 'checked-in' ? sunday.coach.changes.map((c) => c.target) : []).toEqual(['day:pull']);
+    expect(sunday.days.map((d) => d.plan.key)).toEqual(['push']);
+    expect(required(await weekView(replica.read, day('2030-03-11'))).coach).toMatchObject({ report: { text: 'Next week.' } });
+  });
+
+  it('keeps this week\'s report when an upcoming version has none', async () => {
+    const replica = await replicaWith({ programs: [program(MONDAY, [benchDay], { report: { text: 'This week.' } }), program('2030-03-11', [benchDay])] });
+    expect(required(await weekView(replica.read, LATER)).coach).toMatchObject({ report: { text: 'This week.' } });
+  });
+
   it('derives "no check-in" from no version this week, and a check-in once one takes effect', async () => {
     const before = program('2030-02-25', [benchDay], { report: { text: 'Old report.' } });
     const replica = await replicaWith({ programs: [before] });

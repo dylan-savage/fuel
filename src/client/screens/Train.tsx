@@ -8,7 +8,7 @@ import { clipped, pastMoment, prescriptionText, shortDate, weekdayName } from '.
 import { Icon, Sheet, TitleBar } from './ui.js';
 import { WeighInSheet } from './Weight.js';
 
-const REPORT_LIMIT = 280;
+const REPORT_LIMIT = 160;
 const NOTE_LIMIT = 120;
 
 function LongText({ text, limit }: { readonly text: string; readonly limit: number }) {
@@ -62,7 +62,7 @@ const CHANGE_WORDS: Readonly<Record<DiffKind, (item: DiffItem) => string>> = {
 
 function ChangesSheet({ changes, onClose }: { readonly changes: readonly DiffItem[]; readonly onClose: () => void }) {
   return (
-    <Sheet title="What changed" onClose={onClose}>
+    <Sheet title="What changed" onClose={onClose} closeLabel="Done">
       <ul class="list" aria-label="Changes">
         {changes.map((item, i) => (
           <li class="change" key={i}>
@@ -179,7 +179,7 @@ function BlockBody({ block, preview, today }: { readonly block: Block; readonly 
 function DaySheet({ dayKey, label, today, onClose }: { readonly dayKey: DayKey; readonly label: string; readonly today: LocalDate; readonly onClose: () => void }) {
   const preview = useLive((r) => dayPreviewView(r, dayKey, today), [dayKey, today]);
   return (
-    <Sheet title={label} onClose={onClose}>
+    <Sheet title={label} onClose={onClose} closeLabel="Done">
       {preview === null && <p class="empty">This week's plan no longer holds this day.</p>}
       {preview !== null && preview !== undefined && (
         <>
@@ -211,7 +211,7 @@ function DaySheet({ dayKey, label, today, onClose }: { readonly dayKey: DayKey; 
 
 function ProgramSheet({ standing, onClose }: { readonly standing: readonly StandingText[]; readonly onClose: () => void }) {
   return (
-    <Sheet title="Program" onClose={onClose}>
+    <Sheet title="Program" onClose={onClose} closeLabel="Done">
       <ul class="list" aria-label="Program sections">
         {standing.map((section) => (
           <li key={section.key}>
@@ -250,9 +250,6 @@ function Week({ week, today }: { readonly week: WeekView; readonly today: LocalD
         </>
       )}
       <CoachCard coach={week.coach} today={today} />
-      {week.notes.map((note, i) => (
-        <NoteCard key={i} note={note} />
-      ))}
       {planned > 0 && (
         <ul class="list" aria-label="Days">
           {week.days.map((day) => (
@@ -269,6 +266,9 @@ function Week({ week, today }: { readonly week: WeekView; readonly today: LocalD
           ))}
         </div>
       )}
+      {week.notes.map((note, i) => (
+        <NoteCard key={i} note={note} />
+      ))}
       {week.standing.length > 0 && (
         <ul class="list">
           <li>

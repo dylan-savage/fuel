@@ -374,7 +374,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       const changes = page.getByRole('dialog', { name: 'What changed' });
       await expect(changes.getByRole('listitem')).not.toHaveCount(0);
       await page.screenshot({ path: join(dir, `train-changes-${colorScheme}.png`), animations: 'disabled' });
-      await changes.getByRole('button', { name: 'Cancel' }).click();
+      await changes.getByRole('button', { name: 'Done' }).click();
 
       await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Upper body/ }).click();
       const preview = page.getByRole('dialog', { name: 'Upper body strength and accessory work' });
@@ -383,13 +383,13 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await preview.getByText('Cue', { exact: true }).first().click();
       await preview.getByRole('region', { name: 'Easy ride, cardio' }).scrollIntoViewIfNeeded();
       await page.screenshot({ path: join(dir, `train-day-bottom-${colorScheme}.png`), animations: 'disabled' });
-      await preview.getByRole('button', { name: 'Cancel' }).click();
+      await preview.getByRole('button', { name: 'Done' }).click();
 
       await page.getByRole('button', { name: 'Program', exact: true }).click();
       const standing = page.getByRole('dialog', { name: 'Program' });
       await standing.getByText('How the year is laid out').click();
       await page.screenshot({ path: join(dir, `train-program-${colorScheme}.png`), animations: 'disabled' });
-      await standing.getByRole('button', { name: 'Cancel' }).click();
+      await standing.getByRole('button', { name: 'Done' }).click();
 
       await page.clock.setFixedTime(new Date('2020-01-08T12:00:00'));
       await page.reload();
