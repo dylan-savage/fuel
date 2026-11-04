@@ -1,33 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { Program, dayNotesFor, dayParts, exerciseCount, notesFor, plannedDay, programOn, stepsOf, type Block, type LiftsBlock, type PlannedDay } from '../src/domain/program.js';
-import { checklist, day, dayKey, liftsBlock, program, slot } from './training.fixtures.js';
+import { Program, dayNotesFor, dayParts, exerciseCount, notesFor, plannedDay, programOn, slotIn, type Block, type PlannedDay } from '../src/domain/program.js';
+import { checklist, day, dayKey, liftsBlock, program, slot, slotId } from './training.fixtures.js';
 
 const PUSH = dayKey('push');
-
-function stepNames(block: LiftsBlock) {
-  return stepsOf(block).map((s) => `${s.slot.id}.${s.round}${s.endsRound ? ' rest' : ''}`);
-}
-
-describe('stepsOf', () => {
-  it('walks straight sets as the one-slot case, resting after every set', () => {
-    expect(stepNames(liftsBlock('a', [slot('a1', 'bench-press', 3)]))).toEqual(['a1.1 rest', 'a1.2 rest', 'a1.3 rest']);
-  });
-
-  it('walks a superset A1, A2, rest', () => {
-    const block = liftsBlock('a', [slot('a1', 'bench-press', 2), slot('a2', 'cable-row', 2)]);
-    expect(stepNames(block)).toEqual(['a1.1', 'a2.1 rest', 'a1.2', 'a2.2 rest']);
-  });
-
-  it('drops a 2-set slot out of the last round of 3, and the round still rests', () => {
-    const block = liftsBlock('a', [slot('a1', 'bench-press', 3), slot('a2', 'cable-row', 2)]);
-    expect(stepNames(block)).toEqual(['a1.1', 'a2.1 rest', 'a1.2', 'a2.2 rest', 'a1.3 rest']);
-  });
-
-  it('rests after the first slot in the last round when the 2-set slot comes first', () => {
-    const block = liftsBlock('a', [slot('a1', 'cable-row', 2), slot('a2', 'bench-press', 3)]);
-    expect(stepNames(block)).toEqual(['a1.1', 'a2.1 rest', 'a1.2', 'a2.2 rest', 'a2.3 rest']);
-  });
-});
 
 describe('plannedDay', () => {
   const retest: Block = liftsBlock('retest', [slot('r1', 'goblet-squat', 1)], { onlyWeek: day('2030-03-11') });
@@ -62,7 +37,7 @@ describe('dayParts', () => {
     expect(parts.map((part) => part.block.id)).toEqual(['warm', 'main', 'extra']);
   });
 
-  it('letters the supersets in reading order and counts rounds to the largest set count', () => {
+  it('counts a superset\'s rounds to the largest set count, and leaves a one-lift block unmarked', () => {
     const parts = dayParts(
       planOf(
         liftsBlock('straight', [slot('a1', 'bench-press', 4)]),
@@ -71,7 +46,17 @@ describe('dayParts', () => {
         liftsBlock('second', [slot('c1', 'squat', 2), slot('c2', 'crunch', 2)]),
       ),
     );
-    expect(parts.map((part) => part.superset)).toEqual([null, { letter: 'A', rounds: 3 }, null, { letter: 'B', rounds: 2 }]);
+    expect(parts.map((part) => part.superset)).toEqual([null, { rounds: 3 }, null, { rounds: 2 }]);
+  });
+});
+
+describe('slotIn', () => {
+  const pair = liftsBlock('pair', [slot('a1', 'bench-press', 3), slot('a2', 'cable-row', 3)]);
+  const plan: PlannedDay = { key: PUSH, label: 'Push', minutes: undefined, blocks: [checklist('warm'), pair] };
+
+  it('finds a slot with its block, and nothing for a slot the plan does not hold', () => {
+    expect(slotIn(plan, slotId('a2'))).toMatchObject({ block: { id: 'pair' }, slot: { liftId: 'cable-row' } });
+    expect(slotIn(plan, slotId('gone'))).toBeUndefined();
   });
 });
 

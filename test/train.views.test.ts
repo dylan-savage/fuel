@@ -3,13 +3,14 @@ import Dexie from 'dexie';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openReplica, type Replica } from '../src/client/replica.js';
-import { dayPreviewView, weekView, type DayPreview, type WeekView } from '../src/client/views.js';
+import { dayLiftIds, dayScreenView, lastTimesView, weekView, type DayScreenView, type WeekView } from '../src/client/views.js';
 import { weighInId } from '../src/domain/body.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import type { Performance } from '../src/domain/lifts.js';
 import type { Program } from '../src/domain/program.js';
+import { lastLineOf } from '../src/domain/progress.js';
 import type { Session } from '../src/domain/session.js';
-import { T0, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, slotId, target } from './training.fixtures.js';
+import { T0, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, target } from './training.fixtures.js';
 
 const open: Replica[] = [];
 afterEach(() => {
@@ -60,7 +61,6 @@ describe('weekView', () => {
     const week = required(await weekView(replica.read, LATER));
     expect(week.days.map((d) => d.plan.label)).toEqual(['Push, renamed', 'Pull']);
     expect(doneOn(week, 'push')).toBe('2030-03-05');
-    expect(week.suggested?.key).toBe('pull');
   });
 
   it('counts an imported session with no pin and a cardio-only one without crashing, and only in their week', async () => {
@@ -134,26 +134,65 @@ describe('weekView as a live query', () => {
   });
 });
 
-describe('dayPreviewView', () => {
+describe('dayScreenView', () => {
   const superset = liftsBlock('pair', [slot('a1', 'bench-press', 3, { target: target(3, 8, 12) }), slot('a2', 'cable-row', 3, { target: target(3, 8, 12, { perSide: 'left-first' }) })], { restSeconds: 75 });
   const version = program(MONDAY, [
     {
       key: 'push',
+      label: 'Push',
       blocks: [liftsBlock('extra', [slot('e1', 'crunch', 2)], { optional: true }), checklist('warm'), superset, checklist('retest', { onlyWeek: day('2030-02-25') })],
     },
   ]);
   const PUSH = dayKey('push');
+  const today = { key: PUSH, date: LATER };
+  const held = (view: DayScreenView | null): DayScreenView => {
+    if (view === null) throw new Error('expected a day');
+    return view;
+  };
 
   it('reads notes, then blocks with lapsed ones gone and optional ones last, for that day only', async () => {
     const replica = await replicaWith({ programs: [{ ...version, notes: [{ text: 'For push.', day: PUSH }, { text: 'For the week.' }] }] });
-    const preview = await dayPreviewView(replica.read, PUSH, LATER);
-    expect(preview?.notes.map((n) => n.text)).toEqual(['For push.']);
-    expect(preview?.parts.map((p) => p.block.id)).toEqual(['warm', 'pair', 'extra']);
-    expect(preview?.parts[1]?.superset).toEqual({ letter: 'A', rounds: 3 });
-    expect(await dayPreviewView(replica.read, dayKey('legs'), LATER)).toBeNull();
+    const view = held(await dayScreenView(replica.read, today));
+    expect(view.notes.map((n) => n.text)).toEqual(['For push.']);
+    expect(view.parts.map((p) => p.block.id)).toEqual(['warm', 'pair', 'extra']);
+    expect(view.parts[1]?.superset).toEqual({ rounds: 3 });
+    expect(await dayScreenView(replica.read, { key: dayKey('legs'), date: LATER })).toBeNull();
   });
 
-  it('shows last-time lines as typed, in kg, per side and under an alias', async () => {
+  it('reads the version in effect with nothing logged, and has no session to show', async () => {
+    const replica = await replicaWith({ programs: [version] });
+    expect(held(await dayScreenView(replica.read, today))).toMatchObject({ session: null, performances: [], cardioDone: false, plan: { label: 'Push' } });
+  });
+
+  it('reads the pinned version once the day has a session, and the newer one on another date', async () => {
+    const newer = program('2030-03-07', [{ key: 'push', label: 'Push, renamed', blocks: [superset] }], { publishedAt: ms(T0 + 1) });
+    const pinned = session({ date: LATER, day: { key: PUSH, label: 'Push' }, programId: version.id });
+    const replica = await replicaWith({ programs: [version, newer], sessions: [pinned] });
+    expect(held(await dayScreenView(replica.read, today)).plan.label).toBe('Push');
+    expect(held(await dayScreenView(replica.read, { key: PUSH, date: day('2030-03-08') })).plan.label).toBe('Push, renamed');
+  });
+
+  it('falls back to the version in effect when this phone does not hold the pin', async () => {
+    const unheld = session({ date: LATER, day: { key: PUSH, label: 'Push' }, programId: program('2029-01-07', [benchDay]).id });
+    const replica = await replicaWith({ programs: [version], sessions: [unheld] });
+    expect(held(await dayScreenView(replica.read, today))).toMatchObject({ plan: { label: 'Push' }, session: { id: unheld.id } });
+  });
+
+  it('holds only that day\'s session and sets on that date', async () => {
+    const pulled = session({ date: LATER, day: { key: dayKey('pull'), label: 'Pull' }, programId: version.id });
+    const mine = session({ date: LATER, day: { key: PUSH, label: 'Push' }, programId: version.id });
+    const earlier = session({ date: day('2030-03-05'), day: { key: PUSH, label: 'Push' }, programId: version.id });
+    const replica = await replicaWith({
+      programs: [version],
+      sessions: [pulled, mine, earlier],
+      performances: [performance({ session: mine.id, date: '2030-03-07', slot: 'a1', lift: 'bench-press', sets: [lb(100, 8, 1)] }), performance({ session: pulled.id, date: '2030-03-07', slot: 'b1', lift: 'cable-row', sets: [lb(50, 8, 1)] }), performance({ session: earlier.id, date: '2030-03-05', slot: 'a1', lift: 'bench-press', sets: [lb(90, 8, 1)] })],
+    });
+    const view = held(await dayScreenView(replica.read, today));
+    expect(view.session?.id).toBe(mine.id);
+    expect(view.performances.map((p) => p.sets[0]?.load)).toEqual([lb(100, 8).load]);
+  });
+
+  it('shows last-time lines as typed, in kg, per side and under an alias, through the read the day makes', async () => {
     const withAlias = { ...version, lifts: version.lifts.map((l) => (l.id === 'bench-press' ? { ...l, aliases: [lift('flat-bench')] } : l)) };
     const replica = await replicaWith({
       programs: [withAlias],
@@ -163,40 +202,50 @@ describe('dayPreviewView', () => {
         performance({ date: '2030-02-20', lift: 'cable-row', sets: [sides(25, 12, 12)] }),
       ],
     });
-    const lasts = (await dayPreviewView(replica.read, PUSH, LATER))?.lasts;
-    expect(lasts?.get(slotId('a1'))).toEqual({ date: '2030-03-01', line: '60–62.5 kg × 8/8/6', addWeight: false });
-    expect(lasts?.get(slotId('a2'))).toEqual({ date: '2030-02-28', line: '30 lb × 10+9', addWeight: false });
-    expect(lasts?.get(slotId('e1'))).toBeNull();
+    const view = held(await dayScreenView(replica.read, today));
+    const rows = await lastTimesView(replica.read, dayLiftIds(view, []), LATER);
+    const lastOf = (name: string) => lastLineOf({ lift: lift(name), rows, book: view.book, before: LATER });
+    expect(lastOf('bench-press')).toEqual({ date: '2030-03-01', line: '60–62.5 kg × 8/8/6', addWeight: false });
+    expect(lastOf('cable-row')).toEqual({ date: '2030-02-28', line: '30 lb × 10+9', addWeight: false });
+    expect(lastOf('crunch')).toBeNull();
   });
 
-  it('does not re-run when a set is logged today, while the week does, and does when an earlier day changes', async () => {
+  it('asks last time of a swap with no set yet, and of what the day has logged', async () => {
+    const replica = await replicaWith({ programs: [version] });
+    const view = held(await dayScreenView(replica.read, today));
+    expect(dayLiftIds(view, [])).not.toContain('landmine-press');
+    expect(dayLiftIds(view, [{ liftId: lift('landmine-press') }])).toContain('landmine-press');
+    expect(dayLiftIds({ ...view, performances: [performance({ lift: 'seal-row', sets: [lb(50, 8)] })] }, [])).toContain('seal-row');
+  });
+
+  it('re-runs on a set today, while the last-time read does not until an earlier day changes', async () => {
     // A live query only runs where Dexie found a global indexedDB, which Node has none of.
     Object.assign(Dexie.dependencies, { indexedDB: new IDBFactory(), IDBKeyRange });
     const older = performance({ date: '2030-03-01', lift: 'bench-press', sets: [lb(100, 8)] });
     const replica = await replicaWith({ programs: [version], performances: [older] });
-    let previewRuns = 0;
-    const previews: (DayPreview | null)[] = [];
-    const weeks: (WeekView | null)[] = [];
-    const stopPreview = replica
+    let lastRuns = 0;
+    const views: (DayScreenView | null)[] = [];
+    const reads: (readonly Performance[])[] = [];
+    const stopDay = replica.live((r) => dayScreenView(r, today)).subscribe((view) => views.push(view));
+    const stopLast = replica
       .live((r) => {
-        previewRuns++;
-        return dayPreviewView(r, PUSH, LATER);
+        lastRuns++;
+        return lastTimesView(r, [lift('bench-press')], LATER);
       })
-      .subscribe((preview) => previews.push(preview));
-    const stopWeek = replica.live((r) => weekView(r, LATER)).subscribe((week) => weeks.push(week));
-    await vi.waitFor(() => expect(weeks).toHaveLength(1));
-    expect(weeks[0]?.done).toBe(0);
+      .subscribe((rows) => reads.push(rows));
+    await vi.waitFor(() => expect(views).toHaveLength(1));
+    await vi.waitFor(() => expect(reads).toHaveLength(1));
 
-    const today = session({ date: LATER, day: { key: PUSH, label: 'Push' }, programId: version.id });
-    await put(replica, { sessions: [today], performances: [performance({ session: today.id, date: LATER, slot: 'a1', lift: 'bench-press', sets: [lb(110, 8, 1)] })] });
-    await vi.waitFor(() => expect(weeks.at(-1)?.done).toBe(1));
+    const mine = session({ date: LATER, day: { key: PUSH, label: 'Push' }, programId: version.id });
+    await put(replica, { sessions: [mine], performances: [performance({ session: mine.id, date: '2030-03-07', slot: 'a1', lift: 'bench-press', sets: [lb(110, 8, 1)] })] });
+    await vi.waitFor(() => expect(views.at(-1)?.performances).toHaveLength(1));
     await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(previewRuns).toBe(1);
+    expect(lastRuns).toBe(1);
 
     await put(replica, { performances: [{ ...older, sets: [lb(105, 8)] }] });
-    await vi.waitFor(() => expect(previews.at(-1)?.lasts.get(slotId('a1'))?.line).toBe('105 lb × 8'));
-    expect(previewRuns).toBe(2);
-    stopPreview();
-    stopWeek();
+    await vi.waitFor(() => expect(reads.at(-1)?.[0]?.sets[0]).toEqual(lb(105, 8)));
+    expect(lastRuns).toBe(2);
+    stopDay();
+    stopLast();
   });
 });

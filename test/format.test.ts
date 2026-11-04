@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { checklistLabel, clipped, editable, lbField, macrosLine, parseNumber, pastMoment, planSections, prescriptionText, servingLabel, supersetLabel, targetNotes, weekdayName } from '../src/client/screens/format.js';
+import { checklistLabel, clipped, editable, lbField, macrosLine, parseNumber, pastMoment, planSections, prescriptionText, servingLabel, setOfText, supersetLabel, targetNotes, weekdayName } from '../src/client/screens/format.js';
 import { KG_PER_LB } from '../src/domain/goals.js';
 import { dayParts, type PlannedDay } from '../src/domain/program.js';
 import { checklist, day, dayKey, liftsBlock, slot, target } from './training.fixtures.js';
@@ -91,6 +91,13 @@ describe('the Train tab\'s wording', () => {
         [null, 2],
       ]);
     });
+  });
+
+  it('counts a set within its exercise, and calls one past the prescription extra', () => {
+    const threeSets = { sets: 3, reps: { min: 8, max: 12 } };
+    expect(setOfText(threeSets, 1)).toBe('Set 1 of 3');
+    expect(setOfText(threeSets, 3)).toBe('Set 3 of 3');
+    expect(setOfText(threeSets, 4)).toBe('Extra set');
   });
 
   it('clips long text at a word and leaves short text whole', () => {

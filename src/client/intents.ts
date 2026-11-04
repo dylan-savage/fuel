@@ -22,14 +22,17 @@ import { EntryId, FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, Sess
 import type { PhoneMutation } from '../domain/kinds.js';
 import { SetLog, type SlotId } from '../domain/lifts.js';
 import type { CoreKey } from '../domain/nutrients.js';
-import { plannedDay, type BlockId, type DayKey } from '../domain/program.js';
+import { plannedDay, type BlockId, type Slot as ProgramSlot } from '../domain/program.js';
 import { Recipe, type EditedRef, type RecipeDraft, type SavedMeal, type SavedMealDraft } from '../domain/reuse.js';
 import {
+  afterSet,
   finishDocs,
   finishOf,
   isUnfinished,
   leftEmpty,
   performanceIdOf,
+  reopened,
+  sessionForDay,
   sessionPhase,
   sessionWorkoutId,
   setLogOf,
@@ -37,17 +40,16 @@ import {
   withEditedSet,
   withSet,
   withSkip,
-  withoutSkip,
-  type DiaryResult,
+  type DayRef,
   type FinishDocs,
+  type LiftChoice,
   type Session,
   type SessionLogs,
   type SetEntry,
-  type SetPlace,
   type TrainingNote,
 } from '../domain/session.js';
 import type { Replica } from './replica.js';
-import { openSessionView, sessionLogsView, usesView } from './views.js';
+import { sessionLogsView, usesView } from './views.js';
 
 /** Restores what an intent changed. Offered in the undo toast. */
 export type Undo = () => Promise<void>;
@@ -64,20 +66,6 @@ export interface UsesUpdated {
   readonly recipes: number;
   readonly meals: number;
   readonly undo: Undo;
-}
-
-/** What tapping Finish did. */
-export type Finished =
-  /** Finished already, so nothing changed and there is nothing to say. */
-  | { readonly kind: 'already' }
-  /** Nothing was done in it, so it was removed rather than counted. */
-  | { readonly kind: 'dropped'; readonly undo: Undo }
-  | { readonly kind: 'finished'; readonly diary: DiaryResult; readonly minutes: number | null; readonly undo: Undo };
-
-/** A forgotten session finished at its last set. */
-export interface Settled {
-  readonly label: string | null;
-  readonly at: Millis;
 }
 
 export interface Intents {
@@ -147,29 +135,27 @@ export interface Intents {
   editWorkout(id: WorkoutId, draft: WorkoutDraft): Promise<Undo>;
   deleteWorkout(id: WorkoutId): Promise<Undo>;
   /**
-   * Starts that day pinned to the version in effect. Null when a session is already open, as on a
-   * second tap, or when the plan does not hold the day.
+   * Stores a set at its tap. Null while the entry is incomplete, or when the plan does not hold the
+   * day. A set on a slot he skipped takes the skip back, and a set in a session settled earlier that
+   * date reopens it, both in the same commit.
    */
-  startSession(key: DayKey, today: LocalDate): Promise<Undo | null>;
-  /**
-   * Stores a set at its tap. Null while the entry is incomplete. A set on a slot he skipped takes the skip back in the same commit.
-   */
-  logSet(place: SetPlace, entry: SetEntry): Promise<Undo | null>;
-  /** Changes one logged set, keeping its tap, or removes it when `entry` is null. Removing the last removes the performance. */
+  logSet(place: { readonly day: DayRef; readonly slot: ProgramSlot; readonly lift: LiftChoice }, entry: SetEntry): Promise<Undo | null>;
+  /** Changes one logged set, keeping its tap, or removes it when `entry` is null. Removing the last removes the performance. A settled session reopens, so its workout catches up. */
   editSet(ref: { readonly performanceId: PerformanceId; readonly index: number }, entry: SetEntry | null): Promise<Undo>;
   /** Blank text removes the note. */
   noteExercise(id: PerformanceId, text: string): Promise<Undo>;
   /** Blank text removes the note. */
-  noteSession(id: SessionId, text: string): Promise<Undo>;
-  skipSlot(id: SessionId, slot: SlotId, note: string): Promise<Undo>;
-  /** A checklist's Done, or passing over a cardio block. */
-  checkBlock(id: SessionId, block: BlockId): Promise<Undo>;
+  noteSession(day: DayRef, text: string): Promise<Undo>;
+  skipSlot(day: DayRef, slot: SlotId, note: string): Promise<Undo>;
+  /** A checklist's Done. */
+  checkBlock(day: DayRef, block: BlockId): Promise<Undo>;
   /** A loose line to the coach with no session under it. */
   tellCoach(text: string, date: LocalDate): Promise<Undo>;
-  /** Sets the finish and writes the session's workout in one commit. Undo reopens it and removes the workout. */
-  finishSession(id: SessionId): Promise<Finished>;
-  /** Finishes every forgotten session at its last set and removes any left empty. Finds nothing to do when run again. */
-  settleLapsed(): Promise<readonly Settled[]>;
+  /**
+   * Finishes every session idle long enough at its last set, with its workout, and removes any left
+   * empty. Finds nothing to do when run again.
+   */
+  settleLapsed(): Promise<void>;
 }
 
 export interface Clock {
@@ -206,7 +192,7 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
   };
 
   const fastNow = async () => fastState(withEnds(await replica.read.all('fast'), await replica.read.all('fastEnd')));
-  /** Fast and session intents read a document and then write it, so they run one at a time: a double tap cannot open two or lose a set. */
+  /** Fast and session intents read a document and then write it, so they run one at a time: a double tap cannot open two fasts, make two sessions or lose a set. */
   let queue: Promise<unknown> = Promise.resolve();
   const oneAtATime = <T>(work: () => Promise<T>): Promise<T> => {
     const run = queue.then(work);
@@ -220,7 +206,30 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
     return finishDocs({ logs, finishedAt, others, kg: bodyWeightOn(weighIns, profile, session.date)?.kg });
   };
   const finishMutations = ({ session, workout }: FinishDocs): PhoneMutation[] => [{ op: 'put', kind: 'session', doc: session }, ...(workout === null ? [] : [{ op: 'put' as const, kind: 'workout' as const, doc: workout }])];
-  const putSession = (doc: Session): Undo => () => replica.commit([{ op: 'put', kind: 'session', doc }]);
+  /**
+   * What a write for a day lands on: that date's session for the day, else a new one pinned to the
+   * version in effect, which the write commits alongside itself. So only a write makes a session and
+   * opening a screen never does. Null when the plan does not hold the day.
+   */
+  const sessionToWrite = async ({ key, date }: DayRef, at: Millis): Promise<{ readonly session: Session; readonly isNew: boolean } | null> => {
+    const held = sessionForDay(await replica.read.onDate('session', date), key);
+    if (held !== undefined) return { session: held, isNew: false };
+    const program = await replica.read.programOn(date);
+    const plan = program === undefined ? undefined : plannedDay(program, key, date);
+    if (program === undefined || plan === undefined) return null;
+    return { session: { id: SessionId.parse(clock.newId()), date, day: { key, label: plan.label }, programId: program.id, startedAt: at }, isNew: true };
+  };
+  const restoreSession = ({ session, isNew }: { readonly session: Session; readonly isNew: boolean }): PhoneMutation => (isNew ? { op: 'delete', kind: 'session', id: session.id } : { op: 'put', kind: 'session', doc: session });
+  /** A tap with no set under it. A new session with nothing to hold, as from a blank note, is not written. */
+  const changeDay = (day: DayRef, change: (session: Session) => Session): Promise<Undo> =>
+    oneAtATime(async () => {
+      const target = await sessionToWrite(day, clock.now());
+      if (target === null) return nothingToUndo;
+      const next = change(target.session);
+      if (target.isNew && leftEmpty({ session: next, performances: [] })) return nothingToUndo;
+      await replica.commit([{ op: 'put', kind: 'session', doc: next }]);
+      return () => replica.commit([restoreSession(target)]);
+    });
 
   const putRecipe = async (id: RecipeId, draft: RecipeDraft): Promise<Recipe> => {
     const before = await replica.read.get('recipe', id);
@@ -403,28 +412,21 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
       return () => replica.commit([{ op: 'put', kind: 'workout', doc: before }]);
     },
 
-    startSession: (key, today) =>
+    logSet: ({ day, slot, lift }, entry) =>
       oneAtATime(async () => {
-        const startedAt = clock.now();
-        if ((await openSessionView(replica.read, { today, now: startedAt })) !== null) return null;
-        const program = await replica.read.programOn(today);
-        const plan = program === undefined ? undefined : plannedDay(program, key, today);
-        if (program === undefined || plan === undefined) return null;
-        const session: Session = { id: SessionId.parse(clock.newId()), date: today, day: { key, label: plan.label }, programId: program.id, startedAt };
-        await replica.commit([{ op: 'put', kind: 'session', doc: session }]);
-        return () => replica.commit([{ op: 'delete', kind: 'session', id: session.id }]);
-      }),
-
-    logSet: (place, entry) =>
-      oneAtATime(async () => {
-        const set = setLogOf(entry, clock.now());
+        const at = clock.now();
+        const set = setLogOf(entry, at);
         if (set === null) return null;
+        const target = await sessionToWrite(day, at);
+        if (target === null) return null;
+        const { session, isNew } = target;
+        const place = { session, slot, lift };
         const id = performanceIdOf(place);
-        const [before, session] = await Promise.all([replica.read.get('performance', id), replica.read.get('session', place.session.id)]);
-        const skipped = session?.skips?.some((skip) => skip.slotId === place.slot.id) === true ? session : null;
-        await replica.commit([{ op: 'put', kind: 'performance', doc: withSet(place, before, set) }, ...(skipped === null ? [] : [{ op: 'put' as const, kind: 'session' as const, doc: withoutSkip(skipped, place.slot.id) }])]);
-        return () =>
-          replica.commit([before === undefined ? { op: 'delete', kind: 'performance', id } : { op: 'put', kind: 'performance', doc: before }, ...(skipped === null ? [] : [{ op: 'put' as const, kind: 'session' as const, doc: skipped }])]);
+        const before = await replica.read.get('performance', id);
+        const next = afterSet(session, slot.id);
+        const touchesSession = isNew || next !== session;
+        await replica.commit([{ op: 'put', kind: 'performance', doc: withSet(place, before, set) }, ...(touchesSession ? [{ op: 'put' as const, kind: 'session' as const, doc: next }] : [])]);
+        return () => replica.commit([before === undefined ? { op: 'delete', kind: 'performance', id } : { op: 'put', kind: 'performance', doc: before }, ...(touchesSession ? [restoreSession(target)] : [])]);
       }),
 
     editSet: ({ performanceId, index }, entry) =>
@@ -435,8 +437,10 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
         const set = entry === null ? null : setLogOf(entry, old.at);
         if (entry !== null && set === null) return nothingToUndo;
         const next = withEditedSet(before, index, set === null ? null : keepUnknown(SetLog.shape, old, set));
-        await replica.commit([next === null ? { op: 'delete', kind: 'performance', id: performanceId } : { op: 'put', kind: 'performance', doc: next }]);
-        return () => replica.commit([{ op: 'put', kind: 'performance', doc: before }]);
+        const session = await replica.read.get('session', before.sessionId);
+        const settled = session?.finishedAt === undefined ? [] : [session];
+        await replica.commit([next === null ? { op: 'delete', kind: 'performance', id: performanceId } : { op: 'put', kind: 'performance', doc: next }, ...settled.map((doc): PhoneMutation => ({ op: 'put', kind: 'session', doc: reopened(doc) }))]);
+        return () => replica.commit([{ op: 'put', kind: 'performance', doc: before }, ...settled.map((doc): PhoneMutation => ({ op: 'put', kind: 'session', doc }))]);
       }),
 
     noteExercise: (id, text) =>
@@ -449,31 +453,16 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
         return () => replica.commit([{ op: 'put', kind: 'performance', doc: before }]);
       }),
 
-    noteSession: (id, text) =>
-      oneAtATime(async () => {
-        const before = await replica.read.get('session', id);
-        if (before === undefined) return nothingToUndo;
-        const { note: _note, ...rest } = before;
+    noteSession: (day, text) =>
+      changeDay(day, (session) => {
+        const { note: _note, ...rest } = session;
         const note = text.trim();
-        await replica.commit([{ op: 'put', kind: 'session', doc: note === '' ? rest : { ...rest, note } }]);
-        return putSession(before);
+        return note === '' ? rest : { ...rest, note };
       }),
 
-    skipSlot: (id, slot, note) =>
-      oneAtATime(async () => {
-        const before = await replica.read.get('session', id);
-        if (before === undefined) return nothingToUndo;
-        await replica.commit([{ op: 'put', kind: 'session', doc: withSkip(before, slot, note) }]);
-        return putSession(before);
-      }),
+    skipSlot: (day, slot, note) => changeDay(day, (session) => withSkip(session, slot, note)),
 
-    checkBlock: (id, block) =>
-      oneAtATime(async () => {
-        const before = await replica.read.get('session', id);
-        if (before === undefined) return nothingToUndo;
-        await replica.commit([{ op: 'put', kind: 'session', doc: withChecked(before, block) }]);
-        return putSession(before);
-      }),
+    checkBlock: (day, block) => changeDay(day, (session) => withChecked(session, block)),
 
     tellCoach: async (text, date) => {
       const note: TrainingNote = { id: TrainingNoteId.parse(clock.newId()), date, text: text.trim(), at: clock.now() };
@@ -481,41 +470,24 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
       return () => replica.commit([{ op: 'delete', kind: 'trainingNote', id: note.id }]);
     },
 
-    finishSession: (id) =>
-      oneAtATime(async (): Promise<Finished> => {
-        const before = await replica.read.get('session', id);
-        if (before === undefined || before.finishedAt !== undefined) return { kind: 'already' };
-        const logs = await sessionLogsView(replica.read, before);
-        if (leftEmpty(logs)) {
-          await replica.commit([{ op: 'delete', kind: 'session', id }]);
-          return { kind: 'dropped', undo: putSession(before) };
-        }
-        const now = clock.now();
-        const docs = await finishWrites(logs, finishOf(logs, now) ?? now);
-        await replica.commit(finishMutations(docs));
-        const reopen: Undo = () => replica.commit([{ op: 'put', kind: 'session', doc: before }, ...(docs.workout === null ? [] : [{ op: 'delete' as const, kind: 'workout' as const, id: sessionWorkoutId(before) }])]);
-        return { kind: 'finished', diary: docs.diary, minutes: docs.workout?.minutes ?? null, undo: reopen };
-      }),
-
     settleLapsed: () =>
       oneAtATime(async () => {
         const now = clock.now();
         const writes: PhoneMutation[] = [];
-        const settled: Settled[] = [];
         for (const session of (await replica.read.all('session')).filter(isUnfinished)) {
           const logs = await sessionLogsView(replica.read, session);
           if (sessionPhase(logs, now) !== 'lapsed') continue;
-          if (leftEmpty(logs)) {
-            writes.push({ op: 'delete', kind: 'session', id: session.id });
+          const finishedAt = finishOf(logs, now);
+          if (finishedAt !== null) {
+            writes.push(...finishMutations(await finishWrites(logs, finishedAt)));
             continue;
           }
-          const finishedAt = finishOf(logs, now);
-          if (finishedAt === null) continue;
-          writes.push(...finishMutations(await finishWrites(logs, finishedAt)));
-          settled.push({ label: session.day?.label ?? null, at: finishedAt });
+          // No timed set left, so a workout from when it had some says something untrue.
+          const stale = await replica.read.get('workout', sessionWorkoutId(session));
+          if (stale !== undefined) writes.push({ op: 'delete', kind: 'workout', id: stale.id });
+          if (leftEmpty(logs)) writes.push({ op: 'delete', kind: 'session', id: session.id });
         }
         if (writes.length > 0) await replica.commit(writes);
-        return settled;
       }),
   };
 }

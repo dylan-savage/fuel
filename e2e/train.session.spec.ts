@@ -1,7 +1,7 @@
 /**
- * Logging at the gym and finishing, on a production build. Each test keeps to its own invented
- * week, later than any other spec's clock and earlier than the test before it, so a session one
- * leaves open is still in the future for the next and nothing settles it.
+ * Logging at the gym, on a production build. Each test keeps to its own invented week, later than
+ * any other spec's clock and earlier than the test before it, so a session one leaves open is still
+ * in the future for the next and nothing settles it.
  */
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { PROFILE_ID, goalId } from '../src/domain/goals.js';
@@ -13,58 +13,44 @@ import { countOnPhone, openControlled, seed, stored, tab } from './app.js';
 
 const at = (date: string, time = '18:00:00') => new Date(`${date}T${time}`);
 const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
 
 const card = (page: Page) => page.getByRole('region', { name: 'Set', exact: true });
-const plan = (page: Page) => page.getByRole('dialog', { name: 'Plan' });
-const planRow = (page: Page, name: RegExp) => plan(page).getByRole('button', { name });
+const title = (page: Page, name: string) => page.getByRole('heading', { name, exact: true, level: 1 });
+const dayRow = (page: Page, name: RegExp) => page.getByRole('list', { name: 'Days' }).getByRole('button', { name });
+const row = (page: Page, name: RegExp) => page.locator('.train').getByRole('button', { name });
+const back = (page: Page) => page.getByRole('button', { name: 'Back', exact: true }).click();
+const weekCount = (page: Page) => page.getByTestId('week-count');
+const load = (page: Page) => page.getByLabel('Load', { exact: true });
+const reps = (page: Page) => page.getByLabel('Reps', { exact: true });
 const unit = (page: Page) => page.getByRole('button', { name: /^Unit / });
-
-async function openPlan(page: Page) {
-  await page.getByRole('button', { name: 'Plan', exact: true }).click();
-  await expect(plan(page)).toBeVisible();
-}
-
-const closePlan = (page: Page) => plan(page).getByRole('button', { name: 'Done' }).click();
-
-/** The Plan sheet still jumps to any exercise, and closes on the way. */
-async function jumpTo(page: Page, name: RegExp) {
-  await openPlan(page);
-  await planRow(page, name).click();
-  await expect(plan(page)).toBeHidden();
-}
-
-/** A slot's dots, read from the Plan sheet. */
-async function expectDots(page: Page, name: RegExp, logged: RegExp) {
-  await openPlan(page);
-  await expect(planRow(page, name)).toHaveAccessibleName(logged);
-  await closePlan(page);
-}
-
 const logButton = (page: Page) => page.getByRole('button', { name: 'Log set' });
-const finishButton = (page: Page) => page.getByRole('button', { name: 'Finish', exact: true });
+const logSet = (page: Page) => logButton(page).click();
 const toast = (page: Page, text: string | RegExp) => page.getByRole('status').filter({ hasText: text });
+const named = (name: string) => new RegExp(`^${name.replace(/[()]/g, '\\$&')}`);
+
+async function openWeek(page: Page) {
+  await page.goto('/');
+  await tab(page, 'Train').click();
+  await expect(weekCount(page)).toBeVisible({ timeout: 15_000 });
+}
 
 async function expectCard(page: Page, name: string, round: string) {
   await expect(card(page).getByRole('heading', { name, exact: true })).toBeVisible();
   await expect(page.getByTestId('round')).toHaveText(round);
 }
 
-const logSet = (page: Page) => logButton(page).click();
+async function openDay(page: Page, name: string) {
+  await dayRow(page, named(name)).click();
+  await expect(title(page, name)).toBeVisible();
+}
 
-async function logExpecting(page: Page, name: string, round: string) {
+async function openExercise(page: Page, name: string, round: string) {
+  await row(page, named(name)).click();
   await expectCard(page, name, round);
-  await logSet(page);
 }
 
-const startButton = (page: Page) => page.getByRole('region', { name: 'Next day' }).getByRole('button', { name: 'Start', exact: true });
-
-async function openWeek(page: Page) {
-  await page.goto('/');
-  await tab(page, 'Train').click();
-  await expect(startButton(page)).toBeVisible({ timeout: 15_000 });
-}
-
-/** Notes on the root element if the Diary was ever on screen, which a reload during a session must not do. */
+/** Notes on the root element if the Diary was ever on screen, which a reload mid-workout must not do. */
 function watchForDiary(context: BrowserContext) {
   return context.addInitScript(() => {
     new MutationObserver(() => {
@@ -75,9 +61,13 @@ function watchForDiary(context: BrowserContext) {
 
 const sawDiary = (page: Page) => page.evaluate(() => document.documentElement.dataset.sawDiary === 'yes');
 
+/** What a return to the app does, which runs a sync and a settle with no write and no reload. */
+const comeBackToApp = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+
 const docs = (...lists: readonly (readonly Mutation[])[]) => lists.flat();
 const putPrograms = (...doc: readonly ReturnType<typeof program>[]) => doc.map((d): Mutation => ({ op: 'put', kind: 'program', doc: d }));
 const putPerformances = (...doc: readonly ReturnType<typeof performance>[]) => doc.map((d): Mutation => ({ op: 'put', kind: 'performance', doc: d }));
+const weighInOn = (date: string): Mutation => ({ op: 'put', kind: 'weighIn', doc: { id: `w:${date}`, date: day(date), kg: 80, loggedAt: ms(at(date, '07:00:00').getTime()) } });
 
 function reachesServer(date: string) {
   return stored('performance')
@@ -86,7 +76,10 @@ function reachesServer(date: string) {
     .toSorted((a, b) => a.lift.localeCompare(b.lift));
 }
 
-test('logs offline through a tab switch, a reload and a page kill mid-set, then reaches the server', async ({ page, context, request }) => {
+const sessionsOn = (date: string) => stored('session').filter((s) => s.date === date);
+const minutesOn = (date: string) => stored('workout').filter((w) => w.date === date).map((w) => w.minutes);
+
+test('logs in any order and back again, offline through a tab switch, a reload and a page kill mid-set, then reaches the server', async ({ page, context, request }) => {
   const MONDAY = '2031-12-15';
   const DAY = '2031-12-17';
   const version = program(MONDAY, [
@@ -96,95 +89,120 @@ test('logs offline through a tab switch, a reload and a page kill mid-set, then 
       weekday: 3,
       blocks: [
         liftsBlock('pair', [slot('a1', 'cable-fly', 3, { label: 'Cable fly', target: target(3, 8, 12) }), slot('a2', 'meadows-row', 3, { label: 'Meadows row', target: target(3, 8, 12) })], { restSeconds: 75 }),
+        liftsBlock('main', [slot('b1', 'pin-press', 3, { label: 'Pin press', target: target(3, 5, 8) })], { restSeconds: 120 }),
       ],
     },
   ]);
   const lastTime = [
     performance({ date: '2031-12-10', lift: 'cable-fly', label: 'Cable fly', sets: [lb(40, 12), lb(40, 11), lb(40, 10)], target: target(3, 8, 12) }),
     performance({ date: '2031-12-10', lift: 'meadows-row', label: 'Meadows row', sets: [lb(60, 10), lb(60, 9), lb(60, 9)], target: target(3, 8, 12) }),
+    performance({ date: '2031-12-10', lift: 'pin-press', label: 'Pin press', sets: [lb(135, 8), lb(135, 7), lb(135, 6)], target: target(3, 5, 8) }),
   ];
   await seed(request, docs(putPrograms(version), putPerformances(...lastTime)));
   await watchForDiary(context);
   await page.clock.install({ time: at(DAY) });
   await openControlled(page);
   await tab(page, 'Train').click();
-  await expect(startButton(page)).toBeVisible({ timeout: 15_000 });
+  await expect(weekCount(page)).toHaveText('0 of 1 done', { timeout: 15_000 });
 
   await context.setOffline(true);
   await page.reload();
   await tab(page, 'Train').click();
-  await startButton(page).click();
+  await expect(dayRow(page, /^Push day/)).toBeVisible();
 
-  await expectCard(page, 'Cable fly', 'Set 1 of 3');
-  await expect(card(page)).toContainText('8–12 reps');
-  await expect(card(page)).toContainText('Last 40 lb × 12/11/10 · Dec 10');
-  await expect(page.getByLabel('Load', { exact: true })).toHaveValue('40');
-  await expect(page.getByLabel('Reps', { exact: true })).toHaveValue('12');
+  await openDay(page, 'Push day');
+  await expect(page.locator('.train').getByRole('heading', { level: 3 }), 'a superset is labelled, as plain information').toHaveText(['Superset · 3 rounds · rest 75s']);
+  const flyRow = row(page, /^Cable fly/);
+  await expect(flyRow).toContainText('40 lb × 12/11/10 · Dec 10');
+  await expect(flyRow).toContainText('3 × 8–12');
+  await expect(flyRow).toHaveAccessibleName(/0 of 3 logged/);
+  await expect(page.locator('[aria-current="step"]'), 'nothing is highlighted as current').toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^(Start|Finish|Plan)$/ }), 'nothing to start, finish or walk').toHaveCount(0);
+  await expect(page.getByRole('progressbar')).toHaveCount(0);
 
-  // A warm-up does not count as a round and fills no dot.
-  await page.getByLabel('Load', { exact: true }).fill('20');
+  // The plan's last exercise first.
+  await openExercise(page, 'Pin press', 'Set 1 of 3');
+  await expect(card(page)).toContainText('5–8 reps');
+  await expect(card(page)).toContainText('Last 135 lb × 8/7/6 · Dec 10');
+  await expect(load(page)).toHaveValue('135');
+  await expect(reps(page)).toHaveValue('8');
+
+  // A warm-up does not count as a set and fills no dot.
+  await load(page).fill('95');
   await page.getByRole('button', { name: 'Warm-up', exact: true }).click();
   await logSet(page);
-  await expect(toast(page, 'Cable fly logged')).toBeVisible();
-  await expectCard(page, 'Cable fly', 'Set 1 of 3');
+  await expect(toast(page, 'Pin press logged')).toBeVisible();
+  await expectCard(page, 'Pin press', 'Set 1 of 3');
   await expect(page.getByRole('button', { name: 'Warm-up', exact: true })).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.getByLabel('Load', { exact: true }), 'the working weight comes back after a warm-up').toHaveValue('40');
-  await expectDots(page, /^Cable fly/, /0 of 3 logged/);
+  await expect(load(page), 'the working weight comes back after a warm-up').toHaveValue('135');
 
-  // A1, A2, rest, A1, A2, rest.
-  await logExpecting(page, 'Cable fly', 'Set 1 of 3');
-  await logExpecting(page, 'Meadows row', 'Set 1 of 3');
+  // After a set it stays here with the next one filled in, and says nothing about what comes next.
+  await logSet(page);
+  await expectCard(page, 'Pin press', 'Set 2 of 3');
+  await expect(load(page)).toHaveValue('135');
+  await expect(reps(page)).toHaveValue('7');
+  await expect(page.getByText('Next:')).toHaveCount(0);
+  await expect(page.getByRole('timer')).toHaveCount(0);
+
+  await back(page);
+  await expect(title(page, 'Push day')).toBeVisible();
+  await expect(row(page, /^Pin press/), 'only a working set fills a dot').toHaveAccessibleName(/1 of 3 logged/);
+
+  // The superset's second lift before its first, and then the first.
+  await openExercise(page, 'Meadows row', 'Set 1 of 3');
+  await logSet(page);
+  await expectCard(page, 'Meadows row', 'Set 2 of 3');
+  await back(page);
+  await openExercise(page, 'Cable fly', 'Set 1 of 3');
+  await logSet(page);
   await expectCard(page, 'Cable fly', 'Set 2 of 3');
-  await expectDots(page, /^Cable fly/, /1 of 3 logged/);
-  await expectDots(page, /^Meadows row/, /1 of 3 logged/);
+  await back(page);
+  await expect(row(page, /^Meadows row/)).toHaveAccessibleName(/1 of 3 logged/);
+  await expect(row(page, /^Cable fly/)).toHaveAccessibleName(/1 of 3 logged/);
 
+  // And back to the first he opened, its count its own.
+  await openExercise(page, 'Pin press', 'Set 2 of 3');
 
+  await load(page).fill('140');
+  await page.getByRole('button', { name: 'More reps' }).click();
   await tab(page, 'Diary').click();
   await expect(page.getByRole('region', { name: 'Breakfast' })).toBeVisible();
   await tab(page, 'Train').click();
-  await expectCard(page, 'Cable fly', 'Set 2 of 3');
-
-  await page.getByLabel('Load', { exact: true }).fill('42.5');
-  await page.getByRole('button', { name: 'More reps' }).click();
-  await tab(page, 'Diary').click();
-  await tab(page, 'Train').click();
-  await expect(page.getByLabel('Load', { exact: true }), 'typed digits survive a tab switch').toHaveValue('42.5');
-  await expect(page.getByLabel('Reps', { exact: true })).toHaveValue('12');
+  await expectCard(page, 'Pin press', 'Set 2 of 3');
+  await expect(load(page), 'typed digits survive a tab switch').toHaveValue('140');
+  await expect(reps(page)).toHaveValue('8');
 
   await page.reload();
-  await expectCard(page, 'Cable fly', 'Set 2 of 3');
-  expect(await sawDiary(page), 'a reload during a session never shows the Diary').toBe(false);
-  await expect(page.getByLabel('Load', { exact: true }), 'typed digits survive a reload').toHaveValue('42.5');
+  await expect(weekCount(page), 'a reload right after a set lands on Train\'s list').toHaveText('1 of 1 done');
+  expect(await sawDiary(page), 'and never shows the Diary').toBe(false);
+  await openDay(page, 'Push day');
+  await openExercise(page, 'Pin press', 'Set 2 of 3');
+  await expect(load(page), 'typed digits survive a reload').toHaveValue('140');
   await logSet(page);
+  await expectCard(page, 'Pin press', 'Set 3 of 3');
+  await expect(load(page), 'the next set takes the load of the last one today').toHaveValue('140');
+  await back(page);
 
-  await expectCard(page, 'Meadows row', 'Set 2 of 3');
-  await page.getByLabel('Load', { exact: true }).fill('62.5');
+  await openExercise(page, 'Meadows row', 'Set 2 of 3');
+  await load(page).fill('62.5');
   await page.close();
 
   const reopened = await context.newPage();
   await reopened.goto('/');
-  await expectCard(reopened, 'Meadows row', 'Set 2 of 3');
+  await expect(weekCount(reopened)).toHaveText('1 of 1 done');
   expect(await sawDiary(reopened), 'nor does a relaunch').toBe(false);
-  await expect(reopened.getByLabel('Load', { exact: true }), 'typed digits survive the page being killed').toHaveValue('62.5');
+  await openDay(reopened, 'Push day');
+  await openExercise(reopened, 'Meadows row', 'Set 2 of 3');
+  await expect(load(reopened), 'typed digits survive the page being killed').toHaveValue('62.5');
   await logSet(reopened);
-  await expectCard(reopened, 'Cable fly', 'Set 3 of 3');
-  await expect(reopened.getByLabel('Load', { exact: true }), 'the next set takes the load of the last one today').toHaveValue('42.5');
+  await expectCard(reopened, 'Meadows row', 'Set 3 of 3');
   expect(reachesServer(DAY), 'nothing has reached the server yet').toEqual([]);
   await expect(reopened.getByText(/\d+ waiting/)).toBeVisible();
 
   await context.setOffline(false);
   await expect(reopened.getByText(/\d+ waiting/)).toBeHidden({ timeout: 20_000 });
   expect(reachesServer(DAY)).toEqual([
-    {
-      lift: 'cable-fly',
-      slot: 'a1',
-      planned: undefined,
-      sets: [
-        { load: { kind: 'weight', amount: 20, unit: 'lb' }, reps: { kind: 'total', reps: 12 }, warmup: true },
-        { load: { kind: 'weight', amount: 40, unit: 'lb' }, reps: { kind: 'total', reps: 12 }, warmup: false },
-        { load: { kind: 'weight', amount: 42.5, unit: 'lb' }, reps: { kind: 'total', reps: 12 }, warmup: false },
-      ],
-    },
+    { lift: 'cable-fly', slot: 'a1', planned: undefined, sets: [{ load: { kind: 'weight', amount: 40, unit: 'lb' }, reps: { kind: 'total', reps: 12 }, warmup: false }] },
     {
       lift: 'meadows-row',
       slot: 'a2',
@@ -194,19 +212,29 @@ test('logs offline through a tab switch, a reload and a page kill mid-set, then 
         { load: { kind: 'weight', amount: 62.5, unit: 'lb' }, reps: { kind: 'total', reps: 9 }, warmup: false },
       ],
     },
+    {
+      lift: 'pin-press',
+      slot: 'b1',
+      planned: undefined,
+      sets: [
+        { load: { kind: 'weight', amount: 95, unit: 'lb' }, reps: { kind: 'total', reps: 8 }, warmup: true },
+        { load: { kind: 'weight', amount: 135, unit: 'lb' }, reps: { kind: 'total', reps: 8 }, warmup: false },
+        { load: { kind: 'weight', amount: 140, unit: 'lb' }, reps: { kind: 'total', reps: 8 }, warmup: false },
+      ],
+    },
   ]);
-  const onServer = stored('session').filter((s) => s.date === DAY);
+  const onServer = sessionsOn(DAY);
   expect(onServer).toHaveLength(1);
   expect(onServer[0]).toMatchObject({ programId: version.id, day: { key: 'push', label: 'Push day' } });
   expect(onServer[0]?.finishedAt).toBeUndefined();
 });
 
-test('a swap mid-superset keeps the order, prefills from the new lift, and both last-times read right next week', async ({ page, request }) => {
+test('a swap prefills from the new lift, holds with no set under it, and both last-times read right next week', async ({ page, request }) => {
   const MONDAY = '2031-11-03';
   const DAY = '2031-11-05';
   const press = slot('a1', 'landmine-press', 3, { label: 'Landmine press', target: target(3, 8, 12) });
-  const row = slot('a2', 'cable-row', 3, { label: 'Cable row', target: target(3, 8, 12), swaps: [{ liftId: lift('dumbbell-row'), label: 'Dumbbell row', cue: 'Invented cue for the swap.' }] });
-  const version = program(MONDAY, [{ key: 'pair', label: 'Pair day', weekday: 3, blocks: [liftsBlock('pair', [press, row], { restSeconds: 60 })] }]);
+  const cableRow = slot('a2', 'cable-row', 3, { label: 'Cable row', target: target(3, 8, 12), swaps: [{ liftId: lift('dumbbell-row'), label: 'Dumbbell row', cue: 'Invented cue for the swap.' }] });
+  const version = program(MONDAY, [{ key: 'pair', label: 'Pair day', weekday: 3, blocks: [liftsBlock('pair', [press, cableRow], { restSeconds: 60 })] }]);
   const earlier = '2031-10-29';
   const history = [
     performance({ date: earlier, lift: 'landmine-press', label: 'Landmine press', sets: [lb(50, 10), lb(50, 10), lb(50, 9)] }),
@@ -216,10 +244,10 @@ test('a swap mid-superset keeps the order, prefills from the new lift, and both 
   await seed(request, docs(putPrograms(version), putPerformances(...history)));
   await page.clock.install({ time: at(DAY) });
   await openWeek(page);
-  await startButton(page).click();
+  await openDay(page, 'Pair day');
 
-  // The first slot goes to a name typed on the spot, before any set, and stays there through its rounds.
-  await expectCard(page, 'Landmine press', 'Set 1 of 3');
+  // The first slot goes to a name typed on the spot, before any set.
+  await openExercise(page, 'Landmine press', 'Set 1 of 3');
   await page.getByRole('button', { name: 'Swap', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: 'Swap' });
   await expect(sheet.getByRole('list', { name: 'Listed for this slot' })).toHaveCount(0);
@@ -227,38 +255,48 @@ test('a swap mid-superset keeps the order, prefills from the new lift, and both 
   await sheet.getByRole('button', { name: 'Use "Zottman press (seated)"' }).click();
   await expectCard(page, 'Zottman press (seated)', 'Set 1 of 3');
   await expect(card(page), 'a lift never done has no last line').not.toContainText('Last ');
-  await expect(page.getByLabel('Load', { exact: true }), 'and never the old lift’s weight').toHaveValue('');
+  await expect(load(page), 'and never the old lift’s weight').toHaveValue('');
+
+  // A swap writes nothing, and holds through Back and a reload.
+  await back(page);
+  await expect(row(page, /^Zottman press/)).toBeVisible();
+  expect(await countOnPhone(page, 'outbox'), 'a swap with no set stores nothing').toBe(0);
   await page.reload();
-  await expectCard(page, 'Zottman press (seated)', 'Set 1 of 3');
-  await page.getByLabel('Load', { exact: true }).fill('35');
+  await tab(page, 'Train').click();
+  await openDay(page, 'Pair day');
+  await openExercise(page, 'Zottman press (seated)', 'Set 1 of 3');
+  await load(page).fill('35');
   await logSet(page);
-
-  await logExpecting(page, 'Cable row', 'Set 1 of 3');
   await expectCard(page, 'Zottman press (seated)', 'Set 2 of 3');
-  await expect(page.getByLabel('Load', { exact: true })).toHaveValue('35');
+  await expect(load(page)).toHaveValue('35');
   await logSet(page);
+  await expectCard(page, 'Zottman press (seated)', 'Set 3 of 3');
+  await back(page);
 
-  // The second slot swaps mid-superset, from the listed choice.
+  // The second slot swaps after a set, from the listed choice.
+  await openExercise(page, 'Cable row', 'Set 1 of 3');
+  await logSet(page);
   await expectCard(page, 'Cable row', 'Set 2 of 3');
-  await expect(page.getByLabel('Load', { exact: true })).toHaveValue('70');
+  await expect(load(page)).toHaveValue('70');
   await page.getByRole('button', { name: 'Swap', exact: true }).click();
   await page.getByRole('dialog', { name: 'Swap' }).getByRole('button', { name: 'Dumbbell row' }).click();
   await expectCard(page, 'Dumbbell row', 'Set 2 of 3');
   await expect(card(page)).toContainText('Last 30 kg × 12/11 · Oct 25');
-  await expect(page.getByLabel('Load', { exact: true }), 'the swapped lift’s own weight').toHaveValue('30');
+  await expect(load(page), 'the swapped lift’s own weight').toHaveValue('30');
   await expect(unit(page)).toHaveText('kg');
   await page.getByRole('button', { name: 'Cue', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Cue' }).getByText('Invented cue for the swap.')).toBeVisible();
   await page.getByRole('dialog', { name: 'Cue' }).getByRole('button', { name: 'Done' }).click();
   await logSet(page);
-
-  await logExpecting(page, 'Zottman press (seated)', 'Set 3 of 3');
   await expectCard(page, 'Dumbbell row', 'Set 3 of 3');
-  await expect(page.getByLabel('Load', { exact: true })).toHaveValue('30');
+  await expect(load(page)).toHaveValue('30');
   await logSet(page);
-  await finishButton(page).click();
-  await expect(toast(page, /^Finished Pair day/)).toBeVisible();
+  await expectCard(page, 'Dumbbell row', 'Extra set');
+  await back(page);
+  await expect(row(page, /^Dumbbell row/), 'the day says what he is doing there').toHaveAccessibleName(/3 of 3 logged/);
 
+  await openExercise(page, 'Zottman press (seated)', 'Set 3 of 3');
+  await logSet(page);
   await expect
     .poll(() => reachesServer(DAY).map((p) => [p.lift, p.slot, p.planned, p.sets.length]))
     .toEqual([
@@ -268,20 +306,22 @@ test('a swap mid-superset keeps the order, prefills from the new lift, and both 
     ]);
 
   // Next week, the first slot was swapped for the whole of last time, and the second only in part.
-  await page.clock.fastForward(7 * 24 * 60 * MINUTE);
+  await back(page);
+  await back(page);
+  await page.clock.fastForward(7 * 24 * HOUR);
   await tab(page, 'Diary').click();
   await tab(page, 'Train').click();
-  await startButton(page).click();
-  await expectCard(page, 'Landmine press', 'Set 1 of 3');
+  await openDay(page, 'Pair day');
+  await openExercise(page, 'Landmine press', 'Set 1 of 3');
   await expect(card(page)).toContainText('Last 50 lb × 10/10/9 · Oct 29');
   await expect(card(page)).toContainText('Last time: Zottman press (seated)');
   await page.getByRole('button', { name: 'Switch', exact: true }).click();
   await expectCard(page, 'Zottman press (seated)', 'Set 1 of 3');
   await expect(card(page)).toContainText('Last 35 lb × 8/8/8 · Nov 5');
-  await expect(page.getByLabel('Load', { exact: true })).toHaveValue('35');
-  await logSet(page);
+  await expect(load(page)).toHaveValue('35');
+  await back(page);
 
-  await expectCard(page, 'Cable row', 'Set 1 of 3');
+  await openExercise(page, 'Cable row', 'Set 1 of 3');
   await expect(card(page)).toContainText('Last 70 lb × 10 · Nov 5');
   await expect(card(page), 'he did the planned lift that day too').not.toContainText('Last time:');
   await page.getByRole('button', { name: 'Swap', exact: true }).click();
@@ -289,7 +329,7 @@ test('a swap mid-superset keeps the order, prefills from the new lift, and both 
   await expect(card(page)).toContainText('Last 30 kg × 12/11 · Nov 5');
 });
 
-test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip, a 2-set slot, a checklist, cardio, an edit and a delete', async ({ page, request }) => {
+test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip with undo, a checklist, cardio, an edit, a delete and notes', async ({ page, request }) => {
   const MONDAY = '2031-10-20';
   const DAY = '2031-10-22';
   const version = program(MONDAY, [
@@ -309,174 +349,180 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip,
       ],
     },
   ]);
-  await seed(request, docs(putPrograms(version), [{ op: 'put', kind: 'weighIn', doc: { id: `w:${DAY}`, date: day(DAY), kg: 80, loggedAt: ms(at(DAY, '07:00:00').getTime()) } }]));
+  await seed(request, docs(putPrograms(version), [weighInOn(DAY)]));
   await page.clock.install({ time: at(DAY) });
   await openWeek(page);
-  await startButton(page).click();
+  await openDay(page, 'Mixed day');
 
-  // A checklist is one Done, with an undo.
-  const checklistCard = page.getByRole('region', { name: 'Checklist' });
-  await expect(checklistCard.getByText('Band pull-apart')).toBeVisible();
-  await checklistCard.getByRole('button', { name: 'Done' }).click();
-  await expectCard(page, 'Goblet squat', 'Set 1 of 3');
-  await expectDots(page, /^Warm up/, /1 of 1 logged/);
+  // A checklist is one row that opens, with one Done and an undo.
+  const warmUp = page.locator('details').filter({ hasText: 'Warm up · 2 moves' });
+  await expect(warmUp.getByText('Band pull-apart')).toBeHidden();
+  await warmUp.locator('summary').click();
+  await expect(warmUp.getByText('Band pull-apart')).toBeVisible();
+  await warmUp.getByRole('button', { name: 'Warm up done' }).click();
+  await expect(warmUp.locator('summary')).toContainText('Done');
+  await expect(warmUp.getByRole('button', { name: 'Warm up done' })).toHaveCount(0);
   await toast(page, 'Warm up done').getByRole('button', { name: 'Undo' }).click();
-  await expect(checklistCard).toBeVisible();
-  await checklistCard.getByRole('button', { name: 'Done' }).click();
+  await warmUp.getByRole('button', { name: 'Warm up done' }).click();
+  await expect(warmUp.locator('summary')).toContainText('Done');
 
   // Log set stays off until a load is typed. The steppers go by 2.5 lb, then 1 kg once he switches.
-  await expectCard(page, 'Goblet squat', 'Set 1 of 3');
+  await openExercise(page, 'Goblet squat', 'Set 1 of 3');
   await expect(logButton(page)).toBeDisabled();
-  await expect(page.getByLabel('Reps', { exact: true }), 'reps start at the bottom of the range').toHaveValue('8');
-  await page.getByLabel('Load', { exact: true }).fill('50');
+  await expect(reps(page), 'reps start at the bottom of the range').toHaveValue('8');
+  await load(page).fill('50');
+  await expect(page.locator('.quiet-actions button'), 'the same five actions').toHaveText(['Swap', 'Skip', 'Note', 'Cue', 'Warm-up']);
   await page.getByRole('button', { name: 'More load' }).click();
-  await expect(page.getByLabel('Load', { exact: true })).toHaveValue('52.5');
+  await expect(load(page)).toHaveValue('52.5');
   await page.getByRole('button', { name: 'Less load' }).click();
-  await expect(page.getByLabel('Load', { exact: true })).toHaveValue('50');
-  await logSet(page);
-
-  // A per-side set shows two rows in the order the target names.
-  await expectCard(page, 'Pallof press', 'Set 1 of 2');
-  await expect(page.locator('.set-row-unit.side')).toHaveText(['R', 'L']);
-  await page.getByLabel('Load', { exact: true }).fill('25');
-  await expect(page.getByLabel('Left reps', { exact: true })).toHaveValue('10');
-  await page.getByRole('button', { name: 'Less left reps' }).click();
+  await expect(load(page)).toHaveValue('50');
   await logSet(page);
 
   // kg in the same lift, inherited by the next set, with the number staying as typed.
   await expectCard(page, 'Goblet squat', 'Set 2 of 3');
   await unit(page).click();
   await expect(unit(page)).toHaveText('kg');
-  await expect(page.getByLabel('Load', { exact: true })).toHaveValue('50');
-  await page.getByLabel('Load', { exact: true }).fill('22');
+  await expect(load(page)).toHaveValue('50');
+  await load(page).fill('22');
   await page.getByRole('button', { name: 'More load' }).click();
-  await expect(page.getByLabel('Load', { exact: true })).toHaveValue('23');
+  await expect(load(page)).toHaveValue('23');
   await logSet(page);
-  await logExpecting(page, 'Pallof press', 'Set 2 of 2');
-
-  // The 2-set slot drops out of the third round.
   await expectCard(page, 'Goblet squat', 'Set 3 of 3');
-  await expect(page.getByLabel('Load', { exact: true })).toHaveValue('23');
+  await expect(load(page)).toHaveValue('23');
   await expect(unit(page)).toHaveText('kg');
   await logSet(page);
+  await expectCard(page, 'Goblet squat', 'Extra set');
+  await back(page);
+
+  // A per-side set shows two rows in the order the target names, and rest is plain text under Cue.
+  await openExercise(page, 'Pallof press', 'Set 1 of 2');
+  await expect(page.locator('.set-row-unit.side')).toHaveText(['R', 'L']);
+  await load(page).fill('25');
+  await expect(page.getByLabel('Left reps', { exact: true })).toHaveValue('10');
+  await page.getByRole('button', { name: 'Less left reps' }).click();
+  await page.getByRole('button', { name: 'Cue', exact: true }).click();
+  const cue = page.getByRole('dialog', { name: 'Cue' });
+  await expect(cue.getByText('Rest 60s')).toBeVisible();
+  await expect(cue.getByText('Per side, right first')).toBeVisible();
+  await cue.getByRole('button', { name: 'Done' }).click();
+  await logSet(page);
+  await expectCard(page, 'Pallof press', 'Set 2 of 2');
+  await back(page);
 
   // A band load is a label.
-  await expectCard(page, 'Band row', 'Set 1 of 2');
-  await expect(page.getByLabel('Load', { exact: true })).toHaveCount(0);
+  await openExercise(page, 'Band row', 'Set 1 of 2');
+  await expect(load(page)).toHaveCount(0);
   await expect(logButton(page)).toBeDisabled();
   await page.getByLabel('Band', { exact: true }).fill('green');
   await logSet(page);
   await expectCard(page, 'Band row', 'Set 2 of 2');
   await expect(page.getByLabel('Band', { exact: true })).toHaveValue('green');
   await logSet(page);
+  await expectCard(page, 'Band row', 'Extra set');
+  await back(page);
 
-  // A bodyweight load hides the load row, with a way to add weight.
-  await expectCard(page, 'Chin-up', 'Set 1 of 2');
-  await expect(page.getByLabel('Load', { exact: true })).toHaveCount(0);
+  // A bodyweight load hides the load row, with a way to add weight. Past the prescription it keeps logging, as an extra set.
+  await openExercise(page, 'Chin-up', 'Set 1 of 2');
+  await expect(load(page)).toHaveCount(0);
   await expect(page.getByText('Bodyweight', { exact: true })).toBeVisible();
   await logSet(page);
   await expectCard(page, 'Chin-up', 'Set 2 of 2');
   await page.getByRole('button', { name: 'Add weight' }).click();
-  await page.getByLabel('Load', { exact: true }).fill('10');
+  await load(page).fill('10');
   await logSet(page);
-
-  // A tap on any slot jumps the card, and past the prescription it is an extra set.
-  await expectCard(page, 'Sled push', 'Set 1 of 1');
-  await jumpTo(page, /^Chin-up/);
   await expectCard(page, 'Chin-up', 'Extra set');
-  await expect(page.getByLabel('Load', { exact: true }), 'an extra set takes the last load').toHaveValue('10');
+  await expect(load(page), 'an extra set takes the last load').toHaveValue('10');
   await logSet(page);
-  await expectDots(page, /^Chin-up/, /3 of 3 logged/);
+  await expect(page.getByRole('group', { name: "Today's sets" }).getByRole('button')).toHaveCount(3);
+  await back(page);
+  await expect(row(page, /^Chin-up/), 'an extra set adds its own dot').toHaveAccessibleName(/3 of 3 logged/);
 
-  // The card goes back to where the data says, and a set prompt lands on the set.
-  await expectCard(page, 'Sled push', 'Set 1 of 1');
-  await page.getByLabel('Load', { exact: true }).fill('90');
+  // A set prompt lands on the set, and an exercise with nothing behind it has no Cue to open.
+  await openExercise(page, 'Sled push', 'Set 1 of 1');
+  await expect(page.getByRole('button', { name: 'Cue', exact: true })).toBeDisabled();
+  await load(page).fill('90');
   await page.getByLabel('Distance').fill('Forty metres');
   await logSet(page);
+  await expectCard(page, 'Sled push', 'Extra set');
+  await back(page);
 
-  // A skip moves on, undoes, and holds its note.
-  await expectCard(page, 'Suitcase carry', 'Set 1 of 1');
+  // A skip goes back to the day, marks the row and undoes, and holds its note.
+  await openExercise(page, 'Suitcase carry', 'Set 1 of 1');
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   await page.getByRole('dialog', { name: 'Skip Suitcase carry' }).getByRole('button', { name: 'Skip it' }).click();
-  const bikeCard = page.getByRole('region', { name: 'Cardio' });
-  await expect(bikeCard).toBeVisible();
-  await openPlan(page);
-  await expect(planRow(page, /^Suitcase carry/)).toContainText('Skipped');
-  await closePlan(page);
+  await expect(title(page, 'Mixed day')).toBeVisible();
+  await expect(row(page, /^Suitcase carry/)).toContainText('Skipped');
   await toast(page, 'Skipped Suitcase carry').getByRole('button', { name: 'Undo' }).click();
-  await expectCard(page, 'Suitcase carry', 'Set 1 of 1');
-  await openPlan(page);
-  await expect(planRow(page, /^Suitcase carry/)).not.toContainText('Skipped');
-  await closePlan(page);
+  await expect(row(page, /^Suitcase carry/)).not.toContainText('Skipped');
+  await openExercise(page, 'Suitcase carry', 'Set 1 of 1');
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const skip = page.getByRole('dialog', { name: 'Skip Suitcase carry' });
   await skip.getByLabel('Why (optional)').fill('Invented reason for skipping.');
   await skip.getByRole('button', { name: 'Skip it' }).click();
+  await expect(row(page, /^Suitcase carry/)).toContainText('Skipped');
 
-  // Cardio opens the existing logger, and that workout satisfies the block.
-  await expect(bikeCard).toBeVisible();
-  await bikeCard.getByRole('button', { name: 'Log cardio' }).click();
+  // Cardio opens the existing logger, and that workout marks the row.
+  await row(page, /^Easy bike/).click();
   const logger = page.getByRole('dialog', { name: 'Add workout' });
   await logger.getByRole('button', { name: /^Stationary bike/ }).click();
   await logger.getByRole('button', { name: '15 min' }).click();
   await logger.getByRole('button', { name: 'Log workout' }).click();
-  const doneCard = page.getByRole('region', { name: 'Done' });
-  await expect(doneCard).toContainText('Plan done');
-  await expectDots(page, /^Easy bike/, /1 of 1 logged/);
+  await expect(row(page, /^Easy bike/)).toContainText('Done');
 
-  // An optional block is reached by a tap, and keeps him until its gaps are filled.
-  await jumpTo(page, /^Dead bug/);
-  await logExpecting(page, 'Dead bug', 'Set 1 of 2');
-  await logExpecting(page, 'Dead bug', 'Set 2 of 2');
-  await expect(doneCard).toBeVisible();
+  // An optional block folds at the end, and logs like any other.
+  const optional = page.getByRole('region', { name: 'Optional' });
+  await expect(row(page, /^Dead bug/)).toBeHidden();
+  await optional.getByText('Optional', { exact: true }).click();
+  await openExercise(page, 'Dead bug', 'Set 1 of 2');
+  await logSet(page);
+  await expectCard(page, 'Dead bug', 'Set 2 of 2');
+  await back(page);
 
-  // Editing a set from its row in the plan, with an undo.
-  await openPlan(page);
-  await plan(page).getByRole('button', { name: '50 lb × 8' }).click();
+  // Editing a set from its value, with an undo.
+  await openExercise(page, 'Goblet squat', 'Extra set');
+  const today = page.getByRole('group', { name: "Today's sets" }).getByRole('button');
+  await expect(today).toHaveText(['50 lb × 8', '23 kg × 8', '23 kg × 8']);
+  await today.first().click();
   const edit = page.getByRole('dialog', { name: 'Edit Goblet squat' });
+  await expect(edit.getByLabel('Load', { exact: true })).toHaveValue('50');
   await edit.getByLabel('Load', { exact: true }).fill('55');
   await edit.getByLabel('Reps', { exact: true }).fill('9');
   await edit.getByRole('button', { name: 'Save set' }).click();
-  await expect(plan(page).getByRole('button', { name: '55 lb × 9' })).toBeVisible();
+  await expect(today).toHaveText(['55 lb × 9', '23 kg × 8', '23 kg × 8']);
   await toast(page, 'Set updated').getByRole('button', { name: 'Undo' }).click();
-  await expect(plan(page).getByRole('button', { name: '50 lb × 8' })).toBeVisible();
-
-  // Deleting one, with an undo. Deleting the last of a slot takes its dots and sends the card back.
-  await plan(page).getByRole('button', { name: /Forty metres/ }).click();
-  await page.getByRole('dialog', { name: 'Edit Sled push' }).getByRole('button', { name: 'Delete set' }).click();
-  await expectCard(page, 'Sled push', 'Set 1 of 1');
-  await expect(planRow(page, /^Sled push/)).toHaveAccessibleName(/0 of 1 logged/);
-  await toast(page, 'Set deleted').getByRole('button', { name: 'Undo' }).click();
-  await expect(doneCard).toBeVisible();
-  await closePlan(page);
-
-  // Today's sets sit under the exercise, each a tap from editing.
-  await jumpTo(page, /^Goblet squat/);
-  await expectCard(page, 'Goblet squat', 'Extra set');
-  const today = page.getByRole('group', { name: "Today's sets" }).getByRole('button');
   await expect(today).toHaveText(['50 lb × 8', '23 kg × 8', '23 kg × 8']);
-  await today.nth(1).click();
-  await expect(page.getByRole('dialog', { name: 'Edit Goblet squat' }).getByLabel('Load', { exact: true })).toHaveValue('23');
-  await page.getByRole('dialog', { name: 'Edit Goblet squat' }).getByRole('button', { name: 'Cancel' }).click();
 
-  // Notes on the exercise and on the session.
+  // Notes on the exercise and on the day.
   await page.getByRole('button', { name: 'Note', exact: true }).click();
   const note = page.getByRole('dialog', { name: 'Note' });
   await note.getByLabel('On Goblet squat').fill('Invented note on the squat.');
   await note.getByRole('button', { name: 'Save note' }).click();
   await expect(toast(page, 'Note saved')).toBeVisible();
   await page.getByRole('button', { name: 'Note', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Note' }).getByRole('radio', { name: 'The session' }).click();
-  await page.getByRole('dialog', { name: 'Note' }).getByLabel('On the session').fill('Invented note on the session.');
-  await page.getByRole('dialog', { name: 'Note' }).getByRole('button', { name: 'Save note' }).click();
+  await note.getByRole('radio', { name: 'Today' }).click();
+  await note.getByLabel("Today's note").fill('Invented note on the day.');
+  await note.getByRole('button', { name: 'Save note' }).click();
   await expect(toast(page, 'Note saved')).toBeVisible();
-  await page.getByRole('button', { name: 'Finish', exact: true }).click();
+  await back(page);
 
-  await expect(page.getByTestId('week-count')).toHaveText('1 of 1 done');
-  await expect(page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Mixed day/ })).toContainText('Done Wed');
+  // Deleting one, with an undo. Deleting the last of a slot takes its dots.
+  await openExercise(page, 'Sled push', 'Extra set');
+  await page.getByRole('group', { name: "Today's sets" }).getByRole('button', { name: /Forty metres/ }).click();
+  await page.getByRole('dialog', { name: 'Edit Sled push' }).getByRole('button', { name: 'Delete set' }).click();
+  await expectCard(page, 'Sled push', 'Set 1 of 1');
+  await expect(page.getByRole('group', { name: "Today's sets" })).toHaveCount(0);
+  await toast(page, 'Set deleted').getByRole('button', { name: 'Undo' }).click();
+  await expectCard(page, 'Sled push', 'Extra set');
+  await back(page);
+  await expect(row(page, /^Sled push/)).toHaveAccessibleName(/1 of 1 logged/);
 
-  await expect.poll(() => stored('session').filter((s) => s.date === DAY && s.finishedAt !== undefined).length, { timeout: 15_000 }).toBe(1);
+  await back(page);
+  await expect(weekCount(page)).toHaveText('1 of 1 done');
+  await expect(dayRow(page, /^Mixed day/)).toContainText('Done Wed');
+
   await expect.poll(() => reachesServer(DAY).length, { timeout: 15_000 }).toBe(6);
+  await expect.poll(() => sessionsOn(DAY)[0]?.note, { timeout: 15_000 }).toBe('Invented note on the day.');
+  expect(sessionsOn(DAY)).toHaveLength(1);
   const held = new Map(stored('performance').filter((p) => p.date === DAY).map((p) => [p.liftId, p]));
   const units = held.get(lift('goblet-squat'))?.sets.map((set) => (set.load.kind === 'weight' ? `${set.load.amount} ${set.load.unit}` : null));
   expect(units, 'lb and kg in one lift, each as typed').toEqual(['50 lb', '23 kg', '23 kg']);
@@ -485,59 +531,114 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip,
   expect(held.get(lift('band-row'))?.sets.map((set) => set.load)).toEqual([{ kind: 'band', label: 'green' }, { kind: 'band', label: 'green' }]);
   expect(held.get(lift('chin-up'))?.sets.map((set) => set.load)).toEqual([{ kind: 'bodyweight' }, { kind: 'weight', amount: 10, unit: 'lb' }, { kind: 'weight', amount: 10, unit: 'lb' }]);
   expect(held.get(lift('sled-push'))?.sets[0]?.note).toBe('Forty metres');
-  const finished = stored('session').find((s) => s.date === DAY);
-  expect(finished?.skips).toEqual([{ slotId: 'e1', note: 'Invented reason for skipping.' }]);
-  expect(finished?.checked).toEqual(['warm']);
-  expect(finished?.note).toBe('Invented note on the session.');
+  const logged = sessionsOn(DAY)[0];
+  expect(logged?.skips).toEqual([{ slotId: 'e1', note: 'Invented reason for skipping.' }]);
+  expect(logged?.checked).toEqual(['warm']);
+  expect(logged?.finishedAt).toBeUndefined();
 });
 
-test('a version published mid-session changes nothing on the card, and a new session uses it', async ({ page, request }) => {
-  const MONDAY = '2031-10-06';
-  const DAY = '2031-10-08';
-  const slots = [slot('a1', 'trap-bar-deadlift', 3, { label: 'Trap bar deadlift', target: target(3, 8, 12) })];
-  const older = program(MONDAY, [{ key: 'pull', label: 'Pull day', weekday: 3, blocks: [liftsBlock('main', slots, { restSeconds: 90 })] }]);
-  const newer = program(DAY, [{ key: 'pull', label: 'Pull day, new', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'trap-bar-deadlift', 5, { label: 'Deadlift, rewritten', target: target(5, 3, 5) })], { restSeconds: 180 })] }]);
-  await seed(request, putPrograms(older));
+test('opening a day writes nothing, and a day holds one session per date', async ({ page, request }) => {
+  const MONDAY = '2031-10-13';
+  const DAY = '2031-10-15';
+  const version = program(MONDAY, [
+    { key: 'lazy', label: 'Lazy day', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'seal-row', 3, { label: 'Seal row', target: target(3, 8, 12) }), slot('a2', 'pin-press', 3, { label: 'Pin press', target: target(3, 5, 8) })])] },
+    { key: 'other', label: 'Other day', weekday: 4, blocks: [liftsBlock('main', [slot('b1', 'pendlay-row', 3, { label: 'Pendlay row', target: target(3, 8, 12) })])] },
+  ]);
+  await seed(request, putPrograms(version));
   await page.clock.install({ time: at(DAY) });
   await openWeek(page);
-  await startButton(page).click();
-  await expectCard(page, 'Trap bar deadlift', 'Set 1 of 3');
-  await page.getByLabel('Load', { exact: true }).fill('225');
+
+  await openDay(page, 'Lazy day');
+  await openExercise(page, 'Seal row', 'Set 1 of 3');
+  await load(page).fill('70');
+  await back(page);
+  await back(page);
+  await expect(weekCount(page)).toHaveText('0 of 2 done');
+  expect(await countOnPhone(page, 'outbox'), 'opening a day and an exercise and typing stores nothing').toBe(0);
+  await expect(page.getByText(/\d+ waiting/)).toHaveCount(0);
+
+  await openDay(page, 'Lazy day');
+  await openExercise(page, 'Seal row', 'Set 1 of 3');
+  await expect(load(page), 'typed digits wait through Back').toHaveValue('70');
   await logSet(page);
-
-  await seed(request, putPrograms(newer));
-  const before = await countOnPhone(page, 'program');
-  await expectCard(page, 'Trap bar deadlift', 'Set 2 of 3');
+  await expectCard(page, 'Seal row', 'Set 2 of 3');
+  await back(page);
+  await openExercise(page, 'Pin press', 'Set 1 of 3');
+  await load(page).fill('135');
   await logSet(page);
-  await expect.poll(() => countOnPhone(page, 'program'), { timeout: 15_000 }).toBe(before + 1);
+  await expectCard(page, 'Pin press', 'Set 2 of 3');
+  await back(page);
+  await back(page);
+  await expect(dayRow(page, /^Lazy day/)).toContainText('Done Wed');
+  await expect.poll(() => reachesServer(DAY).length, { timeout: 15_000 }).toBe(2);
+  expect(sessionsOn(DAY).map((s) => [s.day?.key, s.programId])).toEqual([['lazy', version.id]]);
 
-  await expectCard(page, 'Trap bar deadlift', 'Set 3 of 3');
-  await expect(card(page)).toContainText('8–12 reps');
-  await expect(page.getByRole('heading', { name: 'Pull day', exact: true })).toBeVisible();
-  await page.reload();
-  await expectCard(page, 'Trap bar deadlift', 'Set 3 of 3');
-  await expect(page.getByRole('heading', { name: 'Pull day', exact: true })).toBeVisible();
-
-  await finishButton(page).click();
-  await expect(page.getByTestId('week-count')).toBeVisible();
-  await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Pull day, new/ }).first().click();
-  await page.getByRole('dialog', { name: 'Pull day, new' }).getByRole('button', { name: 'Start', exact: true }).click();
-  await expectCard(page, 'Deadlift, rewritten', 'Set 1 of 5');
-  await expect(card(page)).toContainText('3–5 reps');
-  await page.getByLabel('Load', { exact: true }).fill('225');
+  await openDay(page, 'Other day');
+  await openExercise(page, 'Pendlay row', 'Set 1 of 3');
+  await load(page).fill('95');
   await logSet(page);
+  await expect.poll(() => reachesServer(DAY).length, { timeout: 15_000 }).toBe(3);
+  expect(sessionsOn(DAY).map((s) => s.day?.key).toSorted(), 'each day its own').toEqual(['lazy', 'other']);
+  await back(page);
+  await back(page);
 
-  await expect.poll(() => stored('session').filter((s) => s.date === DAY).length, { timeout: 15_000 }).toBe(2);
-  expect(
-    stored('session')
-      .filter((s) => s.date === DAY)
-      .map((s) => s.programId)
-      .toSorted(),
-  ).toEqual([older.id, newer.id].toSorted());
+  // The next date starts its count from nothing and makes its own.
+  const NEXT = addDays(day(DAY), 1);
+  await page.clock.fastForward(24 * HOUR);
+  await openDay(page, 'Lazy day');
+  await expect(row(page, /^Seal row/)).toHaveAccessibleName(/0 of 3 logged/);
+  await expect(row(page, /^Seal row/)).toContainText('70 lb × 8 · Oct 15');
+  await openExercise(page, 'Seal row', 'Set 1 of 3');
+  await logSet(page);
+  await expectCard(page, 'Seal row', 'Set 2 of 3');
+  await expect.poll(() => sessionsOn(NEXT).length, { timeout: 15_000 }).toBe(1);
+  expect(sessionsOn(DAY)).toHaveLength(2);
+});
+
+test('undoing or deleting the only set makes the day not done again, and the emptied session goes when it settles', async ({ page, request }) => {
+  const MONDAY = '2031-10-06';
+  const DAY = '2031-10-08';
+  const version = program(MONDAY, [{ key: 'only', label: 'Only day', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'seal-row', 3, { label: 'Seal row', target: target(3, 8, 12) })])] }]);
+  await seed(request, putPrograms(version));
+  await page.clock.install({ time: at(DAY, '09:00:00') });
+  await openWeek(page);
+  await openDay(page, 'Only day');
+  await openExercise(page, 'Seal row', 'Set 1 of 3');
+  await load(page).fill('70');
+
+  await logSet(page);
+  await expectCard(page, 'Seal row', 'Set 2 of 3');
+  await toast(page, 'Seal row logged').getByRole('button', { name: 'Undo' }).click();
+  await expectCard(page, 'Seal row', 'Set 1 of 3');
+  await back(page);
+  await back(page);
+  await expect(weekCount(page)).toHaveText('0 of 1 done');
+  await expect(dayRow(page, /^Only day/)).not.toContainText('Done');
+  await expect.poll(() => countOnPhone(page, 'outbox'), { timeout: 15_000 }).toBe(0);
+  expect(sessionsOn(DAY), 'undo took the session with it').toEqual([]);
+  expect(reachesServer(DAY)).toEqual([]);
+
+  await openDay(page, 'Only day');
+  await openExercise(page, 'Seal row', 'Set 1 of 3');
+  await load(page).fill('70');
+  await logSet(page);
+  await expectCard(page, 'Seal row', 'Set 2 of 3');
+  await page.getByRole('group', { name: "Today's sets" }).getByRole('button').first().click();
+  await page.getByRole('dialog', { name: 'Edit Seal row' }).getByRole('button', { name: 'Delete set' }).click();
+  await expectCard(page, 'Seal row', 'Set 1 of 3');
+  await back(page);
+  await back(page);
+  await expect(weekCount(page)).toHaveText('0 of 1 done');
+  await expect.poll(() => sessionsOn(DAY).length, { timeout: 15_000 }).toBe(1);
+
+  await page.clock.fastForward(6 * HOUR + 1000);
+  await comeBackToApp(page);
+  await expect.poll(() => sessionsOn(DAY).length, { timeout: 15_000, message: 'nothing in it, so settling removes it' }).toBe(0);
+  expect(minutesOn(DAY)).toEqual([]);
 });
 
 for (const policy of ['activity-level', 'eat-back-workouts'] as const) {
-  test(`under ${policy}, finishing twice leaves one workout and lifting and cardio do not overlap`, async ({ page, request }) => {
+  test(`under ${policy}, a settled workout runs first set to last, and lifting and cardio do not overlap`, async ({ page, request }) => {
     const MONDAY = policy === 'activity-level' ? '2031-09-15' : '2031-09-29';
     const DAY = addDays(day(MONDAY), 2);
     const version = program(MONDAY, [{ key: 'both', label: 'Lift and ride', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'front-squat', 2, { label: 'Front squat', target: target(2, 8, 12) })], { restSeconds: 90 }), cardio('ride', { title: 'Easy ride' })] }]);
@@ -552,52 +653,50 @@ for (const policy of ['activity-level', 'eat-back-workouts'] as const) {
         macros: { kind: 'percent', protein: 30, carbs: 40, fat: 30 },
       },
     };
-    const weighIn: Mutation = { op: 'put', kind: 'weighIn', doc: { id: `w:${DAY}`, date: DAY, kg: 80, loggedAt: ms(at(DAY, '07:00:00').getTime()) } };
     const profile: Mutation = { op: 'put', kind: 'profile', doc: { id: PROFILE_ID, sex: 'male', birthDate: day('1990-06-15'), heightCm: 180, weightKg: 81 } };
-    await seed(request, docs(putPrograms(version), [profile, goal, weighIn]));
-    await page.clock.install({ time: at(DAY) });
+    await seed(request, docs(putPrograms(version), [profile, goal, weighInOn(DAY)]));
+    await page.clock.install({ time: at(DAY, '09:00:00') });
     await page.goto('/');
     await expect(page.getByTestId('kcal-target')).toBeVisible({ timeout: 15_000 });
     const baseTarget = await page.getByTestId('kcal-target').textContent();
 
     await tab(page, 'Train').click();
-    await startButton(page).click();
-    await expectCard(page, 'Front squat', 'Set 1 of 2');
-    await page.getByLabel('Load', { exact: true }).fill('135');
+    await openDay(page, 'Lift and ride');
+    await openExercise(page, 'Front squat', 'Set 1 of 2');
+    await load(page).fill('135');
     await logSet(page);
-    await logExpecting(page, 'Front squat', 'Set 2 of 2');
+    await expectCard(page, 'Front squat', 'Set 2 of 2');
+    await back(page);
     await page.clock.fastForward(30 * MINUTE);
 
-    await page.getByRole('region', { name: 'Cardio' }).getByRole('button', { name: 'Log cardio' }).click();
+    await row(page, /^Easy ride/).click();
     const logger = page.getByRole('dialog', { name: 'Add workout' });
     await logger.getByRole('region', { name: 'Walking' }).getByRole('button', { name: /^Walking, 3 mph/ }).click();
     await logger.getByLabel('Duration').fill('20');
     await logger.getByRole('button', { name: 'Log workout' }).click();
-    await expect(page.getByRole('region', { name: 'Done' })).toBeVisible();
+    await expect(row(page, /^Easy ride/)).toContainText('Done');
     await page.clock.fastForward(30 * MINUTE);
 
-    await finishButton(page).dblclick();
-    await expect(toast(page, /^Finished Lift and ride, 40 min in the diary/)).toBeVisible();
-    await toast(page, /^Finished Lift and ride/).getByRole('button', { name: 'Undo' }).click();
-    await expect(page.getByRole('region', { name: 'Done' }), 'undo reopens the session').toBeVisible();
-    await finishButton(page).click();
+    await openExercise(page, 'Front squat', 'Set 2 of 2');
+    await logSet(page);
+    await expectCard(page, 'Front squat', 'Extra set');
 
-    await expect(page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Lift and ride/ })).toContainText('Done Wed');
-    await tab(page, 'Diary').click();
+    await page.clock.fastForward(6 * HOUR + 1000);
+    await page.reload();
     const workouts = page.getByRole('region', { name: 'Workouts' });
     await expect(workouts.getByRole('button', { name: /^Lift and ride/ })).toContainText('40 min');
     await expect(workouts.getByRole('button', { name: /^Walking, 3 mph/ })).toContainText('20 min');
     await expect(workouts.getByRole('listitem'), 'two workouts').toHaveCount(2);
 
-    await expect.poll(() => stored('workout').filter((w) => w.date === DAY).length, { timeout: 15_000 }).toBe(2);
-    const finished = stored('session').find((s) => s.date === DAY);
+    await expect.poll(() => minutesOn(DAY).length, { timeout: 15_000 }).toBe(2);
+    const finished = sessionsOn(DAY)[0];
     expect(finished?.finishedAt).toBeDefined();
     const lifted = stored('workout').filter((w) => finished !== undefined && w.id === sessionWorkoutId(finished));
     const walked = stored('workout').filter((w) => w.date === DAY && finished !== undefined && w.id !== sessionWorkoutId(finished));
     expect(lifted.map((w) => [w.name, w.minutes])).toEqual([['Lift and ride', 40]]);
     expect(walked.map((w) => w.minutes)).toEqual([20]);
     // 2.5 MET above resting for 40 minutes, and 2.8 for 20, at the trend weight the day holds.
-    const kcalOf = (met: number, minutes: number, kg: number) => Math.round((met * kg * minutes) / 60);
+    const kcalOf = (met: number, minutes: number, kg_: number) => Math.round((met * kg_ * minutes) / 60);
     const liftedKcal = lifted.map((w) => w.kcal)[0];
     const walkedKcal = walked.map((w) => w.kcal)[0];
     expect(liftedKcal).toBe(kcalOf(2.5, 40, lifted[0]?.kg ?? 0));
@@ -608,90 +707,195 @@ for (const policy of ['activity-level', 'eat-back-workouts'] as const) {
   });
 }
 
-test('a forgotten session is settled at its last set on the next launch, and a session with nothing in it is dropped', async ({ page, request }) => {
+test('a session idle six hours settles by itself at its last set, saying nothing, and a new set that date reopens it until the workout catches up', async ({ page, request }) => {
   const MONDAY = '2031-09-08';
   const DAY = '2031-09-10';
   const version = program(MONDAY, [{ key: 'solo', label: 'Solo day', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'seal-row', 3, { label: 'Seal row', target: target(3, 8, 12) })], { restSeconds: 90 })] }]);
-  const weighIn: Mutation = { op: 'put', kind: 'weighIn', doc: { id: `w:${DAY}`, date: day(DAY), kg: 80, loggedAt: ms(at(DAY, '07:00:00').getTime()) } };
-  await seed(request, docs(putPrograms(version), [weighIn]));
+  await seed(request, docs(putPrograms(version), [weighInOn(DAY)]));
   await page.clock.install({ time: at(DAY, '09:00:00') });
   await openWeek(page);
-
-  // A mistaken Start undoes from its toast.
-  await startButton(page).click();
-  await expectCard(page, 'Seal row', 'Set 1 of 3');
-  await toast(page, 'Started Solo day').getByRole('button', { name: 'Undo' }).click();
-  await expect(startButton(page)).toBeVisible();
-
-  // Or Finish leaves no trace of it, and that undo brings the session back.
-  await startButton(page).click();
-  await expectCard(page, 'Seal row', 'Set 1 of 3');
-  await finishButton(page).click();
-  await expect(toast(page, 'Nothing logged, not counted')).toBeVisible();
-  await expect(page.getByTestId('week-count')).toHaveText('0 of 1 done');
-  await toast(page, 'Nothing logged, not counted').getByRole('button', { name: 'Undo' }).click();
-  await expectCard(page, 'Seal row', 'Set 1 of 3');
-
-  await page.getByLabel('Load', { exact: true }).fill('70');
+  await openDay(page, 'Solo day');
+  await openExercise(page, 'Seal row', 'Set 1 of 3');
+  await load(page).fill('70');
   await logButton(page).dblclick();
   await expectCard(page, 'Seal row', 'Set 2 of 3');
-  await openPlan(page);
-  await expect(planRow(page, /^Seal row/), 'a double tap logs one set').toHaveAccessibleName(/1 of 3 logged/);
-  await closePlan(page);
+  await back(page);
+  await expect(row(page, /^Seal row/), 'a double tap logs one set').toHaveAccessibleName(/1 of 3 logged/);
+  await openExercise(page, 'Seal row', 'Set 2 of 3');
   await page.clock.fastForward(10 * MINUTE);
   await logSet(page);
   await expectCard(page, 'Seal row', 'Set 3 of 3');
-  await page.clock.fastForward(5 * 60 * MINUTE);
+
+  await page.clock.fastForward(5 * HOUR);
   await page.reload();
-  await expectCard(page, 'Seal row', 'Set 3 of 3');
+  await expect(page.getByRole('region', { name: 'Breakfast' }), 'past three hours, a reload lands on the Diary').toBeVisible();
+  await expect(page.getByRole('region', { name: 'Workouts' }).getByRole('button', { name: /^Solo day/ }), 'not settled yet').toHaveCount(0);
 
   await page.clock.fastForward(61 * MINUTE);
   await page.reload();
-  await expect(page.getByRole('region', { name: 'Breakfast' }), 'no longer open, so it starts on the Diary').toBeVisible();
-  await expect(toast(page, /^Finished Solo day at its last set/)).toBeVisible();
   const workouts = page.getByRole('region', { name: 'Workouts' });
   await expect(workouts.getByRole('button', { name: /^Solo day/ })).toContainText('10 min');
+  await expect(page.getByText(/Finished/), 'nothing on screen mentions it').toHaveCount(0);
 
   await tab(page, 'Train').click();
-  await expect(page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Solo day/ })).toContainText('Done Wed');
-  await expect.poll(() => stored('workout').filter((w) => w.date === DAY).map((w) => w.minutes), { timeout: 15_000 }).toEqual([10]);
-  const settled = stored('session').find((s) => s.date === DAY);
+  await expect(dayRow(page, /^Solo day/)).toContainText('Done Wed');
+  await expect.poll(() => minutesOn(DAY), { timeout: 15_000 }).toEqual([10]);
+  const settled = sessionsOn(DAY)[0];
   const tapped = stored('performance').find((p) => p.date === DAY)?.sets.at(-1)?.at;
   expect(settled?.finishedAt, 'at the last set’s time').toBe(tapped);
+
+  // A new set the same date reopens it, in the same session, and the workout waits for the next settle.
+  await openDay(page, 'Solo day');
+  await openExercise(page, 'Seal row', 'Set 3 of 3');
+  await logSet(page);
+  await expectCard(page, 'Seal row', 'Extra set');
+  await expect.poll(() => sessionsOn(DAY)[0]?.finishedAt, { timeout: 15_000 }).toBeUndefined();
+  expect(sessionsOn(DAY).map((s) => s.id)).toEqual([settled?.id]);
+  expect(minutesOn(DAY)).toEqual([10]);
+
+  await page.clock.fastForward(6 * HOUR + 1000);
+  await page.reload();
+  await expect(workouts.getByRole('button', { name: /^Solo day/ })).toContainText('371 min');
+  await expect.poll(() => minutesOn(DAY), { timeout: 15_000 }).toEqual([371]);
+  expect(sessionsOn(DAY)[0]?.finishedAt, 'at the new last set').toBe(stored('performance').find((p) => p.date === DAY)?.sets.at(-1)?.at);
 });
 
-test('midnight keeps the session’s date', async ({ page, request }) => {
+test('a version published while a day holds a set changes nothing on it, and the next date uses it', async ({ page, request }) => {
+  const MONDAY = '2031-08-18';
+  const DAY = '2031-08-20';
+  const slots = [slot('a1', 'trap-bar-deadlift', 3, { label: 'Trap bar deadlift', target: target(3, 8, 12) })];
+  const older = program(MONDAY, [{ key: 'pull', label: 'Pull day', weekday: 3, blocks: [liftsBlock('main', slots, { restSeconds: 90 })] }]);
+  const newer = program(DAY, [{ key: 'pull', label: 'Pull day, new', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'trap-bar-deadlift', 5, { label: 'Deadlift, rewritten', target: target(5, 3, 5) })], { restSeconds: 180 })] }]);
+  await seed(request, putPrograms(older));
+  await page.clock.install({ time: at(DAY) });
+  await openWeek(page);
+  await openDay(page, 'Pull day');
+  await openExercise(page, 'Trap bar deadlift', 'Set 1 of 3');
+  await load(page).fill('225');
+  await logSet(page);
+  await expectCard(page, 'Trap bar deadlift', 'Set 2 of 3');
+
+  await seed(request, putPrograms(newer));
+  const before = await countOnPhone(page, 'program');
+  await logSet(page);
+  await expect.poll(() => countOnPhone(page, 'program'), { timeout: 15_000 }).toBe(before + 1);
+
+  await expectCard(page, 'Trap bar deadlift', 'Set 3 of 3');
+  await expect(card(page)).toContainText('8–12 reps');
+  await page.getByRole('button', { name: 'Cue', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Cue' }).getByText('Rest 90s'), 'the pinned rest, not the new one').toBeVisible();
+  await page.getByRole('dialog', { name: 'Cue' }).getByRole('button', { name: 'Done' }).click();
+  await back(page);
+  await expect(title(page, 'Pull day'), 'the day still reads as he pinned it').toBeVisible();
+  await expect(row(page, /^Trap bar deadlift/)).toContainText('3 × 8–12');
+  await back(page);
+  await expect(dayRow(page, /^Pull day, new/), 'and the week reads the version in effect').toContainText('Done Wed');
+
+  await page.reload();
+  await dayRow(page, /^Pull day, new/).click();
+  await expect(title(page, 'Pull day'), 'a reload changes nothing').toBeVisible();
+  await back(page);
+
+  const NEXT = addDays(day(DAY), 1);
+  await page.clock.fastForward(24 * HOUR);
+  await openDay(page, 'Pull day, new');
+  await openExercise(page, 'Deadlift, rewritten', 'Set 1 of 5');
+  await expect(card(page)).toContainText('3–5 reps');
+  await logSet(page);
+  await expect.poll(() => sessionsOn(NEXT).map((s) => s.programId), { timeout: 15_000 }).toEqual([newer.id]);
+  expect(sessionsOn(DAY).map((s) => s.programId)).toEqual([older.id]);
+});
+
+test('a version published while a day with nothing logged is open moves it, and the first set pins that one', async ({ page, request }) => {
   const MONDAY = '2031-08-11';
   const DAY = '2031-08-13';
+  const older = program(MONDAY, [{ key: 'move', label: 'Moving day', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'seal-row', 3, { label: 'Seal row', target: target(3, 8, 12) })])] }]);
+  const newer = program(DAY, [{ key: 'move', label: 'Moved day', weekday: 3, blocks: [liftsBlock('main', [slot('b1', 'pin-press', 3, { label: 'Pin press', target: target(3, 5, 8) })])] }]);
+  await seed(request, putPrograms(older));
+  await page.clock.install({ time: at(DAY) });
+  await openWeek(page);
+  await openDay(page, 'Moving day');
+  await openExercise(page, 'Seal row', 'Set 1 of 3');
+
+  await seed(request, putPrograms(newer));
+  await comeBackToApp(page);
+  await expect(title(page, 'Moved day'), 'an exercise the plan no longer holds leaves him on the day').toBeVisible({ timeout: 15_000 });
+  await expect(row(page, /^Seal row/)).toHaveCount(0);
+  expect(await countOnPhone(page, 'outbox')).toBe(0);
+
+  await openExercise(page, 'Pin press', 'Set 1 of 3');
+  await load(page).fill('135');
+  await logSet(page);
+  await expect.poll(() => sessionsOn(DAY).map((s) => s.programId), { timeout: 15_000 }).toEqual([newer.id]);
+});
+
+test('a reload lands on Train for three hours after a set, and on the Diary otherwise', async ({ page, request }) => {
+  const MONDAY = '2031-08-04';
+  const DAY = '2031-08-06';
+  const version = program(MONDAY, [{ key: 'land', label: 'Landing day', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'seal-row', 3, { label: 'Seal row', target: target(3, 8, 12) })])] }]);
+  await seed(request, putPrograms(version));
+  await page.clock.install({ time: at(DAY, '10:00:00') });
+  await page.goto('/');
+  await expect(page.getByRole('region', { name: 'Breakfast' }), 'no set, so the Diary').toBeVisible({ timeout: 15_000 });
+
+  await tab(page, 'Train').click();
+  await openDay(page, 'Landing day');
+  await openExercise(page, 'Seal row', 'Set 1 of 3');
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Breakfast' }), 'opening an exercise is not training').toBeVisible();
+
+  await tab(page, 'Train').click();
+  await openDay(page, 'Landing day');
+  await openExercise(page, 'Seal row', 'Set 1 of 3');
+  await load(page).fill('70');
+  await logSet(page);
+  await expectCard(page, 'Seal row', 'Set 2 of 3');
+  await page.clock.fastForward(2 * HOUR);
+  await page.reload();
+  await expect(dayRow(page, /^Landing day/), 'the list, not the exercise he left').toContainText('Done Wed');
+  await expect(card(page)).toHaveCount(0);
+
+  await page.clock.fastForward(HOUR);
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Breakfast' })).toBeVisible();
+});
+
+test('a set past midnight lands on the new date, with a session of its own', async ({ page, request }) => {
+  const MONDAY = '2031-07-28';
+  const DAY = '2031-07-30';
   const version = program(MONDAY, [{ key: 'late', label: 'Late day', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'pendlay-row', 2, { label: 'Pendlay row', target: target(2, 8, 12) })], { restSeconds: 60 })] }]);
   await seed(request, putPrograms(version));
   await page.clock.install({ time: at(DAY, '23:50:00') });
   await openWeek(page);
-  await startButton(page).click();
-  await expectCard(page, 'Pendlay row', 'Set 1 of 2');
-  await page.getByLabel('Load', { exact: true }).fill('95');
+  await openDay(page, 'Late day');
+  await openExercise(page, 'Pendlay row', 'Set 1 of 2');
+  await load(page).fill('95');
   await logSet(page);
+  await expectCard(page, 'Pendlay row', 'Set 2 of 2');
 
   await page.clock.fastForward(20 * MINUTE);
-  await expectCard(page, 'Pendlay row', 'Set 2 of 2');
+  await expectCard(page, 'Pendlay row', 'Set 1 of 2');
+  await expect(card(page)).toContainText('Last 95 lb × 8 · Jul 30');
   await logSet(page);
-  await expect.poll(() => reachesServer(DAY).map((p) => p.sets.length), { timeout: 15_000 }).toEqual([2]);
-  expect(stored('session').find((s) => s.date === DAY)?.date, 'the date it started').toBe(DAY);
+  const NEXT = addDays(day(DAY), 1);
+  await expect.poll(() => [reachesServer(DAY).length, reachesServer(NEXT).length], { timeout: 15_000 }).toEqual([1, 1]);
+  expect(sessionsOn(NEXT).map((s) => s.date)).toEqual([NEXT]);
 });
 
-test('says so when this phone does not hold the version a session pinned, and still finishes', async ({ page, request }) => {
-  const MONDAY = '2031-08-04';
-  const DAY = '2031-08-06';
-  const unheld = program('2031-08-01', [{ key: 'gone', blocks: [liftsBlock('main', [slot('a1', 'pin-press', 3)])] }]);
-  const open: Mutation = { op: 'put', kind: 'session', doc: { ...session({ date: day(DAY), day: { key: dayKey('gone'), label: 'Gone day' }, startedAt: ms(at(DAY).getTime()) }), programId: unheld.id } };
-  await seed(request, docs(putPrograms(program(MONDAY, [{ key: 'now', label: 'Now day', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'pin-press', 3)])] }])), [open]));
+test('a session pinned to a version this phone does not hold reads the version in effect, and still takes sets', async ({ page, request }) => {
+  const MONDAY = '2031-07-21';
+  const DAY = '2031-07-23';
+  const unheld = program('2031-07-01', [{ key: 'now', blocks: [liftsBlock('main', [slot('a1', 'pin-press', 3)])] }]);
+  const pinned = { ...session({ date: day(DAY), day: { key: dayKey('now'), label: 'Now day' }, startedAt: ms(at(DAY).getTime()) }), programId: unheld.id };
+  await seed(request, docs(putPrograms(program(MONDAY, [{ key: 'now', label: 'Now day', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'pin-press', 3, { label: 'Pin press' })])] }])), [{ op: 'put', kind: 'session', doc: pinned }]));
   await page.clock.install({ time: at(DAY) });
-  await page.goto('/');
-  await tab(page, 'Train').click();
-  await expect(page.getByText('This plan is not on this phone yet')).toBeVisible({ timeout: 15_000 });
-  await finishButton(page).click();
-  await expect(toast(page, 'Nothing logged, not counted')).toBeVisible();
-  await expect(startButton(page)).toBeVisible();
+  await openWeek(page);
+  await openDay(page, 'Now day');
+  await openExercise(page, 'Pin press', 'Set 1 of 3');
+  await load(page).fill('135');
+  await logSet(page);
+  await expectCard(page, 'Pin press', 'Set 2 of 3');
+  await expect.poll(() => stored('performance').filter((p) => p.date === DAY).map((p) => p.sessionId), { timeout: 15_000 }).toEqual([pinned.id]);
 });
 
 test('Tell the coach writes a loose note from the Coach sheet, with an undo', async ({ page, request }) => {
@@ -702,7 +906,7 @@ test('Tell the coach writes a loose note from the Coach sheet, with an undo', as
   await page.clock.install({ time: at(DAY) });
   await page.goto('/');
   await tab(page, 'Train').click();
-  await expect(page.getByTestId('week-count')).toBeVisible({ timeout: 15_000 });
+  await expect(weekCount(page)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('list', { name: 'More' }).getByRole('button'), 'no weigh-in today, so its row is there').toHaveText(['Coach', 'Progress', 'Weigh in']);
 
   const openCoach = () => page.getByRole('button', { name: /^Coach/ }).click();
@@ -720,7 +924,32 @@ test('Tell the coach writes a loose note from the Coach sheet, with an undo', as
   await expect.poll(() => stored('trainingNote').filter((n) => n.date === DAY).map((n) => n.text), { timeout: 15_000 }).toEqual(['Invented line two.']);
 });
 
-test('a copy of the pinned version replaced under an open session moves the card, and the sets already logged stay stored', async ({ page, request }) => {
+test('Back lands where he left the day, and a tap on Train goes up to the list', async ({ page, request }) => {
+  const MONDAY = '2031-07-07';
+  const DAY = '2031-07-09';
+  const lifts = Array.from({ length: 12 }, (_, i) => slot(`s${i}`, `invented-lift-${i}`, 3, { label: `Invented lift ${i}`, target: target(3, 8, 12) }));
+  const version = program(MONDAY, [{ key: 'long', label: 'Long day', weekday: 3, blocks: lifts.map((one, i) => liftsBlock(`b${i}`, [one])) }]);
+  await seed(request, putPrograms(version));
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.clock.install({ time: at(DAY) });
+  await openWeek(page);
+  await openDay(page, 'Long day');
+  const far = row(page, /^Invented lift 11/);
+  await far.scrollIntoViewIfNeeded();
+  const scrolled = await page.evaluate(() => window.scrollY);
+  expect(scrolled).toBeGreaterThan(0);
+  await far.click();
+  await expectCard(page, 'Invented lift 11', 'Set 1 of 3');
+  await back(page);
+  await expect(title(page, 'Long day')).toBeAttached();
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+
+  await far.click();
+  await tab(page, 'Train').click();
+  await expect(weekCount(page)).toBeVisible();
+});
+
+test('a copy of the pinned version replaced under a day moves its rows, and the sets already logged stay stored', async ({ page, request }) => {
   const MONDAY = '2031-06-30';
   const DAY = '2031-07-02';
   const trouble: string[] = [];
@@ -730,23 +959,25 @@ test('a copy of the pinned version replaced under an open session moves the card
   await seed(request, putPrograms(first));
   await page.clock.install({ time: at(DAY) });
   await openWeek(page);
-  await startButton(page).click();
-  await expectCard(page, 'Seal row', 'Set 1 of 2');
-  await page.getByLabel('Load', { exact: true }).fill('70');
-  await logSet(page);
-  await expectCard(page, 'Pendlay row', 'Set 1 of 2');
-  await page.getByLabel('Load', { exact: true }).fill('95');
+  await openDay(page, 'Moved day');
+  await openExercise(page, 'Seal row', 'Set 1 of 2');
+  await load(page).fill('70');
   await logSet(page);
   await expectCard(page, 'Seal row', 'Set 2 of 2');
+  await back(page);
+  await openExercise(page, 'Pendlay row', 'Set 1 of 2');
+  await load(page).fill('95');
+  await logSet(page);
+  await expectCard(page, 'Pendlay row', 'Set 2 of 2');
   await expect.poll(() => reachesServer(DAY).length, { timeout: 15_000 }).toBe(2);
 
   await seed(request, putPrograms(replaced));
   await page.reload();
-  await expectCard(page, 'Pin press', 'Set 1 of 2');
-  await openPlan(page);
-  await expect(plan(page)).not.toContainText('Seal row');
-  await closePlan(page);
-  await page.getByLabel('Load', { exact: true }).fill('135');
+  await openDay(page, 'Moved day');
+  await expect(row(page, /^Pin press/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.train')).not.toContainText('Seal row');
+  await openExercise(page, 'Pin press', 'Set 1 of 2');
+  await load(page).fill('135');
   await logSet(page);
   await expect
     .poll(() => reachesServer(DAY).map((p) => [p.lift, p.sets.length]), { timeout: 15_000 })

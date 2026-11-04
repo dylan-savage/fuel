@@ -25,15 +25,14 @@ import {
   type Water,
 } from '../domain/habits.js';
 import { LocalDate, addDays, mondayOf, type Millis } from '../domain/ids.js';
-import { liftBook, type Lift, type LiftBook, type LiftId, type Performance, type SlotId } from '../domain/lifts.js';
+import { liftBook, type Lift, type LiftBook, type LiftId, type Performance } from '../domain/lifts.js';
 import { RECENT_DAYS, recents, type Library, type RecentFood } from '../domain/library.js';
-import { dayNotesFor, dayParts, notesFor, plannedDay, type DayKey, type DayPart, type PlannedDay, type Program, type ProgramNote, type StandingText } from '../domain/program.js';
+import { dayNotesFor, dayParts, notesFor, plannedDay, type DayPart, type PlannedDay, type Program, type ProgramNote, type StandingText } from '../domain/program.js';
 import {
   BOARD_MIN,
   BOARD_WEEKS,
   SHOW_UP_WEEKS,
   boardRow,
-  lastLineOf,
   latestOf,
   latestRepsToGo,
   liftSeriesByRange,
@@ -44,7 +43,6 @@ import {
   weekUnfinished,
   type BoardRow,
   type ChartMode,
-  type LastLine,
   type LiftPoint,
   type LiftRange,
   type LiftSeries,
@@ -55,7 +53,7 @@ import {
   type WeekProgress,
 } from '../domain/progress.js';
 import { refreshFor, type EditedRef, type Recipe, type Refresh, type SavedMeal } from '../domain/reuse.js';
-import { cardioDoneOn, isUnfinished, sessionPhase, type Session, type SessionLogs } from '../domain/session.js';
+import { cardioDoneOn, sessionForDay, trainedLately, type DayLogs, type DayRef, type Session, type SessionLogs } from '../domain/session.js';
 import { localDate } from './clock.js';
 import type { Intents } from './intents.js';
 import type { Replica, ReplicaReader, Subscribable } from './replica.js';
@@ -149,7 +147,7 @@ async function coachCard(r: ReplicaReader, inEffect: Program, monday: LocalDate,
 
 export interface WeekView extends WeekProgress {
   readonly coach: CoachWeek;
-  /** The week's own notes in effect. A note naming a day is on that day's preview. */
+  /** The week's own notes in effect. A note naming a day is on that day's screen. */
   readonly notes: readonly ProgramNote[];
   readonly standing: readonly StandingText[];
   readonly weighedInToday: boolean;
@@ -157,7 +155,7 @@ export interface WeekView extends WeekProgress {
 
 /**
  * The week holding `today`, under the version in effect. Null before any version is. A set
- * logged re-runs this, because it counts toward the week, so last-time lines read separately.
+ * logged re-runs this, because it counts toward the week.
  */
 export async function weekView(r: ReplicaReader, today: LocalDate): Promise<WeekView | null> {
   const program = await r.programOn(today);
@@ -179,63 +177,7 @@ export async function weekView(r: ReplicaReader, today: LocalDate): Promise<Week
   };
 }
 
-export interface PlannedDayView {
-  readonly plan: PlannedDay;
-  readonly notes: readonly ProgramNote[];
-  readonly book: LiftBook;
-}
-
-/** One day under the version in effect. Reads no logs, so a logged set does not re-run it. Null when that week does not hold the day. */
-export async function plannedDayView(r: ReplicaReader, key: DayKey, date: LocalDate): Promise<PlannedDayView | null> {
-  const program = await r.programOn(date);
-  const plan = program === undefined ? undefined : plannedDay(program, key, date);
-  if (program === undefined || plan === undefined) return null;
-  return { plan, notes: dayNotesFor(program, key, date), book: liftBook(program.lifts) };
-}
-
-export interface DayPreview {
-  readonly notes: readonly ProgramNote[];
-  readonly parts: readonly DayPart[];
-  /** Slot ids are unique within a day. Null before the lift was done. */
-  readonly lasts: ReadonlyMap<SlotId, LastLine | null>;
-}
-
-/** A day as its preview reads. Its reads stop at the day before `today`, so a set logged today does not re-run it. */
-export async function dayPreviewView(r: ReplicaReader, key: DayKey, today: LocalDate): Promise<DayPreview | null> {
-  const planned = await plannedDayView(r, key, today);
-  if (planned === null) return null;
-  const { plan, notes, book } = planned;
-  const slots = plan.blocks.flatMap((block) => (block.kind === 'lifts' ? block.slots : []));
-  const rows = await lastTimesView(r, [...new Set(slots.flatMap((slot) => book.members(slot.liftId)))], today);
-  return {
-    notes,
-    parts: dayParts(plan),
-    lasts: new Map(slots.map((slot) => [slot.id, lastLineOf({ lift: slot.liftId, rows, book, before: today })])),
-  };
-}
-
-/** A session's sets and whether cardio on its date satisfies its cardio blocks. */
-export async function sessionLogsView(r: ReplicaReader, session: Session): Promise<SessionLogs> {
-  const [performances, workouts] = await Promise.all([r.performancesOfSession(session.id), r.onDate('workout', session.date)]);
-  return { session, performances, cardioDone: cardioDoneOn(session, workouts) };
-}
-
-/** Enough to carry a session across a midnight, and few enough thin rows to read before the first paint. */
-const OPEN_SESSION_DAYS = 2;
-
-/** The session in progress, with its sets, so the position and the rest they imply come from one read. Null with none. */
-export async function openSessionView(r: ReplicaReader, at: { readonly today: LocalDate; readonly now: Millis }): Promise<SessionLogs | null> {
-  const recent = await r.between('session', addDays(at.today, -OPEN_SESSION_DAYS), at.today);
-  const reads = await Promise.all(recent.filter(isUnfinished).map((session) => sessionLogsView(r, session)));
-  return (
-    reads
-      .filter((logs) => sessionPhase(logs, at.now) === 'open')
-      .toSorted((a, b) => (a.session.startedAt ?? 0) - (b.session.startedAt ?? 0))
-      .at(-1) ?? null
-  );
-}
-
-export interface SessionPlan {
+export interface DayScreenView extends DayLogs {
   readonly plan: PlannedDay;
   readonly parts: readonly DayPart[];
   readonly notes: readonly ProgramNote[];
@@ -244,19 +186,45 @@ export interface SessionPlan {
   readonly lifts: readonly Lift[];
 }
 
-/** A session's plan from the version it pinned, so a version published since changes nothing on the card. Null when this phone does not hold that version. */
-export async function sessionPlanView(r: ReplicaReader, session: Session): Promise<SessionPlan | null> {
-  if (session.programId === undefined || session.day === undefined) return null;
-  const program = await r.get('program', session.programId);
-  const plan = program === undefined ? undefined : plannedDay(program, session.day.key, session.date);
+/**
+ * A day on a date. Once that date has a session for it, the version the session pinned, so one
+ * published since changes nothing under him. Before that, or on a phone not holding the pin, the
+ * version in effect. Null when neither holds the day.
+ */
+export async function dayScreenView(r: ReplicaReader, { key, date }: DayRef): Promise<DayScreenView | null> {
+  const [sessions, workouts, inEffect] = await Promise.all([r.onDate('session', date), r.onDate('workout', date), r.programOn(date)]);
+  const session = sessionForDay(sessions, key) ?? null;
+  const pinned = session?.programId === undefined ? undefined : await r.get('program', session.programId);
+  const pinnedPlan = pinned === undefined ? undefined : plannedDay(pinned, key, date);
+  const program = pinnedPlan === undefined ? inEffect : pinned;
+  const plan = pinnedPlan ?? (inEffect === undefined ? undefined : plannedDay(inEffect, key, date));
   if (program === undefined || plan === undefined) return null;
-  return { plan, parts: dayParts(plan), notes: dayNotesFor(program, plan.key, session.date), book: liftBook(program.lifts), lifts: program.lifts };
+  return {
+    plan,
+    parts: dayParts(plan),
+    notes: dayNotesFor(program, key, date),
+    book: liftBook(program.lifts),
+    lifts: program.lifts,
+    session,
+    performances: session === null ? [] : await r.performancesOfSession(session.id),
+    cardioDone: cardioDoneOn(session, workouts),
+  };
 }
 
-/** Every id whose last time a running session can show: its plan, what it has logged, and swaps chosen with no set yet. */
-export function sessionLiftIds({ plan, book }: SessionPlan, performances: readonly Performance[], swaps: readonly { readonly liftId: LiftId }[]): readonly LiftId[] {
+/** Every id whose last time the day can show: its plan, what it has logged, and swaps chosen with no set yet. */
+export function dayLiftIds({ plan, book, performances }: Pick<DayScreenView, 'plan' | 'book' | 'performances'>, swaps: readonly { readonly liftId: LiftId }[]): readonly LiftId[] {
   const slots = plan.blocks.flatMap((block) => (block.kind === 'lifts' ? block.slots : []));
   return [...new Set([...slots, ...performances, ...swaps].flatMap(({ liftId }) => book.members(liftId)))].toSorted();
+}
+
+/** A session's sets, for settling it. */
+export async function sessionLogsView(r: ReplicaReader, session: Session): Promise<SessionLogs> {
+  return { session, performances: await r.performancesOfSession(session.id) };
+}
+
+/** Whether a relaunch starts on Train. Yesterday's sets count too, for a session that crossed midnight. */
+export async function trainedRecentlyView(r: ReplicaReader, at: { readonly today: LocalDate; readonly now: Millis }): Promise<boolean> {
+  return trainedLately(await r.between('performance', addDays(at.today, -1), at.today), at.now);
 }
 
 export interface ShowUpView extends ShowUp {

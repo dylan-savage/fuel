@@ -197,7 +197,12 @@ export function targetNotes({ perSide, load }: Target): readonly string[] {
   return [...(perSide === undefined ? [] : [PER_SIDE[perSide]]), ...(note === null ? [] : [note])];
 }
 
-/** "8–12 reps", "10 reps per side", "1 rep": a set's target, on the card. */
+/** "Set 2 of 3", counted for this exercise alone, then "Extra set". */
+export function setOfText(target: Target, set: number): string {
+  return set > target.sets ? 'Extra set' : `Set ${set} of ${target.sets}`;
+}
+
+/** "8–12 reps", "10 reps per side", "1 rep": a set's target, on the exercise. */
 export function repsTargetText(target: Target): string {
   return `${repRange(target)} ${target.reps.max === 1 ? 'rep' : 'reps'}${target.perSide === undefined ? '' : ' per side'}`;
 }

@@ -9,7 +9,6 @@ import { expect, test, type Page } from '@playwright/test';
 import { localDate } from '../src/client/clock.js';
 import { addDays, mondayOf } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
-import { stepsOf } from '../src/domain/program.js';
 import { dayKey, lb, liftsBlock, ms, newSessionId, performance as performanceOf, program, slot, target } from '../test/training.fixtures.js';
 import { countOnPhone, seed, stored, tab } from './app.js';
 
@@ -154,7 +153,7 @@ test('reports the time from a tap on Train to the day list, on years of invented
   }
   const afterSwitch = await tapsFromDiary();
 
-  for (const tap of [...beforeHistory, ...afterReload, ...afterSwitch]) expect(tap.rows, 'the list held every day but the next one, which is the hero, when timed').toBe(SESSIONS_A_WEEK - 1);
+  for (const tap of [...beforeHistory, ...afterReload, ...afterSwitch]) expect(tap.rows, 'the list held every day when timed').toBe(SESSIONS_A_WEEK);
   const marks = (taps: readonly Tap[]) => ({ painted: summary(taps.map((t) => t.paintedMs)), list: summary(taps.map((t) => t.listMs)), title: summary(taps.map((t) => t.titleMs)) });
   const report = { data: { ...held, versionBytes, today }, beforeHistory: marks(beforeHistory), afterReload: marks(afterReload), afterTabSwitch: marks(afterSwitch) };
   const dir = join('test-results', 'timing');
@@ -165,7 +164,7 @@ test('reports the time from a tap on Train to the day list, on years of invented
 });
 
 interface LogTap {
-  /** From the tap's own event time: the card naming the next step in the DOM, then the second frame after, by which the first has painted it. */
+  /** From the tap's own event time: the exercise naming its next set in the DOM, then the second frame after, by which the first has painted it. */
   readonly domMs: number;
   readonly paintedMs: number;
   readonly next: string;
@@ -178,7 +177,7 @@ async function tapLogSet(page: Page): Promise<LogTap> {
       tappedAt ??= event.timeStamp;
     };
     for (const type of ['touchstart', 'pointerdown', 'mousedown', 'click']) document.addEventListener(type, noteTap, { capture: true, once: true });
-    const onCard = () => `${document.querySelector('.set-card h2')?.textContent ?? ''} | ${document.querySelector('[data-testid="round"]')?.textContent ?? ''}`;
+    const onCard = () => document.querySelector('[data-testid="round"]')?.textContent ?? '';
     const before = onCard();
     const done = new Promise<LogTap>((resolve) => {
       const observer = new MutationObserver(() => {
@@ -197,9 +196,10 @@ async function tapLogSet(page: Page): Promise<LogTap> {
   return armed.evaluate((handle) => handle.done);
 }
 
-const SESSIONS_TIMED = 2;
+const DAYS_TIMED = 2;
+const SETS_AN_EXERCISE = 3;
 
-test('reports the time from a tap on Log set to the card showing the next step, on years of invented data', async ({ page, request }) => {
+test('reports the time from a tap on Log set to the exercise showing its next set, on years of invented data', async ({ page, request }) => {
   test.setTimeout(240_000);
   const trouble: string[] = [];
   page.on('pageerror', (err) => trouble.push(err.message));
@@ -218,25 +218,24 @@ test('reports the time from a tap on Log set to the card showing the next step, 
 
   const { days } = planned();
   const taps: LogTap[] = [];
-  const startedOn: string[] = [];
-  for (let s = 0; s < SESSIONS_TIMED; s++) {
-    const start = page.getByRole('region', { name: 'Next day' }).getByRole('button', { name: 'Start', exact: true });
-    await expect(start).toBeVisible();
-    const label = (await page.locator('.next-day .hero-number').textContent()) ?? '';
-    await start.tap();
-    await expect(page.getByRole('button', { name: 'Log set' })).toBeVisible();
-    startedOn.push(label);
-    const plan = days.find((one) => one.label === label);
-    if (plan === undefined) throw new Error(`no plan for ${label}`);
-    const steps = plan.blocks.flatMap((block) => (block.kind === 'lifts' ? stepsOf(block) : []));
-    for (const [i, _step] of steps.entries()) {
-      const tap = await tapLogSet(page);
-      const after = steps[i + 1];
-      expect(tap.next, 'the card moved to the step the plan names').toBe(after === undefined ? 'Plan done | ' : `${after.slot.label} | Set ${after.round} of 3`);
-      taps.push(tap);
+  const timedDays = days.slice(0, DAYS_TIMED);
+  for (const [d, plan] of timedDays.entries()) {
+    await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: new RegExp(`^${plan.label}`) }).tap();
+    const slots = plan.blocks.flatMap((block) => (block.kind === 'lifts' ? block.slots : []));
+    // The plan's last exercise first, since nothing walks him through it.
+    for (const one of slots.toReversed()) {
+      await page.locator('.train').getByRole('button', { name: new RegExp(`^${one.label}`) }).tap();
+      await expect(page.getByRole('button', { name: 'Log set' })).toBeEnabled();
+      for (let set = 1; set <= SETS_AN_EXERCISE; set++) {
+        const tap = await tapLogSet(page);
+        expect(tap.next, 'it stayed on the exercise and moved to its next set').toBe(set === SETS_AN_EXERCISE ? 'Extra set' : `Set ${set + 1} of ${SETS_AN_EXERCISE}`);
+        await expect(page.getByRole('button', { name: 'Log set' })).toBeEnabled();
+        taps.push(tap);
+      }
+      await page.getByRole('button', { name: 'Back', exact: true }).tap();
     }
-    await page.getByRole('button', { name: 'Finish', exact: true }).tap();
-    await expect(page.getByTestId('week-count')).toHaveText(`${s + 1} of ${SESSIONS_A_WEEK} done`);
+    await page.getByRole('button', { name: 'Back', exact: true }).tap();
+    await expect(page.getByTestId('week-count')).toHaveText(`${d + 1} of ${SESSIONS_A_WEEK} done`);
   }
 
   const expectedSets = taps.length;
@@ -251,7 +250,7 @@ test('reports the time from a tap on Log set to the card showing the next step, 
     .toBe(expectedSets);
   expect(trouble).toEqual([]);
   const report = {
-    data: { ...held, today, startedOn },
+    data: { ...held, today, days: timedDays.map((plan) => plan.label) },
     runs: taps.length,
     painted: summary(taps.map((t) => t.paintedMs)),
     dom: summary(taps.map((t) => t.domMs)),

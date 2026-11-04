@@ -1,23 +1,23 @@
 /**
- * What is on the card but not yet stored: typed digits, a swap with no set under it yet, a tap on
- * the plan. One JSON value in localStorage, written on every change, because localStorage is
- * synchronous and a lock can freeze the page right after a keystroke. Never synced. Losing it costs
- * retyping one set, because every logged set is already in IndexedDB.
+ * What is on an exercise but not yet stored: typed digits, and a swap with no set under it yet.
+ * One JSON value in localStorage, written on every change, because localStorage is synchronous and
+ * a lock can freeze the page right after a keystroke. Never synced. Losing it costs retyping one
+ * set, because every logged set is already in IndexedDB.
  *
  * A tab switch unmounts the screen, a reload restarts the app and a lock can kill the page. All
  * three come back through this one value, so there is one recovery.
  */
 import { useCallback, useState } from 'preact/hooks';
 import { z } from 'zod';
-import { SessionId } from '../domain/ids.js';
-import { LiftId, SlotId, Unit } from '../domain/lifts.js';
-import { BlockId, type Step } from '../domain/program.js';
-import { focusAfterSet, type LiftChoice, type SetEntry } from '../domain/session.js';
+import { LocalDate } from '../domain/ids.js';
+import { LiftId, Unit, type SlotId } from '../domain/lifts.js';
+import { DayKey } from '../domain/program.js';
+import type { DayRef, LiftChoice, SetEntry } from '../domain/session.js';
 import { editable, parseNumber } from './screens/format.js';
 
 const KEY = 'fuel:train:draft';
 
-/** The card's fields as typed, so "92." survives until the next digit. */
+/** The set's fields as typed, so "92." survives until the next digit. */
 export const SetForm = z.object({
   load: z.discriminatedUnion('kind', [z.object({ kind: z.literal('weight'), amount: z.string(), unit: Unit }), z.object({ kind: z.literal('bodyweight') }), z.object({ kind: z.literal('band'), label: z.string() })]),
   reps: z.discriminatedUnion('kind', [z.object({ kind: z.literal('total'), reps: z.string() }), z.object({ kind: z.literal('sides'), left: z.string(), right: z.string() })]),
@@ -26,13 +26,14 @@ export const SetForm = z.object({
 });
 export type SetForm = z.infer<typeof SetForm>;
 
+/** For one day on one date, with each exercise keeping its own, since he moves between them freely. */
 const TrainDraft = z.object({
-  sessionId: SessionId,
-  focus: z.discriminatedUnion('kind', [z.object({ kind: z.literal('slot'), slotId: SlotId }), z.object({ kind: z.literal('block'), blockId: BlockId })]).optional(),
+  key: DayKey,
+  date: LocalDate,
   /** Swaps chosen before their first set, by slot. */
-  swaps: z.record(z.string(), z.object({ liftId: LiftId, label: z.string().min(1) })).optional(),
-  /** Keyed by slot, lift and round, so typed digits cannot land on another set. */
-  set: z.object({ slotId: SlotId, liftId: LiftId, round: z.number().int(), form: SetForm }).optional(),
+  swaps: z.record(z.string(), z.object({ liftId: LiftId, label: z.string().min(1) })),
+  /** By slot, each naming its lift and set, so typed digits cannot land on another set. */
+  typed: z.record(z.string(), z.object({ liftId: LiftId, set: z.number().int(), form: SetForm })),
 });
 export type TrainDraft = z.infer<typeof TrainDraft>;
 
@@ -59,49 +60,47 @@ export function entryOf(form: SetForm): SetEntry {
 }
 
 /** What he has typed for this very set, if anything. */
-export function typedFor(draft: TrainDraft, step: Step, lift: LiftChoice): SetForm | undefined {
-  const { set } = draft;
-  return set !== undefined && set.slotId === step.slot.id && set.round === step.round && set.liftId === lift.liftId ? set.form : undefined;
+export function typedFor(draft: TrainDraft, slotId: SlotId, lift: LiftChoice, set: number): SetForm | undefined {
+  const typed = draft.typed[slotId];
+  return typed?.liftId === lift.liftId && typed.set === set ? typed.form : undefined;
 }
 
-/** What stays after a set: swaps on other slots, and a jump into an optional block. The set's lift is now on its performance. */
-export function afterLog(draft: TrainDraft, step: Step): TrainDraft {
-  const { [step.slot.id]: _logged, ...swaps } = draft.swaps ?? {};
-  const focus = focusAfterSet(step);
-  return { sessionId: draft.sessionId, ...(focus === undefined ? {} : { focus }), ...(Object.keys(swaps).length === 0 ? {} : { swaps }) };
+export function withTyped(draft: TrainDraft, slotId: SlotId, lift: LiftChoice, set: number, form: SetForm): TrainDraft {
+  return { ...draft, typed: { ...draft.typed, [slotId]: { liftId: lift.liftId, set, form } } };
 }
 
-export function withSwap(draft: TrainDraft, step: Step, lift: LiftChoice): TrainDraft {
-  const { set: _typed, ...rest } = draft;
-  return { ...rest, swaps: { ...draft.swaps, [step.slot.id]: { liftId: lift.liftId, label: lift.label } } };
+/** The set's lift is now on its performance, so nothing of this slot stays. */
+export function afterLog(draft: TrainDraft, slotId: SlotId): TrainDraft {
+  const { [slotId]: _swap, ...swaps } = draft.swaps;
+  const { [slotId]: _typed, ...typed } = draft.typed;
+  return { ...draft, swaps, typed };
 }
 
-/** Back to following the data, with nothing typed. */
-export function withoutFocus(draft: TrainDraft): TrainDraft {
-  const { focus: _focus, set: _typed, ...rest } = draft;
-  return rest;
+export function withSwap(draft: TrainDraft, slotId: SlotId, lift: LiftChoice): TrainDraft {
+  const { [slotId]: _typed, ...typed } = draft.typed;
+  return { ...draft, swaps: { ...draft.swaps, [slotId]: { liftId: lift.liftId, label: lift.label } }, typed };
 }
 
-/** A draft for another session, or one that fails to parse, reads as empty. */
-function readDraft(sessionId: SessionId): TrainDraft {
+/** A draft for another day or date, or one that fails to parse, reads as empty. */
+function readDraft({ key, date }: DayRef): TrainDraft {
   try {
     const raw = localStorage.getItem(KEY);
     const parsed = raw === null ? null : TrainDraft.safeParse(JSON.parse(raw));
-    if (parsed?.success === true && parsed.data.sessionId === sessionId) return parsed.data;
+    if (parsed?.success === true && parsed.data.key === key && parsed.data.date === date) return parsed.data;
   } catch {
     // Storage off or the value unreadable: nothing typed survives, and every stored set still does.
   }
-  return { sessionId };
+  return { key, date, swaps: {}, typed: {} };
 }
 
-export function useTrainDraft(sessionId: SessionId): readonly [TrainDraft, (next: TrainDraft) => void] {
-  const [draft, setDraft] = useState(() => readDraft(sessionId));
+export function useTrainDraft(day: DayRef): readonly [TrainDraft, (next: TrainDraft) => void] {
+  const [draft, setDraft] = useState(() => readDraft(day));
   const save = useCallback((next: TrainDraft) => {
     setDraft(next);
     try {
       localStorage.setItem(KEY, JSON.stringify(next));
     } catch {
-      // Storage off or full: the card still works, and only a reload loses the digits.
+      // Storage off or full: the screen still works, and only a reload loses the digits.
     }
   }, []);
   return [draft, save];

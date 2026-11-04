@@ -3,11 +3,12 @@ import { MET_ACTIVITIES, makeWorkout, metDraft, type Workout, type WorkoutDraft 
 import { LocalDate, Millis, ProgramId, SessionId, TrainingNoteId, WorkoutId } from './ids.js';
 import { SetLog, SlotId, liftBook, liftIdOf, performanceId, type Lift, type LiftBook, type LiftId, type Performance, type Target, type Unit } from './lifts.js';
 import { workingSets } from './progress.js';
-import { BlockId, DayKey, stepsOf, type Block, type CardioBlock, type ChecklistBlock, type LiftsBlock, type PlannedDay, type Slot, type Step } from './program.js';
+import { BlockId, DayKey, type CardioBlock, type ChecklistBlock, type Slot } from './program.js';
 
 /**
  * A session is thin: which day, which pinned version, when, plus the taps that have no sets to
- * live on. Sets live on performances, so a reload or a lock has no state to lose.
+ * live on. Sets live on performances. Nothing on screen names one. The first write for a day on a
+ * date makes it, and it finishes by itself, so history, the coach and the diary have it to read.
  */
 export const Session = z.looseObject({
   id: SessionId,
@@ -19,7 +20,7 @@ export const Session = z.looseObject({
   startedAt: Millis.optional(),
   finishedAt: Millis.optional(),
   skips: z.array(z.looseObject({ slotId: SlotId, note: z.string().max(1000).optional() })).optional(),
-  /** Checklist blocks tapped Done, and cardio blocks passed over, so the card moves on. */
+  /** Blocks tapped Done. */
   checked: z.array(BlockId).optional(),
   note: z.string().max(2000).optional(),
   source: z.literal('notion').optional(),
@@ -42,7 +43,7 @@ const HOUR_MS = 3_600_000;
 export type SessionPhase = 'open' | 'finished' | 'lapsed' | 'imported';
 
 /** From the documents and the clock, so phone and coach agree with no stored flag. */
-export function sessionPhase({ session, performances }: Pick<SessionLogs, 'session' | 'performances'>, now: Millis): SessionPhase {
+export function sessionPhase({ session, performances }: SessionLogs, now: Millis): SessionPhase {
   if (session.source === 'notion') return 'imported';
   if (session.finishedAt !== undefined) return 'finished';
   return Math.max(session.startedAt ?? 0, ...setTimes(performances)) + OPEN_HOURS * HOUR_MS > now ? 'open' : 'lapsed';
@@ -56,7 +57,27 @@ export function isUnfinished(session: Session): boolean {
 export interface SessionLogs {
   readonly session: Session;
   readonly performances: readonly Performance[];
-  /** A workout other than this session's own is on its date. See cardioDoneOn. */
+}
+
+/** One planned day on one date, which is where a write lands. */
+export interface DayRef {
+  readonly key: DayKey;
+  readonly date: LocalDate;
+}
+
+/** The session a day's writes land on, from that date's sessions. An import is history and takes none. Two are only possible from two phones or an older build, and the newest wins. */
+export function sessionForDay(sessions: readonly Session[], key: DayKey): Session | undefined {
+  return sessions
+    .filter((session) => session.day?.key === key && session.source !== 'notion')
+    .toSorted((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0))
+    .at(-1);
+}
+
+/** What a day holds on a date. No session until the first write. */
+export interface DayLogs {
+  readonly session: Session | null;
+  readonly performances: readonly Performance[];
+  /** A workout other than this session's own is on the date. See cardioDoneOn. */
   readonly cardioDone: boolean;
 }
 
@@ -65,112 +86,33 @@ export function sessionWorkoutId(session: Session): WorkoutId {
   return WorkoutId.parse(session.id);
 }
 
-/** A cardio logged from the Diary that morning satisfies the block too. */
-export function cardioDoneOn(session: Session, workouts: readonly Workout[]): boolean {
-  const own = sessionWorkoutId(session);
-  return workouts.some((workout) => workout.date === session.date && workout.id !== own);
+/** Of that date's workouts. A cardio logged from the Diary that morning satisfies the block too. */
+export function cardioDoneOn(session: Session | null, workouts: readonly Workout[]): boolean {
+  const own = session === null ? null : sessionWorkoutId(session);
+  return workouts.some((workout) => workout.id !== own);
 }
 
-/** Sets across a swap count together, because a swap keeps the slot's id. Warm-ups never count as rounds. */
-export function roundsLogged(performances: readonly Performance[], slotId: SlotId): number {
+/** Sets across a swap count together, because a swap keeps the slot's id. Warm-ups never count. */
+function setsDone(performances: readonly Performance[], slotId: SlotId): number {
   return performances.filter((p) => p.slotId === slotId).reduce((sum, p) => sum + workingSets(p.sets).length, 0);
 }
 
-function skippedSlots(session: Session): ReadonlySet<SlotId> {
-  return new Set((session.skips ?? []).map((skip) => skip.slotId));
+/** A checklist tapped Done, or a cardio logged. */
+export function blockDone(block: ChecklistBlock | CardioBlock, { session, cardioDone }: Pick<DayLogs, 'session' | 'cardioDone'>): boolean {
+  return session?.checked?.includes(block.id) === true || (block.kind === 'cardio' && cardioDone);
 }
 
-export type Next =
-  | { readonly kind: 'set'; readonly step: Step }
-  | { readonly kind: 'checklist'; readonly block: ChecklistBlock }
-  | { readonly kind: 'cardio'; readonly block: CardioBlock }
-  /** Required work is done. Optional blocks stay on screen but are not walked into. */
-  | { readonly kind: 'done'; readonly optionalLeft: readonly Block[] };
-
-function firstGap(block: Block, logs: SessionLogs): Exclude<Next, { kind: 'done' }> | null {
-  switch (block.kind) {
-    case 'lifts': {
-      const skipped = skippedSlots(logs.session);
-      const step = stepsOf(block).find((s) => !skipped.has(s.slot.id) && s.round > roundsLogged(logs.performances, s.slot.id));
-      return step === undefined ? null : { kind: 'set', step };
-    }
-    case 'checklist':
-      return logs.session.checked?.includes(block.id) === true ? null : { kind: 'checklist', block };
-    case 'cardio':
-      return logs.cardioDone || logs.session.checked?.includes(block.id) === true ? null : { kind: 'cardio', block };
-  }
-}
-
-/**
- * Where he is, read from the data: the first step with no set under it. A skipped slot is
- * passed over, and logging out of order just moves the first gap.
- */
-export function nextUp(day: PlannedDay, logs: SessionLogs): Next {
-  const optionalLeft: Block[] = [];
-  for (const block of day.blocks) {
-    const gap = firstGap(block, logs);
-    if (gap === null) continue;
-    if (block.optional !== true) return gap;
-    optionalLeft.push(block);
-  }
-  return { kind: 'done', optionalLeft };
-}
-
-/**
- * A tap on the plan. A slot shows its next round even past the prescription, which is how an extra
- * set is reached. A block shows its first gap and then hands back to nextUp.
- */
-export type Focus = { readonly kind: 'slot'; readonly slotId: SlotId } | { readonly kind: 'block'; readonly blockId: BlockId };
-
-function stepInSlot(day: PlannedDay, logs: SessionLogs, slotId: SlotId): Step | null {
-  const block = liftsBlocks(day).find((b) => b.slots.some((slot) => slot.id === slotId));
-  const slot = block?.slots.find((s) => s.id === slotId);
-  if (block === undefined || slot === undefined) return null;
-  const round = roundsLogged(logs.performances, slotId) + 1;
-  const prescribed = stepsOf(block).find((s) => s.slot.id === slotId && s.round === round);
-  return { block, slot, round, endsRound: prescribed?.endsRound ?? true };
-}
-
-/** What the card shows: where a tap on the plan points, else where the data says he is. A focus that no longer points at anything follows nextUp. */
-export function cardFor(day: PlannedDay, logs: SessionLogs, focus: Focus | undefined): Next {
-  if (focus?.kind === 'slot') {
-    const step = stepInSlot(day, logs, focus.slotId);
-    if (step !== null) return { kind: 'set', step };
-  }
-  if (focus?.kind === 'block') {
-    const block = day.blocks.find((b) => b.id === focus.blockId);
-    const gap = block === undefined ? null : firstGap(block, logs);
-    if (gap !== null) return gap;
-  }
-  return nextUp(day, logs);
-}
-
-/** Past the prescription: a set the plan did not ask for. */
-export function isExtra({ slot, round }: Step): boolean {
-  return round > slot.target.sets;
-}
-
-/** Where the card goes after a set. nextUp never walks into an optional block, so one he jumped into keeps him until its gaps are filled. */
-export function focusAfterSet({ block }: Step): Focus | undefined {
-  return block.optional === true ? { kind: 'block', blockId: block.id } : undefined;
-}
-
-/** A checklist tapped Done, a cardio satisfied or passed over. */
-export function blockDone(block: ChecklistBlock | CardioBlock, logs: SessionLogs): boolean {
-  return firstGap(block, logs) === null;
-}
-
-/** One logged set and where it is stored, so a tap on its row can edit it. */
+/** One logged set and where it is stored, so a tap on its value can edit it. */
 export interface LoggedSet {
   readonly performance: Performance;
   readonly index: number;
   readonly set: SetLog;
 }
 
-/** What the plan shows under a slot. */
+/** What today holds of one exercise. */
 export interface SlotLog {
-  /** Working sets, which fill the dots. */
-  readonly rounds: number;
+  /** Working sets, which fill the dots. The next set is one past these. */
+  readonly done: number;
   /** One per prescribed set, and one more per extra. */
   readonly dots: number;
   readonly skipped: boolean;
@@ -185,33 +127,10 @@ function setsInSlot(performances: readonly Performance[], slotId: SlotId): reado
     .toSorted((a, b) => (a.set.at ?? 0) - (b.set.at ?? 0));
 }
 
-export function slotLog(slot: Slot, { session, performances }: Pick<SessionLogs, 'session' | 'performances'>): SlotLog {
-  const rounds = roundsLogged(performances, slot.id);
-  return { rounds, dots: Math.max(slot.target.sets, rounds), skipped: skippedSlots(session).has(slot.id), sets: setsInSlot(performances, slot.id) };
-}
-
-export interface SetsProgress {
-  readonly done: number;
-  readonly total: number;
-}
-
-/** How much of the day's required lifting is logged. An extra set does not run it past the end, and a skipped slot asks only for the sets it got. */
-export function setsProgress(day: PlannedDay, { session, performances }: Pick<SessionLogs, 'session' | 'performances'>): SetsProgress {
-  const skipped = skippedSlots(session);
-  const slots = liftsBlocks(day)
-    .filter((block) => block.optional !== true)
-    .flatMap((block) => block.slots);
-  return slots.reduce(
-    ({ done, total }, slot) => {
-      const logged = Math.min(roundsLogged(performances, slot.id), slot.target.sets);
-      return { done: done + logged, total: total + (skipped.has(slot.id) ? logged : slot.target.sets) };
-    },
-    { done: 0, total: 0 },
-  );
-}
-
-function liftsBlocks(day: PlannedDay): readonly LiftsBlock[] {
-  return day.blocks.filter((block) => block.kind === 'lifts');
+export function slotLog(slot: Slot, { session, performances }: Pick<DayLogs, 'session' | 'performances'>): SlotLog {
+  const done = setsDone(performances, slot.id);
+  const skipped = session?.skips?.some((skip) => skip.slotId === slot.id) === true;
+  return { done, dots: Math.max(slot.target.sets, done), skipped, sets: setsInSlot(performances, slot.id) };
 }
 
 /** Set inputs before a tap. A number may be blank, which a prefill cannot always fill. */
@@ -271,13 +190,13 @@ export function prefillSet(input: {
   };
 }
 
-/** What the card holds at the tap. */
+/** What the exercise holds at the tap. */
 export interface SetEntry extends SetDraft {
   readonly warmup: boolean;
   readonly note: string;
 }
 
-/** A logged set as the card reads it, to edit it. */
+/** A logged set as the exercise reads it, to edit it. */
 export function entryOfSet(set: SetLog): SetEntry {
   return { load: set.load, reps: set.reps, warmup: set.warmup === true, note: set.note ?? '' };
 }
@@ -325,7 +244,7 @@ export function liftInSlot(slot: Slot, performances: readonly Performance[]): Li
   return newest === undefined || newest.liftId === slot.liftId ? { liftId: slot.liftId, label: slot.label } : { liftId: newest.liftId, label: newest.label };
 }
 
-/** The cue on the card. A listed swap's replaces the slot's, and any other lift has none. */
+/** The cue on the exercise. A listed swap's replaces the slot's, and any other lift has none. */
 export function cueFor(slot: Slot, liftId: LiftId): string | undefined {
   return liftId === slot.liftId ? slot.cue : slot.swaps?.find((swap) => swap.liftId === liftId)?.cue;
 }
@@ -377,6 +296,18 @@ export function withoutSkip(session: Session, slotId: SlotId): Session {
   return others.length === 0 ? rest : { ...rest, skips: others };
 }
 
+/** Back to being derived, so the session's workout catches up at the next settle. */
+export function reopened(session: Session): Session {
+  const { finishedAt: _finishedAt, ...rest } = session;
+  return rest;
+}
+
+/** What a set does to its session: it takes back a skip of that slot and reopens a settled one. The same session when neither applies, so a set usually writes one document. */
+export function afterSet(session: Session, slotId: SlotId): Session {
+  const skipped = session.skips?.some((skip) => skip.slotId === slotId) === true;
+  return !skipped && session.finishedAt === undefined ? session : reopened(withoutSkip(session, slotId));
+}
+
 export function withChecked(session: Session, blockId: BlockId): Session {
   return { ...session, checked: [...new Set([...(session.checked ?? []), blockId])] };
 }
@@ -413,9 +344,9 @@ export function swapChoices(input: { readonly slot: Slot; readonly lifts: readon
   return { listed, catalog, typed };
 }
 
-/** Nothing happened: no set, tick, skip, note or cardio. A session like this was a mistaken Start, so it does not count, and finishing or settling it leaves no trace. */
-export function leftEmpty({ session, performances, cardioDone }: SessionLogs): boolean {
-  return performances.length === 0 && !cardioDone && (session.skips ?? []).length === 0 && (session.checked ?? []).length === 0 && session.note === undefined;
+/** Nothing in it: no set, tick, skip or note, as after deleting its only set. It does not count, and settling it leaves no trace. */
+export function leftEmpty({ session, performances }: SessionLogs): boolean {
+  return performances.length === 0 && (session.skips ?? []).length === 0 && (session.checked ?? []).length === 0 && session.note === undefined;
 }
 
 const MAX_WORKOUT_MINUTES = 1440;
@@ -424,11 +355,18 @@ function setTimes(performances: readonly Performance[]): readonly Millis[] {
   return performances.flatMap((p) => p.sets.flatMap((set) => set.at ?? []));
 }
 
+const RESUME_HOURS = 3;
+
+/** A set this recent means he is still training, so a relaunch starts on Train. */
+export function trainedLately(performances: readonly Performance[], now: Millis): boolean {
+  return setTimes(performances).some((at) => at > now - RESUME_HOURS * HOUR_MS);
+}
+
 /**
  * When a session ended. A session never finished ends at its last set's time once it lapses.
  * Null while it is open, and for a lapsed session with no timed set.
  */
-export function finishOf(logs: Pick<SessionLogs, 'session' | 'performances'>, now: Millis): Millis | null {
+export function finishOf(logs: SessionLogs, now: Millis): Millis | null {
   if (logs.session.finishedAt !== undefined) return logs.session.finishedAt;
   if (sessionPhase(logs, now) !== 'lapsed') return null;
   const times = setTimes(logs.performances);
@@ -439,9 +377,9 @@ export function finishOf(logs: Pick<SessionLogs, 'session' | 'performances'>, no
  * The lifting half of the session's workout, or null with no timed set, as on a cardio-only day
  * or an import. Minutes run from the first set, warm-ups included, to the finish, less any
  * cardio logged inside that span, so burn is not counted twice. Its own earlier workout is left
- * out, so finishing twice gives the same answer.
+ * out, so settling twice gives the same answer.
  */
-export function sessionWorkoutDraft(input: { readonly logs: Pick<SessionLogs, 'session' | 'performances'>; readonly finishedAt: Millis; readonly others: readonly Workout[] }): WorkoutDraft | null {
+export function sessionWorkoutDraft(input: { readonly logs: SessionLogs; readonly finishedAt: Millis; readonly others: readonly Workout[] }): WorkoutDraft | null {
   const { session, performances } = input.logs;
   const times = setTimes(performances);
   if (times.length === 0) return null;
@@ -452,21 +390,17 @@ export function sessionWorkoutDraft(input: { readonly logs: Pick<SessionLogs, 's
   return { ...metDraft('strength', minutes), name: session.day?.label ?? MET_ACTIVITIES.strength.label };
 }
 
-export type DiaryResult = 'added' | 'no-sets' | 'no-weight';
-
 export interface FinishDocs {
   readonly session: Session;
-  /** Null when there is nothing to put in the diary, which `diary` says why. */
+  /** Null with no timed set or no known body weight. */
   readonly workout: Workout | null;
-  readonly diary: DiaryResult;
 }
 
-/** What finishing writes, in one commit. The workout shares the session's id, so finishing twice converges. A session with no timed set writes none. */
-export function finishDocs(input: { readonly logs: Pick<SessionLogs, 'session' | 'performances'>; readonly finishedAt: Millis; readonly others: readonly Workout[]; readonly kg: number | undefined }): FinishDocs {
+/** What settling writes, in one commit. The workout shares the session's id, so settling twice converges. */
+export function finishDocs(input: { readonly logs: SessionLogs; readonly finishedAt: Millis; readonly others: readonly Workout[]; readonly kg: number | undefined }): FinishDocs {
   const { logs, finishedAt, kg } = input;
   const session = { ...logs.session, finishedAt };
   const draft = sessionWorkoutDraft(input);
-  if (draft === null) return { session, workout: null, diary: 'no-sets' };
-  if (kg === undefined) return { session, workout: null, diary: 'no-weight' };
-  return { session, workout: makeWorkout(draft, { id: sessionWorkoutId(logs.session), date: logs.session.date, kg, loggedAt: finishedAt }), diary: 'added' };
+  if (draft === null || kg === undefined) return { session, workout: null };
+  return { session, workout: makeWorkout(draft, { id: sessionWorkoutId(logs.session), date: logs.session.date, kg, loggedAt: finishedAt }) };
 }

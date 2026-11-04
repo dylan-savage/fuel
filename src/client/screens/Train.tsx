@@ -1,13 +1,14 @@
 import { useState } from 'preact/hooks';
 import type { CoachWeek, DiffItem, DiffKind } from '../../domain/coach.js';
 import { mondayOf, type LocalDate } from '../../domain/ids.js';
-import { exerciseCount, type DayKey, type DayPart, type PlannedDay, type ProgramNote, type Slot, type StandingText } from '../../domain/program.js';
-import { TrainingNote, type SessionLogs } from '../../domain/session.js';
-import { dayPreviewView, useIntents, useLive, weekView, type DayPreview, type WeekView } from '../views.js';
-import { checklistLabel, clipped, count, pastMoment, planSections, prescriptionText, shortDate, targetNotes, weekdayName } from './format.js';
+import type { SlotId } from '../../domain/lifts.js';
+import type { DayKey, StandingText } from '../../domain/program.js';
+import { TrainingNote } from '../../domain/session.js';
+import { useIntents, useLive, weekView, type WeekView } from '../views.js';
+import { clipped, count, pastMoment, shortDate, weekdayName } from './format.js';
 import { ProgressSheet } from './Progress.js';
-import { SessionScreen, useKeyboardAvoidance } from './Session.js';
-import { ExpandRow, NoteField, Row, Sheet, TitleBar, useToast } from './ui.js';
+import { TrainDay } from './TrainDay.js';
+import { ExpandRow, NoteField, Row, Sheet, TitleBar, useKeyboardAvoidance, useToast } from './ui.js';
 import { WeighInSheet } from './Weight.js';
 
 /** Long enough to fill the row's one line on any phone, short enough not to read a whole report to a screen reader. */
@@ -109,164 +110,6 @@ function CoachSheet({ week, today, onClose }: { readonly week: WeekView; readonl
   );
 }
 
-/** "35 min · 8 exercises". */
-function dayLine(plan: PlannedDay): string {
-  const exercises = exerciseCount(plan);
-  return [...(plan.minutes === undefined ? [] : [`${plan.minutes} min`]), ...(exercises === 0 ? [] : [count(exercises, 'exercise')])].join(' · ');
-}
-
-/** The hero. A tap anywhere on it previews the day, and Start sits on top of that. */
-function NextDay({ plan, onOpen, onStart }: { readonly plan: PlannedDay; readonly onOpen: () => void; readonly onStart: () => void }) {
-  return (
-    <section class="card next-day" aria-label="Next day">
-      <button type="button" class="next-day-open" onClick={onOpen}>
-        <span class="hero-number">{plan.label}</span>
-        <span class="detail">{dayLine(plan)}</span>
-      </button>
-      <button type="button" class="primary" onClick={onStart}>
-        Start
-      </button>
-    </section>
-  );
-}
-
-function ExerciseRow({ slot, part, preview, today }: { readonly slot: Slot; readonly part: DayPart; readonly preview: DayPreview; readonly today: LocalDate }) {
-  const { block, superset } = part;
-  const last = preview.lasts.get(slot.id) ?? null;
-  const swaps = slot.swaps ?? [];
-  const more = [
-    ...(superset === null && block.title !== undefined && block.title !== slot.label ? [block.title] : []),
-    ...targetNotes(slot.target),
-    ...(superset === null && block.kind === 'lifts' && block.restSeconds !== undefined ? [`Rest ${block.restSeconds}s`] : []),
-    ...(swaps.length > 0 ? [`Swaps: ${swaps.map((swap) => swap.label).join(', ')}`] : []),
-    ...(block.note === undefined ? [] : [block.note]),
-    ...(slot.cue === undefined ? [] : [slot.cue]),
-  ];
-  const row = {
-    name: slot.label,
-    detail: last === null ? undefined : `${last.line} · ${shortDate(last.date, today)}`,
-    end: (
-      <span class="exercise-end">
-        {prescriptionText(slot.target)}
-        {last?.addWeight === true && <span class="mark-good">Add weight</span>}
-      </span>
-    ),
-  };
-  return more.length === 0 ? (
-    <Row {...row} />
-  ) : (
-    <ExpandRow {...row}>
-      {more.map((line) => (
-        <p key={line}>{line}</p>
-      ))}
-    </ExpandRow>
-  );
-}
-
-function PartRows({ part, preview, today }: { readonly part: DayPart; readonly preview: DayPreview; readonly today: LocalDate }) {
-  const { block } = part;
-  switch (block.kind) {
-    case 'lifts':
-      return (
-        <>
-          {block.slots.map((slot) => (
-            <li key={slot.id}>
-              <ExerciseRow slot={slot} part={part} preview={preview} today={today} />
-            </li>
-          ))}
-        </>
-      );
-    case 'checklist':
-      return (
-        <li>
-          <ExpandRow name={checklistLabel(block)}>
-            {block.note !== undefined && <p>{block.note}</p>}
-            {block.items.map((item) => (
-              <p key={item}>{item}</p>
-            ))}
-          </ExpandRow>
-        </li>
-      );
-    case 'cardio': {
-      const row = { name: block.title ?? 'Cardio', detail: block.title === undefined ? undefined : 'Cardio' };
-      return <li>{block.note === undefined ? <Row {...row} /> : <ExpandRow {...row}><p>{block.note}</p></ExpandRow>}</li>;
-    }
-  }
-}
-
-function PartLists({ parts, preview, today }: { readonly parts: readonly DayPart[]; readonly preview: DayPreview; readonly today: LocalDate }) {
-  return (
-    <>
-      {planSections(parts).map((section) => (
-        <section class="plan-section" key={section.parts[0]?.block.id} aria-label={section.label ?? undefined}>
-          {section.label !== null && <h3 class="section-heading">{section.label}</h3>}
-          <ul class="list">
-            {section.parts.map((part) => (
-              <PartRows key={part.block.id} part={part} preview={preview} today={today} />
-            ))}
-          </ul>
-        </section>
-      ))}
-    </>
-  );
-}
-
-const noteLine = ({ title, text }: ProgramNote) => (title === undefined ? text : `${title}: ${text}`);
-
-function partNames({ block }: DayPart): readonly string[] {
-  switch (block.kind) {
-    case 'lifts':
-      return block.slots.map((slot) => slot.label);
-    case 'checklist':
-      return [block.title ?? 'Checklist'];
-    case 'cardio':
-      return [block.title ?? 'Cardio'];
-  }
-}
-
-function DaySheet({ plan, today, onClose, onStart }: { readonly plan: PlannedDay; readonly today: LocalDate; readonly onClose: () => void; readonly onStart: () => void }) {
-  const preview = useLive((r) => dayPreviewView(r, plan.key, today), [plan.key, today]);
-  const required = preview?.parts.filter((part) => part.block.optional !== true) ?? [];
-  const optional = preview?.parts.filter((part) => part.block.optional === true) ?? [];
-  const line = dayLine(plan);
-  return (
-    <Sheet title={plan.label} onClose={onClose} closeLabel="Done">
-      {preview === null && <p class="detail">Not in this week's plan</p>}
-      {preview !== null && preview !== undefined && (
-        <>
-          {line !== '' && <p class="detail sheet-lead">{line}</p>}
-          {preview.notes.length > 0 && (
-            <ul class="list" aria-label="Day notes">
-              {preview.notes.map((note, i) => (
-                <li key={i}>
-                  <ExpandRow name={noteLine(note)} clamp />
-                </li>
-              ))}
-            </ul>
-          )}
-          <PartLists parts={required} preview={preview} today={today} />
-          {optional.length > 0 && (
-            <section class="plan-section" aria-label="Optional">
-              <ul class="list">
-                <li>
-                  <ExpandRow name="Optional" detail={optional.flatMap(partNames).join(', ')}>
-                    <PartLists parts={optional} preview={preview} today={today} />
-                  </ExpandRow>
-                </li>
-              </ul>
-            </section>
-          )}
-          <div class="day-start">
-            <button type="button" class="primary" onClick={onStart}>
-              Start
-            </button>
-          </div>
-        </>
-      )}
-    </Sheet>
-  );
-}
-
 function ProgramSheet({ standing, onClose }: { readonly standing: readonly StandingText[]; readonly onClose: () => void }) {
   return (
     <Sheet title="Program" onClose={onClose} closeLabel="Done">
@@ -286,21 +129,10 @@ function ProgramSheet({ standing, onClose }: { readonly standing: readonly Stand
 /** Which sheet is over the week. */
 type WeekSheet = 'coach' | 'progress' | 'program' | 'weigh-in';
 
-function Week({ week, today }: { readonly week: WeekView; readonly today: LocalDate }) {
-  const intents = useIntents();
-  const toast = useToast();
-  const [previewing, setPreviewing] = useState<PlannedDay | null>(null);
+function Week({ week, today, onDay }: { readonly week: WeekView; readonly today: LocalDate; readonly onDay: (key: DayKey) => void }) {
   const [sheet, setSheet] = useState<WeekSheet | null>(null);
   const planned = week.days.length;
-  const next = week.suggested;
-  const others = week.days.filter((day) => day.plan.key !== next?.key);
   const closeSheet = () => setSheet(null);
-  const start = ({ key, label }: { readonly key: DayKey; readonly label: string }) => {
-    setPreviewing(null);
-    void intents.startSession(key, today).then((undo) => {
-      if (undo !== null) toast({ text: `Started ${label}`, undo });
-    });
-  };
 
   return (
     <>
@@ -318,12 +150,11 @@ function Week({ week, today }: { readonly week: WeekView; readonly today: LocalD
           </div>
         </>
       )}
-      {next !== null && <NextDay plan={next} onOpen={() => setPreviewing(next)} onStart={() => start(next)} />}
-      {others.length > 0 && (
+      {planned > 0 && (
         <ul class="list" aria-label="Days">
-          {others.map(({ plan, doneOn }) => (
+          {week.days.map(({ plan, doneOn }) => (
             <li key={plan.key}>
-              <Row name={plan.label} end={doneOn === null ? undefined : `Done ${weekdayName(doneOn)}`} chevron={doneOn === null} onClick={() => setPreviewing(plan)} />
+              <Row name={plan.label} end={doneOn === null ? undefined : `Done ${weekdayName(doneOn)}`} chevron={doneOn === null} onClick={() => onDay(plan.key)} />
             </li>
           ))}
         </ul>
@@ -346,7 +177,6 @@ function Week({ week, today }: { readonly week: WeekView; readonly today: LocalD
           </li>
         )}
       </ul>
-      {previewing !== null && <DaySheet plan={previewing} today={today} onClose={() => setPreviewing(null)} onStart={() => start(previewing)} />}
       {sheet === 'coach' && <CoachSheet week={week} today={today} onClose={closeSheet} />}
       {sheet === 'progress' && <ProgressSheet today={today} onClose={closeSheet} />}
       {sheet === 'program' && <ProgramSheet standing={week.standing} onClose={closeSheet} />}
@@ -356,19 +186,33 @@ function Week({ week, today }: { readonly week: WeekView; readonly today: LocalD
 }
 
 /** The week as the calendar and the version in effect say. */
-function WeekScreen({ today }: { readonly today: LocalDate }) {
+function WeekScreen({ today, onDay }: { readonly today: LocalDate; readonly onDay: (key: DayKey) => void }) {
   const week = useLive((r) => weekView(r, today), [today]);
   return (
     <section class="screen train">
       <TitleBar title={`Week of ${shortDate(mondayOf(today), today)}`} />
       {week === null && <p class="week-count">There is no program yet.</p>}
-      {week !== null && week !== undefined && <Week week={week} today={today} />}
+      {week !== null && week !== undefined && <Week week={week} today={today} onDay={onDay} />}
     </section>
   );
 }
 
-/** An open session comes first. `open` is undefined only until IndexedDB first answers, which draws nothing so the week cannot flash. */
-export function Train({ today, open }: { readonly today: LocalDate; readonly open: SessionLogs | null | undefined }) {
-  if (open === undefined) return null;
-  return open === null ? <WeekScreen today={today} /> : <SessionScreen logs={open} today={today} />;
+/** Where he is in Train: the week, a day, or an exercise in a day. Held above the tab, so going to the Diary and back loses nothing. */
+export type TrainPlace = { readonly key: DayKey; readonly slot: SlotId | null } | null;
+
+export function Train({ today, place, onPlace }: { readonly today: LocalDate; readonly place: TrainPlace; readonly onPlace: (place: TrainPlace) => void }) {
+  if (place === null) return <WeekScreen today={today} onDay={(key) => onPlace({ key, slot: null })} />;
+  const { key } = place;
+  return (
+    <TrainDay
+      key={`${key}:${today}`}
+      day={{ key, date: today }}
+      slotId={place.slot}
+      onSlot={(slot) => onPlace({ key, slot })}
+      onBack={() => {
+        onPlace(null);
+        window.scrollTo(0, 0);
+      }}
+    />
+  );
 }

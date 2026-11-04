@@ -2,16 +2,15 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { useRegisterSW } from 'virtual:pwa-register/preact';
 import { mealAt, type Meal } from '../domain/diary.js';
 import type { LocalDate } from '../domain/ids.js';
-import { localDate, now } from './clock.js';
+import { localDate } from './clock.js';
 import { InvalidDocument } from './replica.js';
 import { Add } from './screens/Add.js';
 import { Diary } from './screens/Diary.js';
 import type { OnLogged } from './screens/flow.js';
-import { timeOfDay } from './screens/format.js';
 import { GoalScreen } from './screens/Goal.js';
-import { Train } from './screens/Train.js';
+import { Train, type TrainPlace } from './screens/Train.js';
 import { Icon, useToast } from './screens/ui.js';
-import { openSessionView, useIntents, useLive } from './views.js';
+import { useIntents } from './views.js';
 
 export type Tab = 'diary' | 'add' | 'train' | 'goal';
 
@@ -39,22 +38,17 @@ function useToday(): LocalDate {
 
 const mealNow = () => mealAt(new Date().getHours());
 
-/** Finishes a forgotten session on launch, and when the app comes back, since iOS often resumes one rather than launching it. */
+/** Finishes an idle session on launch, and when the app comes back, since iOS often resumes one rather than launching it. It says nothing, and its workout just appears in the diary. */
 function useSettleLapsed() {
   const intents = useIntents();
-  const toast = useToast();
   useEffect(() => {
     const settle = () => {
-      if (document.visibilityState !== 'visible') return;
-      void intents.settleLapsed().then((settled) => {
-        const last = settled.at(-1);
-        if (last !== undefined) toast({ text: `Finished ${last.label ?? 'a session'} at its last set, ${timeOfDay(last.at)}` });
-      });
+      if (document.visibilityState === 'visible') void intents.settleLapsed();
     };
     settle();
     document.addEventListener('visibilitychange', settle);
     return () => document.removeEventListener('visibilitychange', settle);
-  }, [intents, toast]);
+  }, [intents]);
 }
 
 /**
@@ -70,7 +64,7 @@ function checkForUpdateOnWake(_url: string, registration: ServiceWorkerRegistrat
 export function App({ startOn }: { readonly startOn: Tab }) {
   const today = useToday();
   const [tab, setTab] = useState<Tab>(startOn);
-  const open = useLive((r) => openSessionView(r, { today, now: now() }), [today]);
+  const [trainPlace, setTrainPlace] = useState<TrainPlace>(null);
   useSettleLapsed();
   const [date, setDate] = useState(today);
   const [meal, setMeal] = useState<Meal>(mealNow);
@@ -125,7 +119,7 @@ export function App({ startOn }: { readonly startOn: Tab }) {
           />
         )}
         {tab === 'add' && <Add slot={slot} today={today} onMeal={setMeal} onLogged={onLogged} />}
-        {tab === 'train' && <Train today={today} open={open} />}
+        {tab === 'train' && <Train today={today} place={trainPlace} onPlace={setTrainPlace} />}
         {tab === 'goal' && <GoalScreen today={today} />}
       </main>
       <nav class="tab-bar" aria-label="Sections">
@@ -136,6 +130,7 @@ export function App({ startOn }: { readonly startOn: Tab }) {
             aria-current={tab === t ? 'page' : undefined}
             onClick={() => {
               if (t === 'add' && tab !== 'add') setMeal(mealNow());
+              if (t === 'train' && tab === 'train') setTrainPlace(null);
               setTab(t);
               window.scrollTo(0, 0);
             }}

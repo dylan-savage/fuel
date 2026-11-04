@@ -147,6 +147,22 @@ main {
 
 /* Titles */
 
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  margin-left: -8px;
+  padding-right: 8px;
+}
+
+.back-button .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.back-button + .title-bar {
+  padding-top: 0;
+}
+
 .title-bar {
   display: flex;
   align-items: center;
@@ -1471,29 +1487,6 @@ main {
   margin-top: 12px;
 }
 
-/* The whole card previews the day, and Start sits on top of that. */
-.next-day {
-  position: relative;
-  display: grid;
-  gap: 12px;
-}
-
-.next-day-open {
-  display: grid;
-  gap: 2px;
-  text-align: left;
-}
-
-.next-day-open::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-}
-
-.next-day .primary {
-  position: relative;
-}
-
 .coach-title {
   font-weight: 600;
 }
@@ -1508,7 +1501,7 @@ main {
   margin-top: 6px;
 }
 
-/* The day's preview and the plan's sheet */
+/* A day */
 
 .sheet-lead {
   margin: 0 16px 12px;
@@ -1530,32 +1523,7 @@ main {
 .exercise-end {
   display: grid;
   justify-items: end;
-}
-
-/* Sticky stops at the sheet body's padding, so it reaches past it or the plan shows beneath. */
-.day-start {
-  position: sticky;
-  bottom: calc(-24px - env(safe-area-inset-bottom));
-  margin: 16px 0 calc(-24px - env(safe-area-inset-bottom));
-  padding: 8px 0 calc(24px + env(safe-area-inset-bottom));
-  background: var(--bg);
-}
-
-.row[aria-current='step'] .row-name {
-  font-weight: 700;
-}
-
-.plan-set {
-  display: block;
-  width: 100%;
-  min-height: 44px;
-  padding: 4px 16px 4px 12px;
-  border-top: 0.5px solid var(--separator);
-  color: var(--muted);
-  font-size: var(--text-detail);
-  font-variant-numeric: tabular-nums;
-  text-align: left;
-  overflow-wrap: anywhere;
+  gap: 4px;
 }
 
 .dots {
@@ -1576,7 +1544,7 @@ main {
   box-shadow: none;
 }
 
-/* Session */
+/* An exercise */
 
 .note-field {
   display: grid;
@@ -1613,7 +1581,7 @@ main {
   margin-top: 12px;
 }
 
-.session {
+.exercise {
   position: fixed;
   top: calc(var(--viewport-top, 0px) + env(safe-area-inset-top));
   left: 0;
@@ -1625,50 +1593,12 @@ main {
   flex-direction: column;
 }
 
-.session-bar {
+.exercise-bar {
   flex: none;
-  padding: 2px 12px 0 16px;
-}
-
-.session-bar-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.session-bar .bar {
-  margin: 2px 4px 0 0;
-}
-
-.session-title {
-  flex: 1;
-  min-width: 0;
-}
-
-.session-title h1 {
-  font-size: var(--text-row);
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.session-title p {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: var(--text-detail);
-  font-variant-numeric: tabular-nums;
-}
-
-.session-title .badge {
-  padding: 0 6px;
-}
-
-.session-finish {
-  flex: none;
-  font-weight: 600;
+  justify-content: space-between;
+  padding: 0 16px;
 }
 
 .set-card {
@@ -1695,7 +1625,7 @@ main {
   margin-top: auto;
 }
 
-.focus h2 {
+.focus h1 {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1748,12 +1678,6 @@ main {
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.card-items {
-  margin: 4px 0 0;
-  padding: 0 0 0 20px;
-  overflow-wrap: anywhere;
 }
 
 .set-controls {
@@ -1907,7 +1831,7 @@ main {
 
 /* A short phone gives the exercise less height, and keeps every tap target. */
 @media (max-height: 620px) {
-  .focus h2 {
+  .focus h1 {
     font-size: var(--text-hero);
   }
 
@@ -1934,13 +1858,13 @@ main {
   }
 }
 
-/* The toast rests on the tab bar, which would put it over Log set during a session. A sheet covers both, so over one it stays where it is, clear of the sheet's Done. */
-body:has(.session):not(.sheet-open) .toast {
+/* The toast rests on the tab bar, which would put it over Log set. A sheet covers both, so over one it stays where it is, clear of the sheet's Done. */
+body:has(.exercise):not(.sheet-open) .toast {
   top: calc(env(safe-area-inset-top) + 56px);
   bottom: auto;
 }
 
-.keyboard-up .session {
+.keyboard-up .exercise {
   bottom: var(--keyboard);
 }
 

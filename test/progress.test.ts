@@ -456,14 +456,6 @@ describe('weekProgress', () => {
     expect(shown.strip).toEqual([true, false, true, false]);
   });
 
-  it('suggests today\'s weekday while it is undone, else the first undone day', () => {
-    expect(week('2030-03-07').suggested?.key).toBe('thu');
-    expect(week('2030-03-07', [on('thu', '2030-03-07')]).suggested?.key).toBe('mon');
-    expect(week('2030-03-05').suggested?.key).toBe('mon');
-    const everyDay = ['mon', 'wed', 'thu', 'any'].map((key) => on(key, '2030-03-05'));
-    expect(week('2030-03-05', everyDay).suggested).toBeNull();
-  });
-
   it('counts an imported session with no pin toward its day', () => {
     const shown = week('2030-03-08', [on('mon', '2030-03-04', { source: 'notion', finishedAt: undefined })]);
     expect(shown.days[0]?.doneOn).toBe('2030-03-04');

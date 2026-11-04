@@ -42,6 +42,16 @@ function RowBody({ name, detail, end, chevron }: RowParts & { readonly chevron: 
   );
 }
 
+/** The way back from a pushed screen. */
+export function BackButton({ onBack }: { readonly onBack: () => void }) {
+  return (
+    <button type="button" class="text-button back-button" onClick={onBack}>
+      <Icon name="chevronLeft" />
+      Back
+    </button>
+  );
+}
+
 /** The one row, for inside a `.list`: a name, at most one muted line and a value or chevron. A button once it has `onClick`, and plain text before that. */
 export function Row({
   name,
@@ -196,6 +206,40 @@ export function Sheet({
       </section>
     </div>
   );
+}
+
+const KEYBOARD_MIN_PX = 80;
+
+/**
+ * iOS keeps the layout viewport under the keyboard, so a fixed screen sits behind it. While mounted,
+ * this tells the styles how much of the screen the keyboard covers and where the visible part is.
+ */
+export function useKeyboardAvoidance(): void {
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (viewport === null) return;
+    const root = document.documentElement;
+    let wasUp = false;
+    const update = () => {
+      const covered = root.clientHeight - viewport.height - viewport.offsetTop;
+      const up = covered > KEYBOARD_MIN_PX;
+      root.classList.toggle('keyboard-up', up);
+      root.style.setProperty('--keyboard', `${up ? covered : 0}px`);
+      root.style.setProperty('--viewport-top', `${viewport.offsetTop}px`);
+      if (up && !wasUp) document.activeElement?.scrollIntoView({ block: 'nearest' });
+      wasUp = up;
+    };
+    viewport.addEventListener('resize', update);
+    viewport.addEventListener('scroll', update);
+    update();
+    return () => {
+      viewport.removeEventListener('resize', update);
+      viewport.removeEventListener('scroll', update);
+      root.classList.remove('keyboard-up');
+      root.style.removeProperty('--keyboard');
+      root.style.removeProperty('--viewport-top');
+    };
+  }, []);
 }
 
 /** The current time, refreshed every `everyMs`, for live timers. */

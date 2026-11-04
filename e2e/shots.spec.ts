@@ -139,7 +139,7 @@ function busyDocs(): Mutation[] {
 const TRAIN_MONDAY = '2031-12-01';
 const TRAIN_NOON = new Date('2031-12-03T12:00:00');
 const LAST_WEEK = '2031-11-25';
-/** After every other clock, Progress's here included, so the open session is not settled by any of them. */
+/** After every other clock, Progress's here included, so this day's session is not settled by any of them. */
 const SESSION_MONDAY = '2034-01-02';
 const SESSION_DAY = '2034-01-04';
 const SESSION_LAST_WEEK = '2033-12-27';
@@ -274,7 +274,7 @@ function progressDocs(): Mutation[] {
   ];
 }
 
-/** A session left open at its second round, on a day holding every kind of card. */
+/** A day with sets already logged, holding every kind of exercise. */
 function sessionDocs(): Mutation[] {
   const press = slot('s1', 'single-arm-cable-press', 3, {
     label: 'Single-arm cable press with a pause and a slow three-second lowering phase',
@@ -390,13 +390,13 @@ async function boxOf(page: Page, locator: ReturnType<Page['locator']>) {
   return box;
 }
 
-/** What the focus screen promises: Log set in the thumb's reach, every action on screen at 44 points or more, and nothing under the tab bar. */
+/** What an exercise promises: Log set in the thumb's reach, every action on screen at 44 points or more, and nothing under the tab bar. */
 async function expectClearLayout(page: Page) {
   await expect(async () => {
     const log = await boxOf(page, page.locator('.log-set'));
     const controls = await boxOf(page, page.locator('.set-controls'));
     const focus = await boxOf(page, page.locator('.focus'));
-    const heading = await boxOf(page, page.locator('.focus h2'));
+    const heading = await boxOf(page, page.locator('.focus h1'));
     const bar = await boxOf(page, page.getByRole('navigation', { name: 'Sections' }));
     const height = await page.evaluate(() => window.innerHeight);
     expect(log.y + log.height / 2, 'Log set sits in the thumb’s reach').toBeGreaterThan(height * 0.6);
@@ -409,35 +409,38 @@ async function expectClearLayout(page: Page) {
       expect(box.x + box.width, 'and fits across the screen').toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
     }
   }).toPass({ timeout: 2000 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'the session does not scroll sideways').toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'the exercise does not scroll sideways').toBe(true);
 }
 
-/** One slot on the focus screen, jumped to from the Plan sheet. Jumps write nothing, so every photo starts from the same seeded session. */
-async function jumpTo(page: Page, slotLabel: string | RegExp) {
-  await page.getByRole('button', { name: 'Plan', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Plan' }).getByRole('button', { name: slotLabel }).first().click();
+/** One exercise from the day's list. Opening one writes nothing, so every photo starts from the same seeded day. */
+async function openExercise(page: Page, name: string | RegExp) {
+  await page.locator('.train').getByRole('button', { name }).first().click();
+  await expect(page.locator('.set-card')).toBeVisible();
 }
 
-async function photographSession(page: Page, name: (shot: string) => string) {
+const backToDay = (page: Page) => page.getByRole('button', { name: 'Back', exact: true }).click();
+
+async function photographExercises(page: Page, name: (shot: string) => string) {
   const shoot = async (shot: string) => page.screenshot({ path: join(dir, name(shot)), animations: 'disabled' });
   await page.clock.setFixedTime(SESSION_NOW);
   await page.goto('/');
-  await tab(page, 'Train').click();
-  await expect(page.getByRole('region', { name: 'Session' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('week-count')).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Upper body strength and accessory work/ }).click();
+  await expect(page.locator('.train').getByRole('button', { name: /^Seal row/ })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'the day does not scroll sideways').toBe(true);
+  await expectFullTapTargets(page, 'the day');
+  await shoot('day');
+  await page.getByRole('region', { name: 'Optional' }).getByText('Optional', { exact: true }).click();
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await shoot('day-bottom');
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  await openExercise(page, /^Seal row/);
   await expect(page.getByTestId('round')).toHaveText('Set 2 of 3');
-  await expectClearLayout(page);
-  await shoot('rest');
-
-  await page.getByRole('button', { name: 'Plan', exact: true }).click();
-  const plan = page.getByRole('dialog', { name: 'Plan' });
-  await expect(plan.getByRole('button', { name: /^Seal row/ })).toBeVisible();
-  await shoot('plan');
-  await plan.getByRole('button', { name: 'Done' }).click();
-
-  await jumpTo(page, /^Seal row/);
   await expect(page.getByLabel('Reps', { exact: true })).toHaveValue('12');
   await expectClearLayout(page);
-  await shoot('card');
+  await expectFullTapTargets(page, 'an exercise');
+  await shoot('exercise');
 
   await page.getByRole('button', { name: 'Swap', exact: true }).click();
   const swap = page.getByRole('dialog', { name: 'Swap' });
@@ -455,17 +458,28 @@ async function photographSession(page: Page, name: (shot: string) => string) {
   await lowerKeyboard(page);
   await note.getByRole('button', { name: 'Cancel' }).click();
 
+  await page.getByRole('button', { name: 'Skip', exact: true }).click();
+  const skip = page.getByRole('dialog', { name: /^Skip/ });
+  await skip.getByLabel('Why (optional)').focus();
+  const aboveSkipKeys = await raiseKeyboard(page);
+  const skipIt = await boxOf(page, skip.getByRole('button', { name: 'Skip it' }));
+  expect(skipIt.y + skipIt.height, 'the keyboard does not hide Skip it').toBeLessThanOrEqual(aboveSkipKeys);
+  await lowerKeyboard(page);
+  await skip.getByRole('button', { name: 'Cancel' }).click();
+
   await page.getByRole('group', { name: "Today's sets" }).getByRole('button').first().click();
   await expect(page.getByRole('dialog', { name: /^Edit/ })).toBeVisible();
   await shoot('edit-set');
   await page.getByRole('dialog', { name: /^Edit/ }).getByRole('button', { name: 'Cancel' }).click();
+  await backToDay(page);
 
-  await jumpTo(page, /^Pin press/);
+  await openExercise(page, /^Pin press/);
   await expect(page.getByText('Last time: Machine press')).toBeVisible();
   await expectClearLayout(page);
   await shoot('swap-hint');
+  await backToDay(page);
 
-  await jumpTo(page, /^Farmer carry/);
+  await openExercise(page, /^Farmer carry/);
   await expect(page.getByLabel('Distance, if you measured it')).toBeVisible();
   await expectClearLayout(page);
   await shoot('prompt');
@@ -479,21 +493,26 @@ async function photographSession(page: Page, name: (shot: string) => string) {
   expect(promptField.y + promptField.height, 'nor the field being typed in').toBeLessThanOrEqual(inputs.y + inputs.height + 1);
   await shoot('prompt-keyboard');
   await lowerKeyboard(page);
+  await backToDay(page);
 
-  await jumpTo(page, /^Band face pull/);
+  await openExercise(page, /^Band face pull/);
   await expect(page.getByLabel('Band', { exact: true })).toHaveValue('green');
   await expectClearLayout(page);
   await shoot('band');
+  await backToDay(page);
 
-  await jumpTo(page, /^Reverse crunch/);
+  await openExercise(page, /^Single-arm cable press/);
+  await expect(page.locator('.set-row-unit.side')).toHaveText(['L', 'R']);
+  await expectClearLayout(page);
+  await expectFullTapTargets(page, 'a per-side exercise with a long name');
+  await shoot('per-side');
+  await backToDay(page);
+
+  await page.getByRole('region', { name: 'Optional' }).getByText('Optional', { exact: true }).click();
+  await openExercise(page, /^Reverse crunch/);
   await expect(page.getByText('Bodyweight', { exact: true })).toBeVisible();
   await expectClearLayout(page);
   await shoot('bodyweight');
-
-  await jumpTo(page, /^Easy ride/);
-  await expect(page.getByRole('button', { name: 'Log cardio' })).toBeVisible();
-  await expectClearLayout(page);
-  await shoot('cardio');
 }
 
 /** What every food screen promises: nothing to tap under 44 points, and nothing wider than the phone. */
@@ -886,14 +905,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await coach.getByRole('button', { name: 'Done' }).click();
 
       await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Upper body/ }).click();
-      const preview = page.getByRole('dialog', { name: 'Upper body strength and accessory work' });
-      await expect(preview.getByText('40 kg × 12/12/12 · Nov 25')).toBeVisible();
+      await expect(page.getByText('40 kg × 12/12/12 · Nov 25')).toBeVisible();
       await page.screenshot({ path: join(dir, `train-day-${colorScheme}.png`), animations: 'disabled' });
-      await preview.getByText('Pin press', { exact: true }).click();
-      await preview.getByRole('region', { name: 'Optional' }).getByText('Optional', { exact: true }).click();
-      await preview.locator('.sheet-body').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await page.getByRole('region', { name: 'Optional' }).getByText('Optional', { exact: true }).click();
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       await page.screenshot({ path: join(dir, `train-day-bottom-${colorScheme}.png`), animations: 'disabled' });
-      await preview.getByRole('button', { name: 'Done' }).click();
+      await page.getByRole('button', { name: 'Back', exact: true }).click();
 
       await page.getByRole('button', { name: 'Program', exact: true }).click();
       const standing = page.getByRole('dialog', { name: 'Program' });
@@ -908,15 +925,15 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.screenshot({ path: join(dir, `train-empty-${colorScheme}.png`), animations: 'disabled' });
     });
 
-    test(`photographs a session in ${colorScheme}`, async ({ page }) => {
-      await photographSession(page, (shot) => `session-${shot}-${colorScheme}.png`);
+    test(`photographs a day and its exercises in ${colorScheme}`, async ({ page }) => {
+      await photographExercises(page, (shot) => `exercise-${shot}-${colorScheme}.png`);
     });
 
     test.describe('on a small iPhone', () => {
       test.use({ viewport: { width: 320, height: 568 } });
 
-      test(`photographs a session in ${colorScheme}`, async ({ page }) => {
-        await photographSession(page, (shot) => `session-small-${shot}-${colorScheme}.png`);
+      test(`photographs a day and its exercises in ${colorScheme}`, async ({ page }) => {
+        await photographExercises(page, (shot) => `exercise-small-${shot}-${colorScheme}.png`);
       });
 
       test(`photographs the Train tab and a day in ${colorScheme}`, async ({ page }) => {
@@ -936,12 +953,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'the week does not scroll sideways').toBe(true);
 
         await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Upper body/ }).click();
-        const preview = page.getByRole('dialog', { name: 'Upper body strength and accessory work' });
-        await expect(preview.getByText('40 kg × 12/12/12 · Nov 25')).toBeVisible();
+        await expect(page.getByText('40 kg × 12/12/12 · Nov 25')).toBeVisible();
         await page.screenshot({ path: join(dir, `train-small-day-${colorScheme}.png`), animations: 'disabled' });
-        const body = preview.locator('.sheet-body');
-        expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth), 'the sheet does not scroll sideways').toBe(true);
-        await body.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'the day does not scroll sideways').toBe(true);
+        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
         await page.screenshot({ path: join(dir, `train-small-day-bottom-${colorScheme}.png`), animations: 'disabled' });
       });
     });

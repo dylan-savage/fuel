@@ -1,5 +1,5 @@
 import { KG_PER_LB } from './goals.js';
-import { addDays, mondayOf, weekdayOf, type LocalDate, type SessionId } from './ids.js';
+import { addDays, mondayOf, type LocalDate, type SessionId } from './ids.js';
 import type { LiftBook, LiftId, Load, Performance, SetLog, SetReps, SlotId, Unit } from './lifts.js';
 import { plannedDay, type DayKey, type PlannedDay, type Program } from './program.js';
 import type { Session, SessionPhase } from './session.js';
@@ -422,7 +422,7 @@ export function staleBest({ sessionsSinceBest }: BoardRow): number | null {
   return sessionsSinceBest !== null && sessionsSinceBest >= STALE_BEST_SESSIONS ? sessionsSinceBest : null;
 }
 
-/** A session counts when it has a working set, a finish, or came from the import. A session opened and left empty does not. */
+/** A session counts when it has a working set, a finish, or came from the import. One holding only a tick, a skip or a note does not. */
 export function sessionsDone(sessions: readonly Session[], performances: readonly Performance[]): readonly Session[] {
   const worked = new Set<SessionId>(performances.filter((p) => workingSets(p.sets).length > 0).map((p) => p.sessionId));
   return sessions.filter((session) => session.finishedAt !== undefined || session.source === 'notion' || worked.has(session.id));
@@ -431,7 +431,6 @@ export function sessionsDone(sessions: readonly Session[], performances: readonl
 /** One day of a week's plan, with whether he has trained it. */
 export interface WeekDay {
   readonly plan: PlannedDay;
-  readonly weekday: number | undefined;
   /** When he trained it, which need not be the planned weekday. Matched by day key, so a version published mid-week keeps it. */
   readonly doneOn: LocalDate | null;
 }
@@ -443,8 +442,6 @@ export interface WeekProgress {
   readonly done: number;
   /** One per planned day. A session naming no planned day fills the first empty one, so the strip agrees with `done`. */
   readonly strip: readonly boolean[];
-  /** The first undone day, or today's weekday if that is undone. */
-  readonly suggested: PlannedDay | null;
 }
 
 /** `sessions` and `performances` are that week's. */
@@ -459,13 +456,11 @@ export function weekProgress(input: { readonly program: Program; readonly sessio
     .toSorted((a, b) => (a.weekday ?? 8) - (b.weekday ?? 8))
     .flatMap((day): readonly WeekDay[] => {
       const plan = plannedDay(program, day.key, today);
-      return plan === undefined ? [] : [{ plan, weekday: day.weekday, doneOn: doneOn.get(day.key) ?? null }];
+      return plan === undefined ? [] : [{ plan, doneOn: doneOn.get(day.key) ?? null }];
     });
   let spare = done.length - days.filter((day) => day.doneOn !== null).length;
   const strip = days.map((day) => day.doneOn !== null || spare-- > 0);
-  const undone = days.filter((day) => day.doneOn === null);
-  const suggested = undone.find((day) => day.weekday === weekdayOf(today)) ?? undone[0];
-  return { days, done: done.length, strip, suggested: suggested?.plan ?? null };
+  return { days, done: done.length, strip };
 }
 
 export interface Skip {
@@ -476,7 +471,7 @@ export interface Skip {
 
 /**
  * A required slot with no working set under it, tapped or not, once the session is over. While
- * it is open only tapped skips count, because the rest may still come. A day never started has
+ * it is open only tapped skips count, because the rest may still come. A day with no session has
  * none. With no plan to read, as on an import, tapped skips are all there is.
  */
 export function skipsOf(input: {

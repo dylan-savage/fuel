@@ -2,137 +2,44 @@ import { describe, expect, it } from 'vitest';
 import { makeWorkout, type Workout } from '../src/domain/burn.js';
 import { WorkoutId } from '../src/domain/ids.js';
 import { liftBook, type Performance, type SetLog } from '../src/domain/lifts.js';
-import { plannedDay, type Block, type PlannedDay } from '../src/domain/program.js';
 import {
   TrainingNote,
+  afterSet,
   blockDone,
-  cardFor,
   cardioDoneOn,
   cueFor,
   entryOfSet,
   finishDocs,
   finishOf,
-  focusAfterSet,
-  isExtra,
   leftEmpty,
   liftInSlot,
-  nextUp,
   prefillSet,
+  reopened,
+  sessionForDay,
   sessionPhase,
   sessionWorkoutDraft,
   sessionWorkoutId,
   setLogOf,
   sideOrder,
-  setsProgress,
   slotLog,
   steppedLoad,
   steppedReps,
   swapChoices,
+  trainedLately,
   withChecked,
   withEditedSet,
   withSet,
   withSkip,
   withoutSkip,
-  type Next,
   type Session,
-  type SessionLogs,
 } from '../src/domain/session.js';
-import { T0, band, blockId, bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, slotId, target, warm } from './training.fixtures.js';
+import { T0, band, blockId, bw, cardio, checklist, day, dayKey, kg, lb, lift, minutes, ms, performance, session, sides, slot, slotId, target, warm } from './training.fixtures.js';
 
 const noCatalog = liftBook([]);
-
-/** A1 bench press for 3 sets, A2 cable row for 2, resting 90 seconds. */
-const superset = liftsBlock('a', [slot('a1', 'bench-press', 3), slot('a2', 'cable-row', 2)], { restSeconds: 90 });
-const planOf = (...blocks: Block[]): PlannedDay => {
-  const plan = plannedDay(program('2030-03-04', [{ key: 'push', blocks }]), dayKey('push'), day('2030-03-04'));
-  if (plan === undefined) throw new Error('no plan');
-  return plan;
-};
-const logsOf = (performances: readonly Performance[], extra: Partial<SessionLogs> = {}): SessionLogs => ({ session: session(), performances, cardioDone: false, ...extra });
 
 const a1 = (...sets: SetLog[]) => performance({ slot: 'a1', lift: 'bench-press', sets });
 const a2 = (...sets: SetLog[]) => performance({ slot: 'a2', lift: 'cable-row', sets });
 const swappedA2 = (...sets: SetLog[]) => performance({ slot: 'a2', lift: 'dumbbell-row', planned: 'cable-row', sets });
-
-function where(next: Next): string {
-  switch (next.kind) {
-    case 'set':
-      return `${next.step.slot.id}.${next.step.round}`;
-    case 'checklist':
-    case 'cardio':
-      return `${next.kind}:${next.block.id}`;
-    case 'done':
-      return `done:${next.optionalLeft.map((b) => b.id).join()}`;
-  }
-}
-
-describe('nextUp', () => {
-  const plan = planOf(superset);
-  const up = (performances: readonly Performance[], extra: Partial<SessionLogs> = {}) => where(nextUp(plan, logsOf(performances, extra)));
-  const n = (count: number) => Array.from({ length: count }, () => lb(100, 8));
-
-  it.each([
-    [0, 0, 'a1.1'],
-    [1, 0, 'a2.1'],
-    [1, 1, 'a1.2'],
-    [2, 1, 'a2.2'],
-    [2, 2, 'a1.3'],
-    [3, 2, 'done:'],
-  ])('walks a 2-set slot out of the last of 3 rounds: %i and %i sets give %s', (first, second, expected) => {
-    expect(up([a1(...n(first)), a2(...n(second))])).toBe(expected);
-  });
-
-  it('never counts a warm-up as a round', () => {
-    expect(up([a1(warm(lb(45, 10)), warm(lb(65, 8)))])).toBe('a1.1');
-    expect(up([a1(warm(lb(45, 10)), lb(100, 8))])).toBe('a2.1');
-    expect(up([a1(lb(100, 8)), a2(warm(lb(30, 10)))])).toBe('a2.1');
-  });
-
-  it('counts sets across a swap mid-superset, which keeps the slot', () => {
-    expect(up([a1(lb(100, 8)), swappedA2(lb(50, 10))])).toBe('a1.2');
-    expect(up([a1(lb(100, 8), lb(100, 8)), a2(lb(120, 10)), swappedA2(lb(50, 10))])).toBe('a1.3');
-    expect(up([a1(lb(100, 8), lb(100, 8), lb(100, 8)), a2(lb(120, 10)), swappedA2(lb(50, 10))])).toBe('done:');
-  });
-
-  it('passes over a skipped slot', () => {
-    const skipA2 = { session: session({ skips: [{ slotId: slotId('a2') }] }) };
-    expect(up([], skipA2)).toBe('a1.1');
-    expect(up([a1(lb(100, 8))], skipA2)).toBe('a1.2');
-    expect(up([a1(...n(3))], skipA2)).toBe('done:');
-  });
-
-  it('lets logging out of order move the first gap', () => {
-    expect(up([a2(lb(120, 10))])).toBe('a1.1');
-    expect(up([a1(...n(2))])).toBe('a2.1');
-    expect(up([a1(...n(3)), a2(lb(120, 10))])).toBe('a2.2');
-  });
-
-  it('does not mistake an extra set for the next round elsewhere', () => {
-    expect(up([a1(...n(5))])).toBe('a2.1');
-  });
-
-  it('walks checklist and cardio blocks in order and passes over a done one', () => {
-    const warmUp = checklist('warm');
-    const cardio: Block = { kind: 'cardio', id: blockId('zone') };
-    const mixed = planOf(warmUp, superset, cardio);
-    const done = [a1(...n(3)), a2(...n(2))];
-    expect(where(nextUp(mixed, logsOf([])))).toBe('checklist:warm');
-    expect(where(nextUp(mixed, logsOf([], { session: session({ checked: [warmUp.id] }) })))).toBe('a1.1');
-    expect(where(nextUp(mixed, logsOf(done, { session: session({ checked: [warmUp.id] }) })))).toBe('cardio:zone');
-    expect(where(nextUp(mixed, logsOf(done, { session: session({ checked: [warmUp.id] }), cardioDone: true })))).toBe('done:');
-  });
-
-  it('never walks into an optional block and lists what is left of them', () => {
-    const extra = liftsBlock('abs', [slot('c1', 'crunch', 2)], { optional: true });
-    const main = liftsBlock('main', [slot('m1', 'bench-press', 1)]);
-    const withOptional = planOf(extra, main);
-    expect(where(nextUp(withOptional, logsOf([])))).toBe('m1.1');
-    const finished = logsOf([performance({ slot: 'm1', lift: 'bench-press', sets: [lb(100, 8)] })]);
-    expect(where(nextUp(withOptional, finished))).toBe('done:abs');
-    const allDone = logsOf([...finished.performances, performance({ slot: 'c1', lift: 'crunch', sets: [bw(20), bw(20)] })]);
-    expect(where(nextUp(withOptional, allDone))).toBe('done:');
-  });
-});
 
 describe('prefillSet past last time', () => {
   it('repeats the set before it today when last time had no set at this position', () => {
@@ -313,99 +220,100 @@ describe('sessionWorkoutDraft', () => {
 
 describe('cardioDoneOn', () => {
   const today = session();
-  const workoutOn = (date: string, id = WorkoutId.parse('0b1e6c7a-3f2d-4e5a-8b9c-0d1e2f3a4b5c')): Workout =>
-    makeWorkout({ name: 'Run', minutes: 20, source: { kind: 'met', activity: 'run_6', met: 9.3 } }, { id, date: day(date), kg: 70, loggedAt: ms(T0) });
+  const workout = (id = WorkoutId.parse('0b1e6c7a-3f2d-4e5a-8b9c-0d1e2f3a4b5c')): Workout => makeWorkout({ name: 'Run', minutes: 20, source: { kind: 'met', activity: 'run_6', met: 9.3 } }, { id, date: day('2030-03-04'), kg: 70, loggedAt: ms(T0) });
 
-  it('counts another workout on the date, but not the session\'s own or another day\'s', () => {
-    expect(cardioDoneOn(today, [workoutOn('2030-03-04')])).toBe(true);
-    expect(cardioDoneOn(today, [workoutOn('2030-03-05')])).toBe(false);
-    expect(cardioDoneOn(today, [workoutOn('2030-03-04', sessionWorkoutId(today))])).toBe(false);
+  it('counts another workout that date, but not the session\'s own', () => {
+    expect(cardioDoneOn(today, [workout()])).toBe(true);
+    expect(cardioDoneOn(today, [workout(sessionWorkoutId(today))])).toBe(false);
+    expect(cardioDoneOn(today, [])).toBe(false);
+  });
+
+  it('counts any workout that date before the day has a session', () => {
+    expect(cardioDoneOn(null, [workout()])).toBe(true);
+    expect(cardioDoneOn(null, [])).toBe(false);
+  });
+});
+
+describe('blockDone', () => {
+  const warmUp = checklist('warm');
+  const ride = cardio('ride');
+
+  it('is a checklist tapped Done', () => {
+    expect(blockDone(warmUp, { session: null, cardioDone: false })).toBe(false);
+    expect(blockDone(warmUp, { session: session(), cardioDone: true })).toBe(false);
+    expect(blockDone(warmUp, { session: session({ checked: [warmUp.id] }), cardioDone: false })).toBe(true);
+  });
+
+  it('is a cardio logged, with or without a session, or one an older build passed over', () => {
+    expect(blockDone(ride, { session: null, cardioDone: false })).toBe(false);
+    expect(blockDone(ride, { session: null, cardioDone: true })).toBe(true);
+    expect(blockDone(ride, { session: session({ checked: [ride.id] }), cardioDone: false })).toBe(true);
+  });
+});
+
+describe('sessionForDay', () => {
+  const on = (key: string, extra: Partial<Session> = {}) => session({ day: { key: dayKey(key), label: key }, ...extra });
+
+  it('finds the day\'s own, never another day\'s, an off-plan one or an import', () => {
+    const mine = on('push');
+    const { day: _day, ...offPlan } = on('push');
+    expect(sessionForDay([on('pull'), offPlan, on('push', { source: 'notion' }), mine], dayKey('push'))).toBe(mine);
+    expect(sessionForDay([on('pull'), offPlan, on('push', { source: 'notion' })], dayKey('push'))).toBeUndefined();
+  });
+
+  it('takes a finished one too, so a later set that date reopens it rather than making another', () => {
+    const settled = on('push', { finishedAt: minutes(60) });
+    expect(sessionForDay([settled], dayKey('push'))).toBe(settled);
+  });
+
+  it('settles on the newest of two, whichever order they read in', () => {
+    const older = on('push', { startedAt: minutes(0) });
+    const newer = on('push', { startedAt: minutes(5) });
+    expect(sessionForDay([older, newer], dayKey('push'))).toBe(newer);
+    expect(sessionForDay([newer, older], dayKey('push'))).toBe(newer);
+  });
+});
+
+describe('afterSet', () => {
+  const a = slotId('a1');
+
+  it('changes nothing on an open session, so a set writes only its performance', () => {
+    const open = session({ skips: [{ slotId: slotId('a2') }] });
+    expect(afterSet(open, a)).toBe(open);
+  });
+
+  it('takes back a skip of that slot and leaves another\'s', () => {
+    const skipped = session({ skips: [{ slotId: a }, { slotId: slotId('a2') }] });
+    expect(afterSet(skipped, a).skips).toEqual([{ slotId: slotId('a2') }]);
+  });
+
+  it('reopens a settled session, keeping everything else on it', () => {
+    const settled = session({ finishedAt: minutes(60), note: 'Invented note.' });
+    const next = afterSet(settled, a);
+    expect(next).not.toHaveProperty('finishedAt');
+    expect(next).toEqual(reopened(settled));
+    expect(next.note).toBe('Invented note.');
+  });
+});
+
+describe('trainedLately', () => {
+  const hour = 3_600_000;
+  const at = (hoursAgo: number) => performance({ lift: 'bench-press', sets: [{ ...lb(100, 8), at: ms(T0 - hoursAgo * hour) }] });
+
+  it('holds for a set under three hours old, and not at three hours or for an imported set', () => {
+    expect(trainedLately([at(2.9)], ms(T0))).toBe(true);
+    expect(trainedLately([at(3)], ms(T0))).toBe(false);
+    expect(trainedLately([performance({ lift: 'bench-press', sets: [lb(100, 8)] })], ms(T0))).toBe(false);
+    expect(trainedLately([], ms(T0))).toBe(false);
   });
 });
 
 describe('TrainingNote', () => {
   it('holds a line of text for a date', () => {
-    const note = { id: '0b1e6c7a-3f2d-4e5a-8b9c-0d1e2f3a4b5c', date: '2030-03-04', text: 'Left knee felt off.', at: T0 };
+    const note = { id: '0b1e6c7a-3f2d-4e5a-8b9c-0d1e2f3a4b5c', date: '2030-03-04', text: 'Invented line.', at: T0 };
     expect(TrainingNote.safeParse(note).success).toBe(true);
     expect(TrainingNote.safeParse({ ...note, text: '' }).success).toBe(false);
     expect(TrainingNote.safeParse({ ...note, id: 'not-a-uuid' }).success).toBe(false);
-  });
-});
-
-describe('cardFor', () => {
-  const extras = liftsBlock('x', [slot('x1', 'reverse-crunch', 2), slot('x2', 'dead-bug', 2)], { optional: true });
-  const warmUp = checklist('warm');
-  const ride = cardio('ride', { optional: true });
-  const day_ = planOf(warmUp, superset, extras, ride);
-  const ticked = { session: session({ checked: [warmUp.id] }) };
-  const onSlot = (id: string) => ({ kind: 'slot' as const, slotId: slotId(id) });
-  const onBlock = (id: string) => ({ kind: 'block' as const, blockId: blockId(id) });
-
-  it('follows nextUp with no tap', () => {
-    expect(where(cardFor(day_, logsOf([], ticked), undefined))).toBe('a1.1');
-    expect(where(cardFor(day_, logsOf([]), undefined))).toBe('checklist:warm');
-  });
-
-  it('jumps to any slot at its next round, out of order and into an optional block', () => {
-    expect(where(cardFor(day_, logsOf([], ticked), onSlot('a2')))).toBe('a2.1');
-    expect(where(cardFor(day_, logsOf([a2(lb(50, 8, 1))], ticked), onSlot('a2')))).toBe('a2.2');
-    expect(where(cardFor(day_, logsOf([], ticked), onSlot('x1')))).toBe('x1.1');
-  });
-
-  it('runs past the prescription, which is what an extra set is', () => {
-    const next = cardFor(day_, logsOf([a2(lb(50, 8, 1), lb(50, 8, 2))], ticked), onSlot('a2'));
-    expect(where(next)).toBe('a2.3');
-    expect(next.kind === 'set' && isExtra(next.step)).toBe(true);
-    const asked = cardFor(day_, logsOf([a2(lb(50, 8, 1))], ticked), onSlot('a2'));
-    expect(asked.kind === 'set' && isExtra(asked.step)).toBe(false);
-  });
-
-  it('never counts a warm-up toward the round it jumps to', () => {
-    expect(where(cardFor(day_, logsOf([a1(warm(lb(45, 10, 1)))], ticked), onSlot('a1')))).toBe('a1.1');
-  });
-
-  it('jumps back into a slot he skipped', () => {
-    const skipped = { session: session({ checked: [warmUp.id], skips: [{ slotId: slotId('a1') }] }) };
-    expect(where(cardFor(day_, logsOf([], skipped), undefined))).toBe('a2.1');
-    expect(where(cardFor(day_, logsOf([], skipped), onSlot('a1')))).toBe('a1.1');
-  });
-
-  it('keeps a jump into an optional block until its gaps are filled, then hands back', () => {
-    const inExtras = logsOf([performance({ slot: 'x1', lift: 'reverse-crunch', sets: [bw(10, 1)] })], ticked);
-    expect(where(cardFor(day_, inExtras, onBlock('x')))).toBe('x2.1');
-    const filled = logsOf(
-      [performance({ slot: 'x1', lift: 'reverse-crunch', sets: [bw(10, 1), bw(10, 2)] }), performance({ slot: 'x2', lift: 'dead-bug', sets: [bw(10, 3), bw(10, 4)] })],
-      ticked,
-    );
-    expect(where(cardFor(day_, filled, onBlock('x')))).toBe('a1.1');
-  });
-
-  it('jumps to checklist and cardio blocks, and a done one hands back', () => {
-    expect(where(cardFor(day_, logsOf([]), onBlock('ride')))).toBe('cardio:ride');
-    expect(where(cardFor(day_, logsOf([], ticked), onBlock('warm')))).toBe('a1.1');
-  });
-
-  it('ignores a focus the plan no longer holds', () => {
-    expect(where(cardFor(day_, logsOf([], ticked), onSlot('gone')))).toBe('a1.1');
-    expect(where(cardFor(day_, logsOf([], ticked), onBlock('gone')))).toBe('a1.1');
-  });
-
-  it('stays in an optional block after a set and follows the plan after any other', () => {
-    expect(focusAfterSet({ block: extras, slot: slot('x1', 'reverse-crunch', 2), round: 1, endsRound: false })).toEqual({ kind: 'block', blockId: blockId('x') });
-    expect(focusAfterSet({ block: superset, slot: slot('a1', 'bench-press', 3), round: 1, endsRound: false })).toBeUndefined();
-  });
-});
-
-describe('passing a cardio block', () => {
-  const ride = cardio('ride');
-  const plan = planOf(ride);
-
-  it('moves the card on with no workout, and stays done', () => {
-    const passed = logsOf([], { session: session({ checked: [ride.id] }) });
-    expect(where(nextUp(plan, passed))).toBe('done:');
-    expect(blockDone(ride, passed)).toBe(true);
-    expect(blockDone(ride, logsOf([]))).toBe(false);
-    expect(blockDone(ride, logsOf([], { cardioDone: true }))).toBe(true);
   });
 });
 
@@ -416,37 +324,21 @@ describe('slotLog', () => {
     const planned = performance({ slot: 'a1', lift: 'bench-press', sets: [warm(lb(45, 10, 1)), lb(100, 8, 2)] });
     const swapped = performance({ slot: 'a1', lift: 'machine-press', planned: 'bench-press', sets: [lb(120, 8, 3)] });
     const log = slotLog(bench, { session: session(), performances: [swapped, planned] });
-    expect(log).toMatchObject({ rounds: 2, dots: 3, skipped: false });
+    expect(log).toMatchObject({ done: 2, dots: 3, skipped: false });
     expect(log.sets.map((row) => `${row.performance.liftId}#${row.index}`)).toEqual(['bench-press#0', 'bench-press#1', 'machine-press#0']);
   });
 
   it('adds a dot for an extra set, and marks a skip', () => {
-    expect(slotLog(slot('a2', 'cable-row', 2), { session: session(), performances: [a2(lb(50, 8, 1), lb(50, 8, 2), lb(50, 8, 3))] })).toMatchObject({ rounds: 3, dots: 3 });
+    expect(slotLog(slot('a2', 'cable-row', 2), { session: session(), performances: [a2(lb(50, 8, 1), lb(50, 8, 2), lb(50, 8, 3))] })).toMatchObject({ done: 3, dots: 3 });
     expect(slotLog(bench, { session: session({ skips: [{ slotId: bench.id }] }), performances: [] }).skipped).toBe(true);
   });
-});
 
-describe('setsProgress', () => {
-  const optional = liftsBlock('extra', [slot('e1', 'pallof-press', 2)], { optional: true });
-  const day = planOf(superset, optional);
-
-  it('counts the required sets, with no warm-up and no optional set', () => {
-    expect(setsProgress(day, logsOf([]))).toEqual({ done: 0, total: 5 });
-    expect(setsProgress(day, logsOf([a1(warm(lb(20, 10)), lb(50, 10)), performance({ slot: 'e1', lift: 'pallof-press', sets: [bw(10)] })]))).toEqual({ done: 1, total: 5 });
+  it('reads empty before the day has a session', () => {
+    expect(slotLog(bench, { session: null, performances: [] })).toEqual({ done: 0, dots: 3, skipped: false, sets: [] });
   });
 
-  it('does not run past the end on an extra set', () => {
-    expect(setsProgress(day, logsOf([a1(lb(50, 10), lb(50, 10), lb(50, 10), lb(50, 10)), a2(lb(50, 10), lb(50, 10))]))).toEqual({ done: 5, total: 5 });
-  });
-
-  it('counts a swap under its slot, and asks a skipped slot only for what it got', () => {
-    const skipped = session({ skips: [{ slotId: slotId('a2') }] });
-    expect(setsProgress(day, logsOf([swappedA2(lb(50, 10))]))).toEqual({ done: 1, total: 5 });
-    expect(setsProgress(day, logsOf([a1(lb(50, 10)), swappedA2(lb(50, 10))], { session: skipped }))).toEqual({ done: 2, total: 4 });
-  });
-
-  it('is empty on a day with no required lifting', () => {
-    expect(setsProgress(planOf(checklist('warm')), logsOf([]))).toEqual({ done: 0, total: 0 });
+  it('counts this exercise alone, whatever else today holds', () => {
+    expect(slotLog(bench, { session: session(), performances: [a2(lb(50, 8, 1), lb(50, 8, 2))] }).done).toBe(0);
   });
 });
 
@@ -637,13 +529,12 @@ describe('swapChoices', () => {
 });
 
 describe('leftEmpty', () => {
-  it('is true only with nothing done at all', () => {
-    expect(leftEmpty(logsOf([]))).toBe(true);
-    expect(leftEmpty(logsOf([a1(warm(lb(45, 10, 1)))]))).toBe(false);
-    expect(leftEmpty(logsOf([], { cardioDone: true }))).toBe(false);
-    expect(leftEmpty(logsOf([], { session: session({ note: 'Invented note.' }) }))).toBe(false);
-    expect(leftEmpty(logsOf([], { session: session({ checked: [blockId('warm')] }) }))).toBe(false);
-    expect(leftEmpty(logsOf([], { session: session({ skips: [{ slotId: slotId('a1') }] }) }))).toBe(false);
+  it('is true only with nothing of its own', () => {
+    expect(leftEmpty({ session: session(), performances: [] })).toBe(true);
+    expect(leftEmpty({ session: session(), performances: [a1(warm(lb(45, 10, 1)))] })).toBe(false);
+    expect(leftEmpty({ session: session({ note: 'Invented note.' }), performances: [] })).toBe(false);
+    expect(leftEmpty({ session: session({ checked: [blockId('warm')] }), performances: [] })).toBe(false);
+    expect(leftEmpty({ session: session({ skips: [{ slotId: slotId('a1') }] }), performances: [] })).toBe(false);
   });
 });
 
@@ -652,19 +543,18 @@ describe('finishDocs', () => {
   const logs = { session: push, performances: [a1(lb(100, 8, 0))] };
 
   it('sets the finish and writes a workout under the session\'s id, dated and named by the session', () => {
-    const { session: done, workout, diary } = finishDocs({ logs, finishedAt: minutes(50), others: [], kg: 80 });
-    expect(diary).toBe('added');
+    const { session: done, workout } = finishDocs({ logs, finishedAt: minutes(50), others: [], kg: 80 });
     expect(done.finishedAt).toBe(minutes(50));
     expect(workout).toMatchObject({ id: sessionWorkoutId(push), date: push.date, name: 'Push', minutes: 50, kg: 80, loggedAt: minutes(50) });
     expect(workout?.kcal).toBe(Math.round((2.5 * 80 * 50) / 60));
   });
 
-  it('writes no workout with no set, and says so', () => {
-    expect(finishDocs({ logs: { session: push, performances: [] }, finishedAt: minutes(50), others: [], kg: 80 })).toMatchObject({ workout: null, diary: 'no-sets', session: { finishedAt: minutes(50) } });
+  it('writes no workout with no set', () => {
+    expect(finishDocs({ logs: { session: push, performances: [] }, finishedAt: minutes(50), others: [], kg: 80 })).toMatchObject({ workout: null, session: { finishedAt: minutes(50) } });
   });
 
-  it('writes no workout with no body weight, and says so', () => {
-    expect(finishDocs({ logs, finishedAt: minutes(50), others: [], kg: undefined })).toMatchObject({ workout: null, diary: 'no-weight' });
+  it('writes no workout with no body weight', () => {
+    expect(finishDocs({ logs, finishedAt: minutes(50), others: [], kg: undefined }).workout).toBeNull();
   });
 
   it('keeps a workout the schema can store, however long a forgotten session ran', () => {

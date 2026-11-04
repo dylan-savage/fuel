@@ -1,20 +1,19 @@
-/** One exercise in focus: what to do now up top, and in the thumb's reach, most sets being one tap on Log set. */
+/** One exercise: what it asks for up top, and in the thumb's reach, most sets being one tap on Log set. */
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { LocalDate } from '../../domain/ids.js';
 import { lastLineOf, lastTimeOf, lastSwapAt, typedLine } from '../../domain/progress.js';
 import type { LiftBook, Performance, Target, Unit } from '../../domain/lifts.js';
-import type { Slot, Step } from '../../domain/program.js';
-import { isExtra, prefillSet, setLogOf, sideOrder, steppedLoad, steppedReps, type LiftChoice, type LoggedSet, type Side } from '../../domain/session.js';
+import type { Slot } from '../../domain/program.js';
+import { prefillSet, setLogOf, sideOrder, steppedLoad, steppedReps, type DayRef, type LiftChoice, type LoggedSet, type Side, type SlotLog } from '../../domain/session.js';
 import { entryOf, formOf, type SetForm } from '../trainDraft.js';
-import { editable, parseNumber, repsTargetText, shortDate } from './format.js';
+import { editable, parseNumber, repsTargetText, setOfText, shortDate } from './format.js';
 
 const OTHER_UNIT: Readonly<Record<Unit, Unit>> = { lb: 'kg', kg: 'lb' };
 
 /** How long Log set stays off after a tap, so a double tap on a wet hand cannot log the next set too. */
 const DOUBLE_TAP_MS = 350;
 
-/** On from the first render, because the tap that brought the card here may be the first of a double one. */
+/** On from the first render, because the tap that opened the exercise may be the first of a double one. */
 function useCooldown(): readonly [boolean, () => void] {
   const [cooling, setCooling] = useState(true);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -153,7 +152,7 @@ function LoadRow({ form, onChange }: { readonly form: SetForm; readonly onChange
   }
 }
 
-/** The load and reps of one set, in the focus screen and when editing a logged set. */
+/** The load and reps of one set, on the exercise and when editing a logged set. */
 export function SetInputs({ form, onChange, perSide, prompt }: { readonly form: SetForm; readonly onChange: (form: SetForm) => void; readonly perSide: Target['perSide']; readonly prompt: string | undefined }) {
   return (
     <>
@@ -182,14 +181,14 @@ export function CardAction({ label, disabled = false, onClick }: { readonly labe
   );
 }
 
-/** A logged set in words, for the plan's row and a screen reader. */
-export function setRowText({ performance, set }: LoggedSet, slot: Slot): string {
+/** A logged set in words, for a screen reader. */
+function setRowText({ performance, set }: LoggedSet, slot: Slot): string {
   const lift = performance.liftId === slot.liftId ? '' : `${performance.label}, `;
   const note = set.note === undefined ? '' : `, ${set.note}`;
   return `${set.warmup === true ? 'Warm-up, ' : ''}${lift}${typedLine([set], '×')}${note}`;
 }
 
-/** Today's sets of the lift in focus, a tap from editing. */
+/** Today's sets of this exercise, each a tap from editing. */
 function TodaySets({ sets, slot, onEdit }: { readonly sets: readonly LoggedSet[]; readonly slot: Slot; readonly onEdit: (row: LoggedSet) => void }) {
   if (sets.length === 0) return null;
   return (
@@ -216,42 +215,39 @@ const revealField = (event: FocusEvent) => {
 };
 
 export function SetCard({
-  step,
+  slot,
   lift,
-  today,
-  before,
+  day,
   rows,
   book,
   performances,
+  log,
   typed,
-  logged,
   onForm,
   onLog,
   onSwitch,
   onEdit,
   actions,
 }: {
-  readonly step: Step;
+  readonly slot: Slot;
   readonly lift: LiftChoice;
-  readonly today: LocalDate;
-  /** The session's date. Last-time reads stop before it. */
-  readonly before: LocalDate;
+  readonly day: DayRef;
+  /** Last-time reads, which stop before the day's date. */
   readonly rows: readonly Performance[];
   readonly book: LiftBook;
-  /** This session's. */
+  /** Today's, for this day. */
   readonly performances: readonly Performance[];
+  /** This exercise so far today. */
+  readonly log: SlotLog;
   /** What he has typed for this very set, if anything. */
   readonly typed: SetForm | undefined;
-  /** This slot's sets so far. */
-  readonly logged: readonly LoggedSet[];
   readonly onForm: (form: SetForm) => void;
   readonly onLog: (form: SetForm) => void;
   readonly onSwitch: (choice: LiftChoice) => void;
   readonly onEdit: (row: LoggedSet) => void;
   readonly actions: ComponentChildren;
 }) {
-  const { slot, round } = step;
-  const read = { lift: lift.liftId, rows, book, before };
+  const read = { lift: lift.liftId, rows, book, before: day.date };
   const last = lastTimeOf(read);
   const form = typed ?? formOf({ ...prefillSet({ lift: lift.liftId, book, target: slot.target, today: performances, last }), warmup: false, note: '' });
   const line = lastLineOf(read);
@@ -259,7 +255,7 @@ export function SetCard({
   const valid = setLogOf(entryOf(form)) !== null;
   const [cooling, cool] = useCooldown();
 
-  const log = () => {
+  const logIt = () => {
     if (!valid) return;
     blurTyping();
     cool();
@@ -269,16 +265,16 @@ export function SetCard({
   return (
     <section class="set-card" aria-label="Set">
       <div class="focus">
-        <h2>{lift.label}</h2>
+        <h1>{lift.label}</h1>
         <p class="focus-line">
           <span class="focus-round" data-testid="round">
-            {isExtra(step) ? 'Extra set' : `Set ${round} of ${slot.target.sets}`}
+            {setOfText(slot.target, log.done + 1)}
           </span>
-          {` · ${repsTargetText(slot.target)}`}
+          {` · ${repsTargetText(slot.target)}${log.skipped ? ' · Skipped' : ''}`}
         </p>
         {line !== null && (
           <p class="focus-line">
-            {`Last ${line.line} · ${shortDate(line.date, today)}`}
+            {`Last ${line.line} · ${shortDate(line.date, day.date)}`}
             {line.addWeight && <span class="mark-good"> Add weight</span>}
           </p>
         )}
@@ -290,13 +286,13 @@ export function SetCard({
             </button>
           </p>
         )}
-        <TodaySets sets={logged} slot={slot} onEdit={onEdit} />
+        <TodaySets sets={log.sets} slot={slot} onEdit={onEdit} />
       </div>
       <div class="set-controls">
         <div class="set-inputs" onFocusIn={revealField}>
           <SetInputs form={form} onChange={onForm} perSide={slot.target.perSide} prompt={slot.setPrompt} />
         </div>
-        <button type="button" class={valid && cooling ? 'primary log-set cooling' : 'primary log-set'} disabled={!valid || cooling} onClick={log}>
+        <button type="button" class={valid && cooling ? 'primary log-set cooling' : 'primary log-set'} disabled={!valid || cooling} onClick={logIt}>
           Log set
         </button>
         <CardActions>

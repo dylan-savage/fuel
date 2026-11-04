@@ -12,7 +12,7 @@ export type BlockId = z.infer<typeof BlockId>;
 
 const cue = z.string().max(1000);
 
-/** A lift a slot may be swapped to. Its cue replaces the slot's on the card. */
+/** A lift a slot may be swapped to. Its cue replaces the slot's on the exercise. */
 export const SwapOption = z.looseObject({ liftId: LiftId, label: z.string().min(1).max(80), cue: cue.optional() });
 export type SwapOption = z.infer<typeof SwapOption>;
 
@@ -34,7 +34,7 @@ const blockFields = {
   title: z.string().max(80).optional(),
   /** Text shown under the title. */
   note: z.string().max(1000).optional(),
-  /** Off the suggested path: nextUp never walks into it, and leaving it undone is not a skip. */
+  /** Extra work: it folds away on the day, and leaving it undone is not a skip. */
   optional: z.literal(true).optional(),
   /** A Monday. The block exists in that week only, so it lapses with no write. */
   onlyWeek: LocalDate.optional(),
@@ -45,7 +45,7 @@ export const LiftsBlock = z.looseObject({
   kind: z.literal('lifts'),
   ...blockFields,
   slots: z.array(Slot).min(1),
-  /** After each full round: after every set when straight, after the last slot when a superset. */
+  /** After each full round: after every set when straight, after the last slot when a superset. The app only shows it as text. */
   restSeconds: z.number().int().nonnegative().max(900).optional(),
 });
 export type LiftsBlock = z.infer<typeof LiftsBlock>;
@@ -71,7 +71,7 @@ export const Day = z.looseObject({
 });
 export type Day = z.infer<typeof Day>;
 
-/** A callout at the top of the week, or on one day's preview when it names that day. */
+/** A callout at the top of the week, or on one day's screen when it names that day. */
 export const ProgramNote = z.looseObject({ title: z.string().max(80).optional(), text: z.string().min(1).max(6000), onlyWeek: LocalDate.optional(), day: DayKey.optional() });
 export type ProgramNote = z.infer<typeof ProgramNote>;
 
@@ -153,13 +153,13 @@ export function plannedDay(program: Program, key: DayKey, date: LocalDate): Plan
   return blocks.length === 0 ? undefined : { key: day.key, label: day.label, minutes: day.minutes, blocks };
 }
 
-/** The notes at the top of that week. A note naming a day waits on that day's preview. */
+/** The notes at the top of that week. A note naming a day waits on that day's screen. */
 export function notesFor(program: Program, date: LocalDate): readonly ProgramNote[] {
   const monday = mondayOf(date);
   return program.notes.filter((note) => note.day === undefined && liveIn(note, monday));
 }
 
-/** The notes on one day's preview that week. */
+/** The notes on one day's screen that week. */
 export function dayNotesFor(program: Program, key: DayKey, date: LocalDate): readonly ProgramNote[] {
   const monday = mondayOf(date);
   return program.notes.filter((note) => note.day === key && liveIn(note, monday));
@@ -170,46 +170,31 @@ export function exerciseCount(day: PlannedDay): number {
   return day.blocks.reduce((sum, block) => sum + (block.kind === 'lifts' && block.optional !== true ? block.slots.length : 0), 0);
 }
 
-/** One set's place in a block. */
-export interface Step {
-  readonly block: LiftsBlock;
-  readonly slot: Slot;
-  /** 1-based. Warm-ups never count as rounds. */
-  readonly round: number;
-  /** The last slot of its round, so the block's rest follows it. */
-  readonly endsRound: boolean;
-}
-
 /** A block runs to its largest set count. */
 export function roundsOf(block: LiftsBlock): number {
   return Math.max(...block.slots.map((slot) => slot.target.sets));
 }
 
-/**
- * A1, A2, rest, A1, A2, rest. Rounds run to the largest set count and a slot leaves once its
- * sets are used, so a 2-set slot in a 3-round superset needs no special case. Straight sets
- * are the one-slot case.
- */
-export function stepsOf(block: LiftsBlock): readonly Step[] {
-  return Array.from({ length: roundsOf(block) }, (_, i) => i + 1).flatMap((round) => {
-    const inRound = block.slots.filter((slot) => slot.target.sets >= round);
-    return inRound.map((slot, i) => ({ block, slot, round, endsRound: i === inRound.length - 1 }));
-  });
-}
-
 /** One block as a day reads. */
 export interface DayPart {
   readonly block: Block;
-  /** Set on a lifts block of more than one slot. `letter` counts the supersets the day reads through. */
-  readonly superset: { readonly letter: string; readonly rounds: number } | null;
+  /** Set on a lifts block of more than one slot. */
+  readonly superset: { readonly rounds: number } | null;
 }
 
-/** A day in the order it reads, optional blocks last, since nextUp never walks into them. */
+/** A day in the order it reads, optional blocks last, since they fold away at the end. */
 export function dayParts(day: PlannedDay): readonly DayPart[] {
-  const ordered = day.blocks.toSorted((a, b) => Number(a.optional === true) - Number(b.optional === true));
-  const supersets = ordered.filter((block) => block.kind === 'lifts' && block.slots.length > 1);
-  return ordered.map((block) => {
-    const at = supersets.indexOf(block);
-    return { block, superset: block.kind === 'lifts' && at >= 0 ? { letter: String.fromCharCode(65 + at), rounds: roundsOf(block) } : null };
-  });
+  return day.blocks
+    .toSorted((a, b) => Number(a.optional === true) - Number(b.optional === true))
+    .map((block) => ({ block, superset: block.kind === 'lifts' && block.slots.length > 1 ? { rounds: roundsOf(block) } : null }));
+}
+
+/** A slot and the block holding it, within a day where slot ids are unique. */
+export function slotIn(day: PlannedDay, id: SlotId): { readonly block: LiftsBlock; readonly slot: Slot } | undefined {
+  for (const block of day.blocks) {
+    if (block.kind !== 'lifts') continue;
+    const slot = block.slots.find((candidate) => candidate.id === id);
+    if (slot !== undefined) return { block, slot };
+  }
+  return undefined;
 }

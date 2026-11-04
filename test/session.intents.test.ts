@@ -1,15 +1,15 @@
-/** The session's writes over a real replica: one tap, one commit, one undo, and what the views then read. */
+/** The day's writes over a real replica: one tap, one commit, one undo, and what the views then read. */
 import { randomUUID } from 'node:crypto';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createIntents } from '../src/client/intents.js';
 import { openReplica, type Replica, type SyncPort } from '../src/client/replica.js';
-import { dayView, openSessionView, sessionPlanView } from '../src/client/views.js';
+import { dayScreenView, dayView, trainedRecentlyView, weekView } from '../src/client/views.js';
 import { metDraft } from '../src/domain/burn.js';
 import type { GoalDraft } from '../src/domain/goals.js';
 import { addDays, type Millis } from '../src/domain/ids.js';
 import { performanceId } from '../src/domain/lifts.js';
-import { sessionWorkoutId, type Session, type SetEntry, type SetPlace } from '../src/domain/session.js';
+import { sessionWorkoutId, type DayRef, type Session, type SetEntry } from '../src/domain/session.js';
 import { T0, blockId, cardio, checklist, day, dayKey, liftsBlock, ms, program, session, slot, target } from './training.fixtures.js';
 
 const TODAY = day('2030-03-06');
@@ -21,7 +21,9 @@ const row = slot('a2', 'cable-row', 2, { label: 'Cable row', target: target(2, 8
 const warmUp = checklist('warm');
 const ride = cardio('ride');
 const push = { key: 'push', label: 'Push', weekday: 3, blocks: [warmUp, liftsBlock('pair', [bench, row], { restSeconds: 90 }), ride] };
-const version = program('2030-03-04', [push]);
+const pull = { key: 'pull', label: 'Pull', weekday: 4, blocks: [liftsBlock('main', [slot('b1', 'seal-row', 3, { label: 'Seal row' })])] };
+const version = program('2030-03-04', [push, pull]);
+const PUSH: DayRef = { key: dayKey('push'), date: TODAY };
 
 const open: Replica[] = [];
 afterEach(() => {
@@ -47,151 +49,215 @@ async function setup() {
 
 type Setup = Awaited<ReturnType<typeof setup>>;
 
-async function started({ replica, intents, at }: Setup): Promise<Session> {
-  await intents.startSession(dayKey('push'), TODAY);
-  const logs = await openSessionView(replica.read, { today: TODAY, now: at() });
-  if (logs === null) throw new Error('no session opened');
-  return logs.session;
-}
-
 const lbs = (amount: number, reps: number): SetEntry => ({ load: { kind: 'weight', amount, unit: 'lb' }, reps: { kind: 'total', reps }, warmup: false, note: '' });
-const benchIn = (doc: Session): SetPlace => ({ session: doc, slot: bench, lift: { liftId: bench.liftId, label: bench.label } });
+const benchOn = (date = TODAY) => ({ day: { key: dayKey('push'), date }, slot: bench, lift: { liftId: bench.liftId, label: bench.label } });
+const rowOn = (date = TODAY) => ({ day: { key: dayKey('push'), date }, slot: row, lift: { liftId: row.liftId, label: row.label } });
 const benchId = (doc: Session) => performanceId(doc.id, bench.id, bench.liftId);
 
 async function pendingOps(port: SyncPort) {
   return (await port.nextBatch(100)).mutations.map((m) => `${m.op} ${m.kind}`);
 }
 
-async function sets({ replica }: Pick<Setup, 'replica'>, doc: Session) {
-  return (await replica.read.get('performance', benchId(doc)))?.sets.map((s) => (s.reps.kind === 'total' ? s.reps.reps : null));
+/** Today's only session for the day. */
+async function sessionOf({ replica }: Pick<Setup, 'replica'>, date = TODAY): Promise<Session> {
+  const [doc, ...rest] = await replica.read.onDate('session', date);
+  if (doc === undefined || rest.length > 0) throw new Error(`expected one session on ${date}`);
+  return doc;
 }
 
-describe('startSession', () => {
-  it('writes one thin session pinned to the version in effect, and undo removes it', async () => {
+/** A day with one set logged, and its session. */
+async function logged(s: Setup): Promise<Session> {
+  await s.intents.logSet(benchOn(), lbs(100, 8));
+  return sessionOf(s);
+}
+
+async function sets({ replica }: Pick<Setup, 'replica'>, doc: Session) {
+  return (await replica.read.get('performance', benchId(doc)))?.sets.map((set) => (set.reps.kind === 'total' ? set.reps.reps : null));
+}
+
+const doneDays = async ({ replica }: Pick<Setup, 'replica'>) => (await weekView(replica.read, TODAY))?.days.filter((d) => d.doneOn !== null).map((d) => d.plan.key);
+
+describe('the lazy session', () => {
+  it('writes nothing for reading a day', async () => {
     const s = await setup();
-    const undo = await s.intents.startSession(dayKey('push'), TODAY);
-    const logs = await openSessionView(s.replica.read, { today: TODAY, now: s.at() });
-    expect(logs?.session).toMatchObject({ date: TODAY, day: { key: 'push', label: 'Push' }, programId: version.id, startedAt: s.at() });
-    expect(await pendingOps(s.port)).toEqual(['put program', 'put session']);
-    await undo?.();
-    expect(await openSessionView(s.replica.read, { today: TODAY, now: s.at() })).toBeNull();
+    const before = await pendingOps(s.port);
+    await dayScreenView(s.replica.read, PUSH);
+    await weekView(s.replica.read, TODAY);
+    expect(await pendingOps(s.port)).toEqual(before);
+    expect(await s.replica.read.all('session')).toEqual([]);
   });
 
-  it('opens one session on a double tap, and none for a day the plan does not hold', async () => {
+  it('is made by the first set, in its commit, pinned to the version in effect', async () => {
     const s = await setup();
-    const [first, second] = await Promise.all([s.intents.startSession(dayKey('push'), TODAY), s.intents.startSession(dayKey('push'), TODAY)]);
-    expect(first).not.toBeNull();
-    expect(second).toBeNull();
-    expect(await s.replica.read.all('session')).toHaveLength(1);
-    await first?.();
-    expect(await s.intents.startSession(dayKey('legs'), TODAY)).toBeNull();
-    expect(await s.intents.startSession(dayKey('push'), day('2030-03-01'))).toBeNull();
-  });
-});
-
-describe('openSessionView', () => {
-  it('ignores a finished, imported, lapsed or future session', async () => {
-    const s = await setup();
-    const now = s.at();
-    const docs = [session({ date: TODAY, startedAt: now, finishedAt: now }), session({ date: TODAY, source: 'notion' }), session({ date: TODAY, startedAt: ms(now - 7 * HOUR) }), session({ date: addDays(TODAY, 1), startedAt: now })];
-    await s.replica.commit(docs.map((doc) => ({ op: 'put', kind: 'session', doc })));
-    expect(await openSessionView(s.replica.read, { today: TODAY, now })).toBeNull();
+    const before = (await pendingOps(s.port)).length;
+    await s.intents.logSet(benchOn(), lbs(100, 8));
+    expect((await pendingOps(s.port)).slice(before).toSorted()).toEqual(['put performance', 'put session']);
+    expect(await sessionOf(s)).toMatchObject({ date: TODAY, day: { key: 'push', label: 'Push' }, programId: version.id, startedAt: s.at() });
   });
 
-  it('keeps the session and its date across midnight', async () => {
+  it.each([
+    ['a skip', (s: Setup) => s.intents.skipSlot(PUSH, row.id, 'Invented reason.'), { skips: [{ slotId: row.id, note: 'Invented reason.' }] }],
+    ['a note', (s: Setup) => s.intents.noteSession(PUSH, ' Invented note. '), { note: 'Invented note.' }],
+    ['a tick', (s: Setup) => s.intents.checkBlock(PUSH, warmUp.id), { checked: [warmUp.id] }],
+  ])('is made by %s too, and its undo takes it away', async (_name, write, holds) => {
     const s = await setup();
-    const doc = await started(s);
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
-    const logs = await openSessionView(s.replica.read, { today: addDays(TODAY, 1), now: s.at() });
-    expect(logs?.session.date).toBe(TODAY);
-    expect(logs?.performances.map((p) => p.date)).toEqual([TODAY]);
+    const undo = await write(s);
+    expect(await sessionOf(s)).toMatchObject({ programId: version.id, startedAt: s.at(), ...holds });
+    await undo();
+    expect(await s.replica.read.all('session')).toEqual([]);
   });
 
-  it('answers with cardio from another workout that day, and not with the session\'s own', async () => {
+  it('is not made by a blank note, which has nothing to hold', async () => {
     const s = await setup();
-    await s.intents.logWeight(80, TODAY);
-    const doc = await started(s);
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
-    expect((await openSessionView(s.replica.read, { today: TODAY, now: s.at() }))?.cardioDone).toBe(false);
-    await s.intents.logWorkout(metDraft('walk_3', 20), TODAY);
-    expect((await openSessionView(s.replica.read, { today: TODAY, now: s.at() }))?.cardioDone).toBe(true);
+    await s.intents.noteSession(PUSH, '   ');
+    expect(await s.replica.read.all('session')).toEqual([]);
   });
-});
 
-describe('sessionPlanView', () => {
-  it('reads the pinned version when a newer one takes effect, and a new session pins the newer', async () => {
+  it('is reused by every later write that date, one session per day per date', async () => {
     const s = await setup();
-    const doc = await started(s);
-    const renamed = program('2030-03-06', [{ ...push, label: 'Push, renamed' }]);
+    const doc = await logged(s);
+    s.later(MINUTE);
+    await s.intents.logSet(rowOn(), lbs(50, 10));
+    await s.intents.logSet(benchOn(), lbs(100, 8));
+    await s.intents.skipSlot(PUSH, row.id, '');
+    await s.intents.noteSession(PUSH, 'Invented note.');
+    await s.intents.checkBlock(PUSH, warmUp.id);
+    expect((await sessionOf(s)).id).toBe(doc.id);
+    expect(await sets(s, doc)).toEqual([8, 8]);
+  });
+
+  it('makes one on a double tap, losing neither set', async () => {
+    const s = await setup();
+    await Promise.all([s.intents.logSet(benchOn(), lbs(100, 8)), s.intents.logSet(benchOn(), lbs(100, 7))]);
+    expect(await sets(s, await sessionOf(s))).toEqual([8, 7]);
+  });
+
+  it('gives each day its own, and another date a new one', async () => {
+    const s = await setup();
+    const first = await logged(s);
+    await s.intents.logSet({ day: { key: dayKey('pull'), date: TODAY }, slot: slot('b1', 'seal-row', 3), lift: { liftId: slot('b1', 'seal-row', 3).liftId, label: 'Seal row' } }, lbs(70, 8));
+    expect((await s.replica.read.onDate('session', TODAY)).map((doc) => doc.day?.key).toSorted()).toEqual(['pull', 'push']);
+
+    const tomorrow = addDays(TODAY, 1);
+    await s.intents.logSet(benchOn(tomorrow), lbs(105, 8));
+    const next = await sessionOf(s, tomorrow);
+    expect(next.id).not.toBe(first.id);
+    expect((await s.replica.read.get('performance', benchId(next)))?.date).toBe(tomorrow);
+  });
+
+  it('pins a newer version on a later date, while today keeps what it pinned', async () => {
+    const s = await setup();
+    await logged(s);
+    const renamed = program('2030-03-06', [{ ...push, label: 'Push, renamed' }, pull]);
     await s.replica.commit([{ op: 'put', kind: 'program', doc: renamed }]);
-    expect((await sessionPlanView(s.replica.read, doc))?.plan.label).toBe('Push');
+    expect((await dayScreenView(s.replica.read, PUSH))?.plan.label).toBe('Push');
+    await s.intents.logSet(rowOn(), lbs(50, 10));
+    expect((await sessionOf(s)).programId).toBe(version.id);
 
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
-    await s.intents.finishSession(doc.id);
-    const next = await started(s);
-    expect(next.programId).toBe(renamed.id);
-    expect((await sessionPlanView(s.replica.read, next))?.plan.label).toBe('Push, renamed');
+    const tomorrow = addDays(TODAY, 1);
+    await s.intents.logSet(benchOn(tomorrow), lbs(105, 8));
+    expect((await sessionOf(s, tomorrow)).programId).toBe(renamed.id);
   });
 
-  it('is null off plan and when the phone does not hold the version', async () => {
+  it('writes nothing for a day the plan does not hold', async () => {
     const s = await setup();
-    expect(await sessionPlanView(s.replica.read, session({ date: TODAY }))).toBeNull();
-    expect(await sessionPlanView(s.replica.read, session({ date: TODAY, programId: program('2029-01-07', [push]).id }))).toBeNull();
+    const elsewhere = { key: dayKey('legs'), date: TODAY };
+    expect(await s.intents.logSet({ ...benchOn(), day: elsewhere }, lbs(100, 8))).toBeNull();
+    await s.intents.checkBlock(elsewhere, warmUp.id);
+    expect(await s.intents.logSet(benchOn(day('2030-03-01')), lbs(100, 8))).toBeNull();
+    expect(await s.replica.read.all('session')).toEqual([]);
+    expect(await s.replica.read.all('performance')).toEqual([]);
+  });
+
+  it('never writes into an import', async () => {
+    const s = await setup();
+    const imported = session({ date: TODAY, day: { key: dayKey('push'), label: 'Push' }, source: 'notion', startedAt: undefined });
+    await s.replica.commit([{ op: 'put', kind: 'session', doc: imported }]);
+    await s.intents.logSet(benchOn(), lbs(100, 8));
+    const mine = (await s.replica.read.onDate('session', TODAY)).filter((doc) => doc.source !== 'notion');
+    expect(mine).toHaveLength(1);
+    expect(mine[0]?.id).not.toBe(imported.id);
+  });
+});
+
+describe('a day being done', () => {
+  it('follows its sets, and undoing the only one makes it not done', async () => {
+    const s = await setup();
+    expect(await doneDays(s)).toEqual([]);
+    const undo = await s.intents.logSet(benchOn(), lbs(100, 8));
+    expect(await doneDays(s)).toEqual(['push']);
+    await undo?.();
+    expect(await doneDays(s)).toEqual([]);
+    expect(await s.replica.read.all('session')).toEqual([]);
+    expect(await s.replica.read.all('performance')).toEqual([]);
+  });
+
+  it('is not done by a warm-up, a tick, a skip or a note', async () => {
+    const s = await setup();
+    await s.intents.logSet(benchOn(), { ...lbs(45, 10), warmup: true });
+    await s.intents.checkBlock(PUSH, warmUp.id);
+    await s.intents.skipSlot(PUSH, row.id, '');
+    await s.intents.noteSession(PUSH, 'Invented note.');
+    expect(await doneDays(s)).toEqual([]);
+  });
+
+  it('is not done once its only set is deleted, and the emptied session goes at the next settle', async () => {
+    const s = await setup();
+    const doc = await logged(s);
+    await s.intents.editSet({ performanceId: benchId(doc), index: 0 }, null);
+    expect(await doneDays(s)).toEqual([]);
+    expect((await sessionOf(s)).id).toBe(doc.id);
+    s.later(6 * HOUR);
+    await s.intents.settleLapsed();
+    expect(await s.replica.read.all('session')).toEqual([]);
   });
 });
 
 describe('logSet', () => {
-  it('stores the tap in one commit, one outbox row per set', async () => {
+  it('stores the tap, and a later set writes one document', async () => {
     const s = await setup();
-    const doc = await started(s);
+    const doc = await logged(s);
     const before = (await pendingOps(s.port)).length;
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
+    s.later(MINUTE);
+    await s.intents.logSet(benchOn(), lbs(100, 7));
     expect((await pendingOps(s.port)).slice(before)).toEqual(['put performance']);
-    expect(await s.replica.read.get('performance', benchId(doc))).toMatchObject({ sessionId: doc.id, date: TODAY, target: bench.target, sets: [{ load: { amount: 100 }, reps: { reps: 8 }, at: s.at() }] });
+    expect(await s.replica.read.get('performance', benchId(doc))).toMatchObject({ sessionId: doc.id, date: TODAY, target: bench.target, sets: [{ load: { amount: 100 }, reps: { reps: 8 } }, { reps: { reps: 7 }, at: s.at() }] });
   });
 
-  it('undoes one set at a time, and the first takes the performance with it', async () => {
+  it('undoes one set at a time, and the first takes the performance and the session with it', async () => {
     const s = await setup();
-    const doc = await started(s);
-    const first = await s.intents.logSet(benchIn(doc), lbs(100, 8));
-    const second = await s.intents.logSet(benchIn(doc), lbs(100, 7));
+    const first = await s.intents.logSet(benchOn(), lbs(100, 8));
+    const doc = await sessionOf(s);
+    const second = await s.intents.logSet(benchOn(), lbs(100, 7));
     expect(await sets(s, doc)).toEqual([8, 7]);
     await second?.();
     expect(await sets(s, doc)).toEqual([8]);
+    expect((await sessionOf(s)).id).toBe(doc.id);
     await first?.();
     expect(await sets(s, doc)).toBeUndefined();
-  });
-
-  it('loses neither of two fast taps', async () => {
-    const s = await setup();
-    const doc = await started(s);
-    await Promise.all([s.intents.logSet(benchIn(doc), lbs(100, 8)), s.intents.logSet(benchIn(doc), lbs(100, 7))]);
-    expect(await sets(s, doc)).toEqual([8, 7]);
+    expect(await s.replica.read.all('session')).toEqual([]);
   });
 
   it('writes nothing while the entry is incomplete', async () => {
     const s = await setup();
-    const doc = await started(s);
-    expect(await s.intents.logSet(benchIn(doc), { ...lbs(100, 8), load: { kind: 'weight', amount: null, unit: 'lb' } })).toBeNull();
-    expect(await sets(s, doc)).toBeUndefined();
+    expect(await s.intents.logSet(benchOn(), { ...lbs(100, 8), load: { kind: 'weight', amount: null, unit: 'lb' } })).toBeNull();
+    expect(await s.replica.read.all('session')).toEqual([]);
   });
 
   it('takes a skip back on a set in that slot, and undo puts it back', async () => {
     const s = await setup();
-    const doc = await started(s);
-    await s.intents.skipSlot(doc.id, bench.id, 'Invented note.');
-    const undo = await s.intents.logSet(benchIn(doc), lbs(100, 8));
-    expect((await s.replica.read.get('session', doc.id))?.skips).toBeUndefined();
+    await s.intents.skipSlot(PUSH, bench.id, 'Invented note.');
+    const undo = await s.intents.logSet(benchOn(), lbs(100, 8));
+    expect((await sessionOf(s)).skips).toBeUndefined();
     await undo?.();
-    expect((await s.replica.read.get('session', doc.id))?.skips).toEqual([{ slotId: bench.id, note: 'Invented note.' }]);
+    expect((await sessionOf(s)).skips).toEqual([{ slotId: bench.id, note: 'Invented note.' }]);
   });
 });
 
 describe('editSet', () => {
   it('changes a set and keeps its tap, its place and what a newer app added', async () => {
     const s = await setup();
-    const doc = await started(s);
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
+    const doc = await logged(s);
     const before = await s.replica.read.get('performance', benchId(doc));
     const tap = before?.sets[0]?.at;
     if (before === undefined) throw new Error('no performance');
@@ -205,9 +271,8 @@ describe('editSet', () => {
 
   it('deletes one set, and the last takes the performance with it, and undo restores each', async () => {
     const s = await setup();
-    const doc = await started(s);
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
-    await s.intents.logSet(benchIn(doc), lbs(100, 7));
+    const doc = await logged(s);
+    await s.intents.logSet(benchOn(), lbs(100, 7));
     const id = benchId(doc);
     const first = await s.intents.editSet({ performanceId: id, index: 0 }, null);
     expect(await sets(s, doc)).toEqual([7]);
@@ -221,8 +286,7 @@ describe('editSet', () => {
 
   it('refuses an incomplete edit and a set that is gone', async () => {
     const s = await setup();
-    const doc = await started(s);
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
+    const doc = await logged(s);
     await s.intents.editSet({ performanceId: benchId(doc), index: 0 }, { ...lbs(100, 8), reps: { kind: 'total', reps: null } });
     await s.intents.editSet({ performanceId: benchId(doc), index: 5 }, lbs(1, 1));
     expect(await sets(s, doc)).toEqual([8]);
@@ -230,10 +294,9 @@ describe('editSet', () => {
 });
 
 describe('notes, skips and ticks', () => {
-  it('notes an exercise and the session, blank removes, and undo restores', async () => {
+  it('notes an exercise and the day, blank removes, and undo restores', async () => {
     const s = await setup();
-    const doc = await started(s);
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
+    const doc = await logged(s);
     await s.intents.noteExercise(benchId(doc), ' Invented note. ');
     expect((await s.replica.read.get('performance', benchId(doc)))?.note).toBe('Invented note.');
     const undoBlank = await s.intents.noteExercise(benchId(doc), '  ');
@@ -241,28 +304,30 @@ describe('notes, skips and ticks', () => {
     await undoBlank();
     expect((await s.replica.read.get('performance', benchId(doc)))?.note).toBe('Invented note.');
 
-    const undoSession = await s.intents.noteSession(doc.id, 'Invented session note.');
-    expect((await s.replica.read.get('session', doc.id))?.note).toBe('Invented session note.');
-    await undoSession();
-    expect(await s.replica.read.get('session', doc.id)).not.toHaveProperty('note');
+    const undoDay = await s.intents.noteSession(PUSH, 'Invented session note.');
+    expect((await sessionOf(s)).note).toBe('Invented session note.');
+    await undoDay();
+    expect(await sessionOf(s)).not.toHaveProperty('note');
   });
 
-  it('skips a slot with a note, and undo restores', async () => {
+  it('skips a slot on a session already there, and undo keeps the session', async () => {
     const s = await setup();
-    const doc = await started(s);
-    const undo = await s.intents.skipSlot(doc.id, row.id, 'Invented reason.');
-    expect((await s.replica.read.get('session', doc.id))?.skips).toEqual([{ slotId: row.id, note: 'Invented reason.' }]);
+    const doc = await logged(s);
+    const undo = await s.intents.skipSlot(PUSH, row.id, 'Invented reason.');
+    expect((await sessionOf(s)).skips).toEqual([{ slotId: row.id, note: 'Invented reason.' }]);
     await undo();
-    expect((await s.replica.read.get('session', doc.id))?.skips).toBeUndefined();
+    expect((await sessionOf(s)).skips).toBeUndefined();
+    expect((await sessionOf(s)).id).toBe(doc.id);
   });
 
-  it('ticks a block, and undo restores', async () => {
+  it('ticks a block once, and undo keeps the session', async () => {
     const s = await setup();
-    const doc = await started(s);
-    const undo = await s.intents.checkBlock(doc.id, warmUp.id);
-    expect((await s.replica.read.get('session', doc.id))?.checked).toEqual([blockId('warm')]);
+    await logged(s);
+    const undo = await s.intents.checkBlock(PUSH, warmUp.id);
+    await s.intents.checkBlock(PUSH, warmUp.id);
+    expect((await sessionOf(s)).checked).toEqual([blockId('warm')]);
     await undo();
-    expect((await s.replica.read.get('session', doc.id))?.checked).toBeUndefined();
+    expect((await sessionOf(s)).checked).toBeUndefined();
   });
 
   it('writes a loose line to the coach, and undo removes it', async () => {
@@ -274,95 +339,165 @@ describe('notes, skips and ticks', () => {
   });
 });
 
-describe('finishSession', () => {
-  async function trained() {
+describe('cardio', () => {
+  it('writes a workout and no session, and answers on the day', async () => {
     const s = await setup();
     await s.intents.logWeight(80, TODAY);
-    const doc = await started(s);
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
-    s.later(50 * MINUTE);
-    return { ...s, doc };
-  }
-
-  it('sets the finish and writes the workout in one commit, reaching the day by the session\'s label', async () => {
-    const { intents, replica, port, doc, at } = await trained();
-    const before = (await pendingOps(port)).length;
-    const finished = await intents.finishSession(doc.id);
-    expect(finished).toMatchObject({ kind: 'finished', diary: 'added', minutes: 50 });
-    expect((await pendingOps(port)).slice(before)).toEqual(['put session', 'put workout']);
-    expect((await replica.read.get('session', doc.id))?.finishedAt).toBe(at());
-    expect((await dayView(replica.read, TODAY)).workouts.map((w) => [w.id, w.name, w.minutes])).toEqual([[sessionWorkoutId(doc), 'Push', 50]]);
-    expect(await openSessionView(replica.read, { today: TODAY, now: at() })).toBeNull();
+    expect((await dayScreenView(s.replica.read, PUSH))?.cardioDone).toBe(false);
+    await s.intents.logWorkout(metDraft('walk_3', 20), TODAY);
+    expect(await dayScreenView(s.replica.read, PUSH)).toMatchObject({ session: null, cardioDone: true });
+    expect(await s.replica.read.all('session')).toEqual([]);
   });
 
-  it('leaves one workout when finished twice, at once or later', async () => {
-    const s = await trained();
-    const [first, second] = await Promise.all([s.intents.finishSession(s.doc.id), s.intents.finishSession(s.doc.id)]);
-    expect(first.kind).toBe('finished');
-    expect(second.kind).toBe('already');
-    s.later(HOUR);
-    expect((await s.intents.finishSession(s.doc.id)).kind).toBe('already');
-    expect((await s.replica.read.all('workout')).map((w) => [w.id, w.minutes])).toEqual([[sessionWorkoutId(s.doc), 50]]);
-  });
-
-  it('undo reopens the session and removes the workout, and finishing again leaves one', async () => {
-    const s = await trained();
-    const finished = await s.intents.finishSession(s.doc.id);
-    if (finished.kind !== 'finished') throw new Error('not finished');
-    await finished.undo();
-    expect((await openSessionView(s.replica.read, { today: TODAY, now: s.at() }))?.session.id).toBe(s.doc.id);
-    expect(await s.replica.read.all('workout')).toEqual([]);
-    s.later(10 * MINUTE);
-    await s.intents.finishSession(s.doc.id);
-    expect((await s.replica.read.all('workout')).map((w) => w.minutes)).toEqual([60]);
-  });
-
-  it('writes no workout with no sets, though a session with work still counts as finished', async () => {
+  it('is not satisfied by the session\'s own workout', async () => {
     const s = await setup();
-    const doc = await started(s);
-    await s.intents.checkBlock(doc.id, warmUp.id);
-    const finished = await s.intents.finishSession(doc.id);
-    expect(finished).toMatchObject({ kind: 'finished', diary: 'no-sets', minutes: null });
-    expect(await s.replica.read.all('workout')).toEqual([]);
-    expect((await s.replica.read.get('session', doc.id))?.finishedAt).toBe(s.at());
-    if (finished.kind === 'finished') await finished.undo();
-    expect((await openSessionView(s.replica.read, { today: TODAY, now: s.at() }))?.session.id).toBe(doc.id);
-  });
-
-  it('removes a session nothing happened in rather than counting it, and undo brings it back', async () => {
-    const s = await setup();
-    const doc = await started(s);
-    const finished = await s.intents.finishSession(doc.id);
-    expect(finished.kind).toBe('dropped');
-    expect(await s.replica.read.get('session', doc.id)).toBeUndefined();
-    if (finished.kind === 'dropped') await finished.undo();
-    expect((await openSessionView(s.replica.read, { today: TODAY, now: s.at() }))?.session.id).toBe(doc.id);
-  });
-
-  it('says so when no body weight is known, and still finishes', async () => {
-    const s = await setup();
-    const doc = await started(s);
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
-    expect(await s.intents.finishSession(doc.id)).toMatchObject({ kind: 'finished', diary: 'no-weight', minutes: null });
-    expect(await s.replica.read.all('workout')).toEqual([]);
-    expect((await s.replica.read.get('session', doc.id))?.finishedAt).toBe(s.at());
-  });
-
-  it('finishes at the last set when tapped long after, so the workout is not hours long', async () => {
-    const s = await trained();
-    s.later(7 * HOUR);
-    expect(await s.intents.finishSession(s.doc.id)).toMatchObject({ kind: 'finished', minutes: 1 });
-  });
-
-  it('keeps the session\'s date on a workout finished past midnight', async () => {
-    const s = await trained();
-    s.later(24 * HOUR);
-    await s.intents.finishSession(s.doc.id);
-    expect((await s.replica.read.all('workout')).map((w) => w.date)).toEqual([TODAY]);
+    await s.intents.logWeight(80, TODAY);
+    await logged(s);
+    s.later(6 * HOUR);
+    await s.intents.settleLapsed();
+    expect((await s.replica.read.all('workout')).length).toBe(1);
+    expect((await dayScreenView(s.replica.read, PUSH))?.cardioDone).toBe(false);
   });
 });
 
-describe('the budget after a session with cardio inside it', () => {
+describe('settleLapsed', () => {
+  it('finishes an idle session at its last set, once, with its workout', async () => {
+    const s = await setup();
+    await s.intents.logWeight(80, TODAY);
+    const doc = await logged(s);
+    s.later(10 * MINUTE);
+    await s.intents.logSet(benchOn(), lbs(100, 8));
+    const lastTap = s.at();
+    s.later(6 * HOUR - 1);
+    await s.intents.settleLapsed();
+    expect((await sessionOf(s)).finishedAt).toBeUndefined();
+    s.later(1);
+
+    await s.intents.settleLapsed();
+    expect((await sessionOf(s)).finishedAt).toBe(lastTap);
+    expect((await s.replica.read.all('workout')).map((w) => [w.id, w.name, w.date, w.minutes, w.loggedAt])).toEqual([[sessionWorkoutId(doc), 'Push', TODAY, 10, lastTap]]);
+
+    const pending = await s.replica.read.pendingCount();
+    await s.intents.settleLapsed();
+    expect(await s.replica.read.pendingCount()).toBe(pending);
+  });
+
+  it('keeps the session\'s date on a workout settled past midnight', async () => {
+    const s = await setup();
+    await s.intents.logWeight(80, TODAY);
+    await logged(s);
+    s.later(24 * HOUR);
+    await s.intents.settleLapsed();
+    expect((await s.replica.read.all('workout')).map((w) => w.date)).toEqual([TODAY]);
+  });
+
+  it('finishes with no workout when no body weight is known', async () => {
+    const s = await setup();
+    await logged(s);
+    s.later(6 * HOUR);
+    await s.intents.settleLapsed();
+    expect((await sessionOf(s)).finishedAt).toBeDefined();
+    expect(await s.replica.read.all('workout')).toEqual([]);
+  });
+
+  it('removes an idle session with nothing in it, a same-day cardio or not', async () => {
+    const s = await setup();
+    await s.intents.logWeight(80, TODAY);
+    await s.intents.logWorkout(metDraft('walk_3', 20), TODAY);
+    await s.replica.commit([{ op: 'put', kind: 'session', doc: session({ date: TODAY, startedAt: s.at() }) }]);
+    s.later(6 * HOUR);
+    await s.intents.settleLapsed();
+    expect(await s.replica.read.all('session')).toEqual([]);
+    expect(await s.replica.read.all('workout')).toHaveLength(1);
+  });
+
+  it('leaves one with a tick or note but no timed set, which has no time to finish at', async () => {
+    const s = await setup();
+    await s.intents.checkBlock(PUSH, warmUp.id);
+    s.later(6 * HOUR);
+    await s.intents.settleLapsed();
+    expect(await sessionOf(s)).toMatchObject({ checked: [warmUp.id] });
+    expect((await sessionOf(s)).finishedAt).toBeUndefined();
+  });
+
+  it('leaves an open session, a finished one and an import alone, and writes nothing', async () => {
+    const s = await setup();
+    const docs = [session({ date: TODAY, source: 'notion', startedAt: ms(T0 - 100 * HOUR) }), session({ date: TODAY, startedAt: ms(T0 - 100 * HOUR), finishedAt: ms(T0 - 99 * HOUR) }), session({ date: TODAY, startedAt: ms(T0) })];
+    await s.replica.commit(docs.map((doc) => ({ op: 'put', kind: 'session', doc })));
+    const pending = await s.replica.read.pendingCount();
+    await s.intents.settleLapsed();
+    expect(await s.replica.read.pendingCount()).toBe(pending);
+  });
+});
+
+describe('reopening a settled session', () => {
+  async function settled() {
+    const s = await setup();
+    await s.intents.logWeight(80, TODAY);
+    const doc = await logged(s);
+    s.later(10 * MINUTE);
+    await s.intents.logSet(benchOn(), lbs(100, 7));
+    s.later(6 * HOUR);
+    await s.intents.settleLapsed();
+    return { ...s, doc };
+  }
+  const minutesOf = async ({ replica }: Pick<Setup, 'replica'>) => (await replica.read.all('workout')).map((w) => w.minutes);
+
+  it('keeps one session, reopens it on a new set, and the workout converges at the next settle', async () => {
+    const s = await settled();
+    expect(await minutesOf(s)).toEqual([10]);
+    await s.intents.logSet(rowOn(), lbs(50, 10));
+    const lastTap = s.at();
+    expect((await sessionOf(s)).id).toBe(s.doc.id);
+    expect((await sessionOf(s)).finishedAt).toBeUndefined();
+    expect(await minutesOf(s), 'the workout waits for the settle').toEqual([10]);
+
+    s.later(6 * HOUR);
+    await s.intents.settleLapsed();
+    expect((await sessionOf(s)).finishedAt).toBe(lastTap);
+    expect(await minutesOf(s), 'first set to last').toEqual([6 * 60 + 10]);
+    expect((await s.replica.read.all('workout')).map((w) => w.id)).toEqual([sessionWorkoutId(s.doc)]);
+  });
+
+  it('undo of that set closes it again', async () => {
+    const s = await settled();
+    const finishedAt = (await sessionOf(s)).finishedAt;
+    const undo = await s.intents.logSet(rowOn(), lbs(50, 10));
+    await undo?.();
+    expect((await sessionOf(s)).finishedAt).toBe(finishedAt);
+  });
+
+  it('reopens on an edit too, so a shorter day shows in the workout', async () => {
+    const s = await settled();
+    await s.intents.editSet({ performanceId: benchId(s.doc), index: 1 }, null);
+    expect((await sessionOf(s)).finishedAt).toBeUndefined();
+    s.later(MINUTE);
+    await s.intents.settleLapsed();
+    expect(await minutesOf(s), 'one set left, so one minute').toEqual([1]);
+  });
+
+  it('removes the session and its workout once its last set is deleted, and the day is not done', async () => {
+    const s = await settled();
+    await s.intents.editSet({ performanceId: benchId(s.doc), index: 1 }, null);
+    await s.intents.editSet({ performanceId: benchId(s.doc), index: 0 }, null);
+    expect(await doneDays(s)).toEqual([]);
+    await s.intents.settleLapsed();
+    expect(await s.replica.read.all('session')).toEqual([]);
+    expect(await s.replica.read.all('workout')).toEqual([]);
+  });
+
+  it('keeps a session holding a tick when its sets go, but not the workout it no longer earns', async () => {
+    const s = await settled();
+    await s.intents.checkBlock(PUSH, warmUp.id);
+    await s.intents.editSet({ performanceId: benchId(s.doc), index: 1 }, null);
+    await s.intents.editSet({ performanceId: benchId(s.doc), index: 0 }, null);
+    await s.intents.settleLapsed();
+    expect((await sessionOf(s)).checked).toEqual([warmUp.id]);
+    expect(await s.replica.read.all('workout')).toEqual([]);
+  });
+});
+
+describe('the budget after a day with cardio inside it', () => {
   const goal = (policy: GoalDraft['policy']): GoalDraft => ({ policy, kgPerWeek: -0.45, macros: { kind: 'percent', protein: 30, carbs: 40, fat: 30 } });
 
   async function withCardio(policy: GoalDraft['policy']) {
@@ -371,12 +506,13 @@ describe('the budget after a session with cardio inside it', () => {
     await s.intents.saveGoal(goal(policy), TODAY);
     await s.intents.logWeight(80, TODAY);
     const untrained = (await dayView(s.replica.read, TODAY)).budget?.kcal;
-    const doc = await started(s);
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
+    const doc = await logged(s);
     s.later(30 * MINUTE);
     await s.intents.logWorkout(metDraft('run_6', 20), TODAY);
     s.later(30 * MINUTE);
-    await s.intents.finishSession(doc.id);
+    await s.intents.logSet(rowOn(), lbs(50, 10));
+    s.later(6 * HOUR);
+    await s.intents.settleLapsed();
     const after = await dayView(s.replica.read, TODAY);
     return { ...s, doc, untrained, after };
   }
@@ -401,53 +537,15 @@ describe('the budget after a session with cardio inside it', () => {
   });
 });
 
-describe('settleLapsed', () => {
-  it('finishes a forgotten session at its last set, once, with its workout', async () => {
+describe('trainedRecentlyView', () => {
+  it('holds for three hours after a set, and across midnight', async () => {
     const s = await setup();
-    await s.intents.logWeight(80, TODAY);
-    const doc = await started(s);
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
-    s.later(10 * MINUTE);
-    await s.intents.logSet(benchIn(doc), lbs(100, 8));
-    const lastTap = s.at();
-    s.later(6 * HOUR - 1);
-    expect(await s.intents.settleLapsed()).toEqual([]);
-    expect((await s.replica.read.get('session', doc.id))?.finishedAt).toBeUndefined();
-    s.later(1);
-
-    expect(await s.intents.settleLapsed()).toEqual([{ label: 'Push', at: lastTap }]);
-    expect((await s.replica.read.get('session', doc.id))?.finishedAt).toBe(lastTap);
-    expect((await s.replica.read.all('workout')).map((w) => [w.id, w.date, w.minutes, w.loggedAt])).toEqual([[sessionWorkoutId(doc), TODAY, 10, lastTap]]);
-
-    const pending = await s.replica.read.pendingCount();
-    expect(await s.intents.settleLapsed()).toEqual([]);
-    expect(await s.replica.read.pendingCount()).toBe(pending);
-  });
-
-  it('removes a forgotten session nothing happened in', async () => {
-    const s = await setup();
-    const doc = await started(s);
-    s.later(6 * HOUR);
-    expect(await s.intents.settleLapsed()).toEqual([]);
-    expect(await s.replica.read.get('session', doc.id)).toBeUndefined();
-  });
-
-  it('leaves a forgotten session with work but no timed set, which has no time to finish at', async () => {
-    const s = await setup();
-    const doc = await started(s);
-    await s.intents.checkBlock(doc.id, warmUp.id);
-    s.later(6 * HOUR);
-    expect(await s.intents.settleLapsed()).toEqual([]);
-    expect((await s.replica.read.get('session', doc.id))?.finishedAt).toBeUndefined();
-    expect((await s.replica.read.get('session', doc.id))?.checked).toEqual([warmUp.id]);
-  });
-
-  it('leaves an open session, a finished one and an import alone, and writes nothing', async () => {
-    const s = await setup();
-    const docs = [session({ date: TODAY, source: 'notion', startedAt: ms(T0 - 100 * HOUR) }), session({ date: TODAY, startedAt: ms(T0 - 100 * HOUR), finishedAt: ms(T0 - 99 * HOUR) }), session({ date: TODAY, startedAt: ms(T0) })];
-    await s.replica.commit(docs.map((doc) => ({ op: 'put', kind: 'session', doc })));
-    const pending = await s.replica.read.pendingCount();
-    expect(await s.intents.settleLapsed()).toEqual([]);
-    expect(await s.replica.read.pendingCount()).toBe(pending);
+    const at = () => ({ today: TODAY, now: s.at() });
+    expect(await trainedRecentlyView(s.replica.read, at())).toBe(false);
+    await logged(s);
+    expect(await trainedRecentlyView(s.replica.read, at())).toBe(true);
+    expect(await trainedRecentlyView(s.replica.read, { today: addDays(TODAY, 1), now: s.at() })).toBe(true);
+    s.later(3 * HOUR);
+    expect(await trainedRecentlyView(s.replica.read, at())).toBe(false);
   });
 });
