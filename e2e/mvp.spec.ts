@@ -8,6 +8,8 @@ import { Gtin } from '../src/domain/food.js';
 import { kcalOf, openControlled, setGoal, stored, tab, typeBarcode } from './app.js';
 
 const COKE = Gtin.parse('0049000000443');
+const UNKNOWN_TO_OFF = '0028400999991';
+const NOT_IN_OFF = '4006381333931';
 /** US Coca-Cola, 591 ml bottle at 42.3 kcal per 100 ml, as recorded from Open Food Facts. */
 const BOTTLE_KCAL = 250;
 const shown = (n: number) => Math.abs(n).toLocaleString('en-US');
@@ -67,6 +69,42 @@ test('a day: goal, barcode to log, offline recents and scans, synced to fuel.db'
     expect(stored('goal').map((g) => g.policy)).toContainEqual({ kind: 'activity-level', level: 'moderate' });
     expect(stored('profile')[0]?.weightKg).toBeCloseTo(180 * 0.45359237, 3);
   });
+});
+
+test('a barcode the database misses can become a new food, which the next scan finds', async ({ page }) => {
+  await page.goto('/');
+  await typeBarcode(page, UNKNOWN_TO_OFF);
+  await page.getByRole('button', { name: 'Create food' }).click();
+  const editor = page.getByRole('dialog', { name: 'New food' });
+  await editor.getByLabel('Name', { exact: true }).fill('Invented oat bar');
+  await editor.getByLabel('Serving 1 size').fill('40');
+  for (const [label, value] of [
+    ['Calories', '180'],
+    ['Protein', '4'],
+    ['Carbs', '30'],
+    ['Fat', '5'],
+  ] as const) {
+    await editor.getByLabel(label).fill(value);
+  }
+  await editor.getByRole('button', { name: 'Save food' }).click();
+  const log = page.getByRole('dialog', { name: 'Log food' });
+  await log.getByRole('button', { name: /^Log to/ }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Logged Invented oat bar' })).toBeVisible();
+
+  await typeBarcode(page, UNKNOWN_TO_OFF);
+  await expect(page.getByRole('dialog', { name: 'Log food' }).getByRole('heading', { name: 'Invented oat bar' })).toBeVisible();
+  await expect.poll(() => stored('food').filter((f) => f.barcodes.includes(Gtin.parse(UNKNOWN_TO_OFF))).map((f) => f.name), { timeout: 15_000 }).toEqual(['Invented oat bar']);
+});
+
+test('a barcode the database misses can be quick added instead', async ({ page }) => {
+  await page.goto('/');
+  await typeBarcode(page, NOT_IN_OFF);
+  await page.getByRole('dialog', { name: 'Scan' }).getByRole('button', { name: 'Quick add' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Quick add' });
+  await sheet.getByLabel('What').fill('Invented snack');
+  await sheet.getByLabel('Calories').fill('90');
+  await sheet.getByRole('button', { name: /^Log to/ }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Logged Invented snack' })).toBeVisible();
 });
 
 test('search shows library foods at once and Open Food Facts results below', async ({ page }) => {

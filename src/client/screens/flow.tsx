@@ -2,15 +2,13 @@
 import { useCallback, useState } from 'preact/hooks';
 import type { Meal, Slot } from '../../domain/diary.js';
 import { defaultQuantity, snapshotOf, type FoodCandidate, type FoodSnapshot, type Quantity } from '../../domain/food.js';
-import type { Draft } from '../../domain/quicklog.js';
 import { recipeSnapshot, type SavedMeal } from '../../domain/reuse.js';
 import type { Logged } from '../intents.js';
 import { useIntents, useRead } from '../views.js';
 import { ConfirmSheet } from './ConfirmSheet.js';
-import { DraftReview } from './DraftReview.js';
 import { FoodEditor, type EditorSeed } from './FoodEditor.js';
 import { FoodSheet, LogAction, type SheetLink } from './FoodSheet.js';
-import { MEAL_LABEL, count } from './format.js';
+import { MEAL_LABEL } from './format.js';
 import { QuickAddSheet } from './QuickAdd.js';
 import { RecipeBuilder, type RecipeSeed } from './RecipeBuilder.js';
 import { SavedMealSheet } from './SavedMealSheet.js';
@@ -19,7 +17,6 @@ export type Flow =
   | { readonly kind: 'closed' }
   | { readonly kind: 'food'; readonly food: FoodSnapshot; readonly quantity: Quantity }
   | { readonly kind: 'confirm'; readonly candidate: FoodCandidate }
-  | { readonly kind: 'review'; readonly drafts: readonly Draft[] }
   | { readonly kind: 'editor'; readonly seed: EditorSeed }
   | { readonly kind: 'recipe'; readonly seed: RecipeSeed }
   | { readonly kind: 'meal'; readonly meal: SavedMeal }
@@ -101,16 +98,6 @@ export function useLogFlow(slot: Slot, onLogged: OnLogged) {
               }}
             />
           )}
-        />
-      );
-      break;
-    case 'review':
-      sheet = (
-        <DraftReview
-          drafts={flow.drafts}
-          meal={slot.meal}
-          onLog={(items, meal) => void intents.logItems(items, at(meal)).then(logged(count(items.length, 'item'), meal))}
-          onClose={close}
         />
       );
       break;

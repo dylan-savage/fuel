@@ -3,24 +3,20 @@
  * The result type makes every caller handle the mini being out of reach.
  */
 import type { ExternalRef, SearchHit } from '../domain/food.js';
-import { AiAnswer, AiError, LookupResponse, SearchResponse, formatRef, type AiFailure, type AiParseRequest } from '../protocol.js';
+import { LookupResponse, SearchResponse, formatRef } from '../protocol.js';
 
 /** offline: the mini did not answer. unavailable: it answered that its sources failed. */
 export type OnlineFailure = 'offline' | 'unavailable' | 'bad_response';
 
-/** `Why` adds the reasons a route names in its error body. */
-export type Online<T, Why extends string = never> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly reason: OnlineFailure | Why };
+export type Online<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly reason: OnlineFailure };
 
-interface Call<T, Why extends string> {
+interface Call<T> {
   readonly url: string;
   readonly init?: RequestInit;
   readonly parse: (body: unknown) => T;
-  readonly reasonOf?: (body: unknown) => Why | null;
 }
 
-async function call<T, Why extends string = never>({ url, init = {}, parse, reasonOf }: Call<T, Why>): Promise<Online<T, Why>> {
+async function call<T>({ url, init = {}, parse }: Call<T>): Promise<Online<T>> {
   let res: Response;
   try {
     res = await fetch(url, init);
@@ -34,11 +30,7 @@ async function call<T, Why extends string = never>({ url, init = {}, parse, reas
   } catch {
     return { ok: false, reason: res.status >= 500 ? 'unavailable' : 'bad_response' };
   }
-  if (!res.ok) {
-    const named = reasonOf?.(body) ?? null;
-    if (named !== null) return { ok: false, reason: named };
-    return { ok: false, reason: res.status >= 500 ? 'unavailable' : 'bad_response' };
-  }
+  if (!res.ok) return { ok: false, reason: res.status >= 500 ? 'unavailable' : 'bad_response' };
   try {
     return { ok: true, value: parse(body) };
   } catch {
@@ -54,16 +46,4 @@ export function lookupFood(ref: ExternalRef, signal?: AbortSignal): Promise<Onli
 
 export function searchFoods(query: string, signal?: AbortSignal): Promise<Online<SearchHit[]>> {
   return call({ url: `/api/foods/search?q=${encodeURIComponent(query)}`, init: withSignal(signal), parse: (body) => SearchResponse.parse(body).hits });
-}
-
-export function parseWithAi(req: AiParseRequest, signal?: AbortSignal): Promise<Online<AiAnswer, AiFailure>> {
-  return call({
-    url: '/api/ai/parse',
-    init: { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(req), ...withSignal(signal) },
-    parse: (body) => AiAnswer.parse(body),
-    reasonOf: (body) => {
-      const named = AiError.safeParse(body);
-      return named.success ? named.data.error : null;
-    },
-  });
 }
