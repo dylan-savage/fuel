@@ -27,6 +27,7 @@ const unit = (page: Page) => page.getByRole('button', { name: /^Unit / });
 const logButton = (page: Page) => page.getByRole('button', { name: 'Log set' });
 const logSet = (page: Page) => logButton(page).click();
 const toast = (page: Page, text: string | RegExp) => page.getByRole('status').filter({ hasText: text });
+const waiting = (page: Page) => page.getByText(/\d+ waiting/).filter({ visible: true });
 const named = (name: string) => new RegExp(`^${name.replace(/[()]/g, '\\$&')}`);
 
 async function openWeek(page: Page) {
@@ -197,10 +198,10 @@ test('logs in any order and back again, offline through a tab switch, a reload a
   await logSet(reopened);
   await expectCard(reopened, 'Meadows row', 'Set 3 of 3');
   expect(reachesServer(DAY), 'nothing has reached the server yet').toEqual([]);
-  await expect(reopened.getByText(/\d+ waiting/)).toBeVisible();
+  await expect(waiting(reopened)).toBeVisible();
 
   await context.setOffline(false);
-  await expect(reopened.getByText(/\d+ waiting/)).toBeHidden({ timeout: 20_000 });
+  await expect(waiting(reopened)).toBeHidden({ timeout: 20_000 });
   expect(reachesServer(DAY)).toEqual([
     { lift: 'cable-fly', slot: 'a1', planned: undefined, sets: [{ load: { kind: 'weight', amount: 40, unit: 'lb' }, reps: { kind: 'total', reps: 12 }, warmup: false }] },
     {
@@ -344,7 +345,7 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip 
         liftsBlock('body', [slot('c1', 'chin-up', 2, { label: 'Chin-up', target: target(2, 5, 8, { load: 'bodyweight' }) })], { restSeconds: 90 }),
         liftsBlock('carry', [slot('d1', 'sled-push', 1, { label: 'Sled push', target: target(1, 1, 1), setPrompt: 'Distance' })]),
         liftsBlock('skipper', [slot('e1', 'suitcase-carry', 1, { label: 'Suitcase carry', target: target(1, 1, 1) })]),
-        cardio('bike', { title: 'Easy bike' }),
+        cardio('bike', { title: 'Easy bike', note: 'Invented note on the ride.' }),
         liftsBlock('extra', [slot('f1', 'dead-bug', 2, { label: 'Dead bug', target: target(2, 10, 10, { load: 'bodyweight' }) })], { title: 'Extras', optional: true }),
       ],
     },
@@ -464,6 +465,7 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip 
   // Cardio opens the existing logger, and that workout marks the row.
   await row(page, /^Easy bike/).click();
   const logger = page.getByRole('dialog', { name: 'Add workout' });
+  await expect(logger.getByText('Invented note on the ride.'), 'the words its row cuts to one line').toBeVisible();
   await logger.getByRole('button', { name: /^Stationary bike/ }).click();
   await logger.getByRole('button', { name: '15 min' }).click();
   await logger.getByRole('button', { name: 'Log workout' }).click();
@@ -477,6 +479,7 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip 
   await logSet(page);
   await expectCard(page, 'Dead bug', 'Set 2 of 2');
   await back(page);
+  await expect(row(page, /^Dead bug/), 'what he opened is still open').toHaveAccessibleName(/1 of 2 logged/);
 
   // Editing a set from its value, with an undo.
   await openExercise(page, 'Goblet squat', 'Extra set');
@@ -555,7 +558,7 @@ test('opening a day writes nothing, and a day holds one session per date', async
   await back(page);
   await expect(weekCount(page)).toHaveText('0 of 2 done');
   expect(await countOnPhone(page, 'outbox'), 'opening a day and an exercise and typing stores nothing').toBe(0);
-  await expect(page.getByText(/\d+ waiting/)).toHaveCount(0);
+  await expect(waiting(page)).toHaveCount(0);
 
   await openDay(page, 'Lazy day');
   await openExercise(page, 'Seal row', 'Set 1 of 3');

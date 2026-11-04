@@ -425,8 +425,10 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
         const before = await replica.read.get('performance', id);
         const next = afterSet(session, slot.id);
         const touchesSession = isNew || next !== session;
-        await replica.commit([{ op: 'put', kind: 'performance', doc: withSet(place, before, set) }, ...(touchesSession ? [{ op: 'put' as const, kind: 'session' as const, doc: next }] : [])]);
-        return () => replica.commit([before === undefined ? { op: 'delete', kind: 'performance', id } : { op: 'put', kind: 'performance', doc: before }, ...(touchesSession ? [restoreSession(target)] : [])]);
+        const write: readonly PhoneMutation[] = touchesSession ? [{ op: 'put', kind: 'session', doc: next }] : [];
+        const restore: readonly PhoneMutation[] = touchesSession ? [restoreSession(target)] : [];
+        await replica.commit([{ op: 'put', kind: 'performance', doc: withSet(place, before, set) }, ...write]);
+        return () => replica.commit([before === undefined ? { op: 'delete', kind: 'performance', id } : { op: 'put', kind: 'performance', doc: before }, ...restore]);
       }),
 
     editSet: ({ performanceId, index }, entry) =>

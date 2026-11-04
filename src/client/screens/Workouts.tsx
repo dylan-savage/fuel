@@ -76,7 +76,7 @@ function sourceOf(choice: Choice, grossKcal: number | null): WorkoutSource | nul
 }
 
 /** Logs a workout, or edits one: pick an activity, set the minutes, see the burn above resting. */
-export function WorkoutSheet({ date, editing, onClose }: { readonly date: LocalDate; readonly editing?: Workout; readonly onClose: () => void }) {
+export function WorkoutSheet({ date, editing, lead, onClose }: { readonly date: LocalDate; readonly editing?: Workout; /** Words from the plan above the choices. */ readonly lead?: string | undefined; readonly onClose: () => void }) {
   const intents = useIntents();
   const toast = useToast();
   const view = useLive((r) => workoutLoggerView(r, date), [date]);
@@ -90,6 +90,7 @@ export function WorkoutSheet({ date, editing, onClose }: { readonly date: LocalD
   if (choice === null) {
     return (
       <Sheet title={title} onClose={onClose}>
+        {lead !== undefined && <p class="detail sheet-lead">{lead}</p>}
         <Picker
           recents={view.recents}
           kg={editing?.kg ?? view.weight?.kg}

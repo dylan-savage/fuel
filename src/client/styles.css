@@ -163,6 +163,10 @@ main {
   padding-top: 0;
 }
 
+.title-bar + .detail {
+  margin-bottom: 12px;
+}
+
 .title-bar {
   display: flex;
   align-items: center;
@@ -409,6 +413,10 @@ main {
   margin-left: 0;
 }
 
+.expand-body .section-heading {
+  margin-left: 0;
+}
+
 .expand-body .field {
   padding-right: 0;
 }
@@ -436,6 +444,10 @@ main {
   display: flex;
   justify-content: space-between;
   gap: 4px;
+}
+
+.quiet-actions .text-button {
+  min-width: 44px;
 }
 
 .quiet-actions.start {

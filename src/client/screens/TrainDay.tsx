@@ -28,20 +28,20 @@ function Dots({ filled, total }: { readonly filled: number; readonly total: numb
 }
 
 /** What every row of the day reads and does. */
-interface DayRows {
+interface RowContext {
   readonly view: DayScreenView;
   readonly day: DayRef;
-  /** Last-time reads, from lastTimesView. */
-  readonly rows: readonly Performance[];
+  /** From lastTimesView. */
+  readonly lastTimes: readonly Performance[];
   readonly liftOf: (slot: Slot) => LiftChoice;
   readonly onExercise: (slot: Slot) => void;
-  readonly onCardio: () => void;
+  readonly onCardio: (block: CardioBlock) => void;
 }
 
-function ExerciseRow({ slot, view, day, rows, liftOf, onExercise }: DayRows & { readonly slot: Slot }) {
+function ExerciseRow({ slot, view, day, lastTimes, liftOf, onExercise }: RowContext & { readonly slot: Slot }) {
   const lift = liftOf(slot);
   const log = slotLog(slot, view);
-  const last = lastLineOf({ lift: lift.liftId, rows, book: view.book, before: day.date });
+  const last = lastLineOf({ lift: lift.liftId, rows: lastTimes, book: view.book, before: day.date });
   return (
     <Row
       name={lift.label}
@@ -58,7 +58,7 @@ function ExerciseRow({ slot, view, day, rows, liftOf, onExercise }: DayRows & { 
   );
 }
 
-function ChecklistRow({ block, view, day }: DayRows & { readonly block: ChecklistBlock }) {
+function ChecklistRow({ block, view, day }: RowContext & { readonly block: ChecklistBlock }) {
   const intents = useIntents();
   const toast = useToast();
   const title = block.title ?? 'Checklist';
@@ -80,18 +80,18 @@ function ChecklistRow({ block, view, day }: DayRows & { readonly block: Checklis
   );
 }
 
-function CardioRow({ block, view, onCardio }: DayRows & { readonly block: CardioBlock }) {
-  return <Row name={block.title ?? 'Cardio'} detail={block.note ?? (block.title === undefined ? undefined : 'Cardio')} end={blockDone(block, view) ? 'Done' : undefined} chevron onClick={onCardio} />;
+function CardioRow({ block, view, onCardio }: RowContext & { readonly block: CardioBlock }) {
+  return <Row name={block.title ?? 'Cardio'} detail={block.note ?? (block.title === undefined ? undefined : 'Cardio')} end={blockDone(block, view) ? 'Done' : undefined} chevron onClick={() => onCardio(block)} />;
 }
 
-function PartRows({ part: { block }, ...rows }: DayRows & { readonly part: DayPart }) {
+function PartRows({ part: { block }, ...context }: RowContext & { readonly part: DayPart }) {
   switch (block.kind) {
     case 'lifts':
       return (
         <>
           {block.slots.map((slot) => (
             <li key={slot.id}>
-              <ExerciseRow slot={slot} {...rows} />
+              <ExerciseRow slot={slot} {...context} />
             </li>
           ))}
         </>
@@ -99,19 +99,19 @@ function PartRows({ part: { block }, ...rows }: DayRows & { readonly part: DayPa
     case 'checklist':
       return (
         <li>
-          <ChecklistRow block={block} {...rows} />
+          <ChecklistRow block={block} {...context} />
         </li>
       );
     case 'cardio':
       return (
         <li>
-          <CardioRow block={block} {...rows} />
+          <CardioRow block={block} {...context} />
         </li>
       );
   }
 }
 
-function PartLists({ parts, ...rows }: DayRows & { readonly parts: readonly DayPart[] }) {
+function PartLists({ parts, ...context }: RowContext & { readonly parts: readonly DayPart[] }) {
   return (
     <>
       {planSections(parts).map((section) => (
@@ -119,7 +119,7 @@ function PartLists({ parts, ...rows }: DayRows & { readonly parts: readonly DayP
           {section.label !== null && <h3 class="section-heading">{section.label}</h3>}
           <ul class="list">
             {section.parts.map((part) => (
-              <PartRows key={part.block.id} part={part} {...rows} />
+              <PartRows key={part.block.id} part={part} {...context} />
             ))}
           </ul>
         </section>
@@ -141,16 +141,16 @@ function partNames({ block }: DayPart): readonly string[] {
   }
 }
 
-function DayScreen({ onBack, ...rows }: DayRows & { readonly onBack: () => void }) {
-  const { plan, notes, parts } = rows.view;
+function DayScreen({ hidden, onBack, ...context }: RowContext & { readonly hidden: boolean; readonly onBack: () => void }) {
+  const { plan, notes, parts } = context.view;
   const required = parts.filter((part) => part.block.optional !== true);
   const optional = parts.filter((part) => part.block.optional === true);
   const line = dayLine(plan);
   return (
-    <section class="screen train">
+    <section class="screen train" hidden={hidden}>
       <BackButton onBack={onBack} />
       <TitleBar title={plan.label} />
-      {line !== '' && <p class="week-count">{line}</p>}
+      {line !== '' && <p class="detail">{line}</p>}
       {notes.length > 0 && (
         <ul class="list" aria-label="Day notes">
           {notes.map((note, i) => (
@@ -160,13 +160,13 @@ function DayScreen({ onBack, ...rows }: DayRows & { readonly onBack: () => void 
           ))}
         </ul>
       )}
-      <PartLists parts={required} {...rows} />
+      <PartLists parts={required} {...context} />
       {optional.length > 0 && (
         <section class="plan-section" aria-label="Optional">
           <ul class="list">
             <li>
               <ExpandRow name="Optional" detail={optional.flatMap(partNames).join(', ')}>
-                <PartLists parts={optional} {...rows} />
+                <PartLists parts={optional} {...context} />
               </ExpandRow>
             </li>
           </ul>
@@ -179,9 +179,9 @@ function DayScreen({ onBack, ...rows }: DayRows & { readonly onBack: () => void 
 /** Holds what the day and its exercises share, so going between them draws no gap and loses no place. */
 function HeldDay({ view, day, slotId, onSlot, onBack }: { readonly view: DayScreenView; readonly day: DayRef; readonly slotId: SlotId | null; readonly onSlot: (slot: SlotId | null) => void; readonly onBack: () => void }) {
   const [draft, setDraft] = useTrainDraft(day);
-  const [logging, setLogging] = useState(false);
+  const [cardio, setCardio] = useState<CardioBlock | null>(null);
   const liftIds = dayLiftIds(view, Object.values(draft.swaps));
-  const rows = useLive((r) => lastTimesView(r, liftIds, day.date), [liftIds.join(), day.date]);
+  const lastTimes = useLive((r) => lastTimesView(r, liftIds, day.date), [liftIds.join(), day.date]);
   const open = slotId === null ? undefined : slotIn(view.plan, slotId);
   const liftOf = (slot: Slot) => draft.swaps[slot.id] ?? liftInSlot(slot, view.performances);
 
@@ -192,25 +192,25 @@ function HeldDay({ view, day, slotId, onSlot, onBack }: { readonly view: DayScre
     if (onDay) window.scrollTo(0, dayScroll.current);
   }, [onDay]);
 
-  if (rows === undefined) return null;
-  if (open !== undefined) {
-    return <ExerciseScreen view={view} day={day} block={open.block} slot={open.slot} lift={liftOf(open.slot)} rows={rows} draft={draft} onDraft={setDraft} onBack={() => onSlot(null)} />;
-  }
+  if (lastTimes === undefined) return null;
   return (
     <>
+      {/* Kept under the exercise rather than rebuilt, so the rows he opened are still open on Back. */}
       <DayScreen
+        hidden={!onDay}
         view={view}
         day={day}
-        rows={rows}
+        lastTimes={lastTimes}
         liftOf={liftOf}
         onExercise={(slot) => {
           dayScroll.current = window.scrollY;
           onSlot(slot.id);
         }}
-        onCardio={() => setLogging(true)}
+        onCardio={setCardio}
         onBack={onBack}
       />
-      {logging && <WorkoutSheet date={day.date} onClose={() => setLogging(false)} />}
+      {open !== undefined && <ExerciseScreen view={view} day={day} block={open.block} slot={open.slot} lift={liftOf(open.slot)} rows={lastTimes} draft={draft} onDraft={setDraft} onBack={() => onSlot(null)} />}
+      {cardio !== null && <WorkoutSheet date={day.date} lead={cardio.note} onClose={() => setCardio(null)} />}
     </>
   );
 }

@@ -4,8 +4,8 @@
  * it stays here and fills in the next one.
  */
 import { useState } from 'preact/hooks';
-import type { LiftsBlock, ProgramNote, Slot } from '../../domain/program.js';
 import type { Performance } from '../../domain/lifts.js';
+import type { LiftsBlock, ProgramNote, Slot } from '../../domain/program.js';
 import { cueFor, slotLog, type DayRef, type LiftChoice, type LoggedSet } from '../../domain/session.js';
 import { afterLog, entryOf, typedFor, withSwap, withTyped, type SetForm, type TrainDraft } from '../trainDraft.js';
 import { useIntents, type DayScreenView } from '../views.js';

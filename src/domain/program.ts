@@ -171,7 +171,7 @@ export function exerciseCount(day: PlannedDay): number {
 }
 
 /** A block runs to its largest set count. */
-export function roundsOf(block: LiftsBlock): number {
+function roundsOf(block: LiftsBlock): number {
   return Math.max(...block.slots.map((slot) => slot.target.sets));
 }
 
