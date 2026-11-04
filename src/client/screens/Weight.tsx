@@ -4,7 +4,7 @@ import { KG_PER_LB } from '../../domain/goals.js';
 import { LocalDate } from '../../domain/ids.js';
 import { bodyView, useIntents, useLive, weighInsView, type BodyView } from '../views.js';
 import { dayPhrase, dayTitle, lb, lbField, lbPerWeek, parseNumber, shortDate } from './format.js';
-import { ExpandRow, NumberField, Row, Segmented, Sheet, Stat, useToast } from './ui.js';
+import { ExpandRow, NumberField, Row, Segmented, Sheet, Stat, useKeyboardAvoidance, useToast } from './ui.js';
 import { RANGES, WeightChart, type RangeDays } from './WeightChart.js';
 
 /** Up to this many weigh-ins listed under the chart. */
@@ -35,6 +35,7 @@ function projectionText(projection: Exclude<Projection, { kind: 'no-goal' }>, to
  * until Dylan types, so a prefilled number never follows him to another day.
  */
 export function WeighInSheet({ date, today, onClose }: { readonly date: LocalDate; readonly today: LocalDate; readonly onClose: () => void }) {
+  useKeyboardAvoidance();
   const intents = useIntents();
   const toast = useToast();
   const weighIns = useLive((r) => weighInsView(r), []);

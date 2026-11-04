@@ -390,6 +390,16 @@ async function boxOf(page: Page, locator: ReturnType<Page['locator']>) {
   return box;
 }
 
+/** Polled, because the sheet under the button may still be sliding in. */
+async function expectAboveKeyboard(page: Page, button: Locator, keysAt: number, name: string) {
+  await expect
+    .poll(async () => {
+      const box = await boxOf(page, button);
+      return box.y + box.height;
+    }, { message: `the keyboard does not hide ${name}` })
+    .toBeLessThanOrEqual(keysAt);
+}
+
 /** What an exercise promises: Log set in the thumb's reach, every action on screen at 44 points or more, and nothing under the tab bar. */
 async function expectClearLayout(page: Page) {
   await expect(async () => {
@@ -424,6 +434,7 @@ async function photographExercises(page: Page, name: (shot: string) => string) {
   const shoot = async (shot: string) => page.screenshot({ path: join(dir, name(shot)), animations: 'disabled' });
   await page.clock.setFixedTime(SESSION_NOW);
   await page.goto('/');
+  await tab(page, 'Train').click();
   await expect(page.getByTestId('week-count')).toBeVisible({ timeout: 15_000 });
   await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Upper body strength and accessory work/ }).click();
   await expect(page.locator('.train').getByRole('button', { name: /^Seal row/ })).toBeVisible();
@@ -453,8 +464,7 @@ async function photographExercises(page: Page, name: (shot: string) => string) {
   await expect(note.getByRole('radio', { name: 'This exercise' })).toBeChecked();
   const aboveNoteKeys = await raiseKeyboard(page);
   await shoot('note-keyboard');
-  const saveNote = await boxOf(page, note.getByRole('button', { name: 'Save note' }));
-  expect(saveNote.y + saveNote.height, 'the keyboard does not hide Save note').toBeLessThanOrEqual(aboveNoteKeys);
+  await expectAboveKeyboard(page, note.getByRole('button', { name: 'Save note' }), aboveNoteKeys, 'Save note');
   await lowerKeyboard(page);
   await note.getByRole('button', { name: 'Cancel' }).click();
 
@@ -462,15 +472,19 @@ async function photographExercises(page: Page, name: (shot: string) => string) {
   const skip = page.getByRole('dialog', { name: /^Skip/ });
   await skip.getByLabel('Why (optional)').focus();
   const aboveSkipKeys = await raiseKeyboard(page);
-  const skipIt = await boxOf(page, skip.getByRole('button', { name: 'Skip it' }));
-  expect(skipIt.y + skipIt.height, 'the keyboard does not hide Skip it').toBeLessThanOrEqual(aboveSkipKeys);
+  await expectAboveKeyboard(page, skip.getByRole('button', { name: 'Skip it' }), aboveSkipKeys, 'Skip it');
   await lowerKeyboard(page);
   await skip.getByRole('button', { name: 'Cancel' }).click();
 
   await page.getByRole('group', { name: "Today's sets" }).getByRole('button').first().click();
-  await expect(page.getByRole('dialog', { name: /^Edit/ })).toBeVisible();
+  const edit = page.getByRole('dialog', { name: /^Edit/ });
+  await expect(edit).toBeVisible();
   await shoot('edit-set');
-  await page.getByRole('dialog', { name: /^Edit/ }).getByRole('button', { name: 'Cancel' }).click();
+  await edit.getByLabel('Load', { exact: true }).focus();
+  const aboveEditKeys = await raiseKeyboard(page);
+  await expectAboveKeyboard(page, edit.getByRole('button', { name: 'Save set' }), aboveEditKeys, 'Save set');
+  await lowerKeyboard(page);
+  await edit.getByRole('button', { name: 'Cancel' }).click();
   await backToDay(page);
 
   await openExercise(page, /^Pin press/);
@@ -508,11 +522,20 @@ async function photographExercises(page: Page, name: (shot: string) => string) {
   await shoot('per-side');
   await backToDay(page);
 
-  await page.getByRole('region', { name: 'Optional' }).getByText('Optional', { exact: true }).click();
   await openExercise(page, /^Reverse crunch/);
   await expect(page.getByText('Bodyweight', { exact: true })).toBeVisible();
   await expectClearLayout(page);
   await shoot('bodyweight');
+  await backToDay(page);
+
+  await page.locator('.train').getByRole('button', { name: /^Easy ride/ }).click();
+  const logger = page.getByRole('dialog', { name: 'Add workout' });
+  await logger.getByRole('region', { name: 'Walking' }).getByRole('button', { name: /^Walking, 3 mph/ }).click();
+  await logger.getByLabel('Duration').focus();
+  const aboveLoggerKeys = await raiseKeyboard(page);
+  await expectAboveKeyboard(page, logger.getByRole('button', { name: 'Log workout' }), aboveLoggerKeys, 'Log workout');
+  await lowerKeyboard(page);
+  await logger.getByRole('button', { name: 'Cancel' }).click();
 }
 
 /** What every food screen promises: nothing to tap under 44 points, and nothing wider than the phone. */
@@ -907,6 +930,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Upper body/ }).click();
       await expect(page.getByText('40 kg × 12/12/12 · Nov 25')).toBeVisible();
       await page.screenshot({ path: join(dir, `train-day-${colorScheme}.png`), animations: 'disabled' });
+      await page.locator('details').filter({ hasText: /^Warm up · / }).locator('summary').click();
+      await expect(page.getByRole('button', { name: 'Warm up done' })).toBeVisible();
+      await expectFullTapTargets(page, 'a day with its checklist open');
+      await page.screenshot({ path: join(dir, `train-day-checklist-${colorScheme}.png`), animations: 'disabled' });
       await page.getByRole('region', { name: 'Optional' }).getByText('Optional', { exact: true }).click();
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       await page.screenshot({ path: join(dir, `train-day-bottom-${colorScheme}.png`), animations: 'disabled' });
@@ -917,6 +944,14 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await standing.getByText('How the year is laid out').click();
       await page.screenshot({ path: join(dir, `train-program-${colorScheme}.png`), animations: 'disabled' });
       await standing.getByRole('button', { name: 'Done' }).click();
+
+      await page.getByRole('button', { name: 'Weigh in', exact: true }).click();
+      const weighIn = page.getByRole('dialog', { name: 'Weigh-in' });
+      await weighIn.getByLabel('Weight').focus();
+      const aboveWeighInKeys = await raiseKeyboard(page);
+      await expectAboveKeyboard(page, weighIn.getByRole('button', { name: 'Save weigh-in' }), aboveWeighInKeys, 'Save weigh-in');
+      await lowerKeyboard(page);
+      await weighIn.getByRole('button', { name: 'Cancel' }).click();
 
       await page.clock.setFixedTime(new Date('2020-01-08T12:00:00'));
       await page.reload();
