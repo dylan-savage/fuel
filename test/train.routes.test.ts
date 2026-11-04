@@ -3,25 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { openReplica } from '../src/client/replica.js';
 import { syncRounds, type Transport } from '../src/client/sync.js';
-import type { Millis } from '../src/domain/ids.js';
 import { ProgramDraft, type Program } from '../src/domain/program.js';
 import { PublishAnswer, Rev, SyncReply, SyncResponse } from '../src/protocol.js';
-import type { FoodSources } from '../src/server/foods.js';
 import { buildApp } from '../src/server/routes.js';
 import { openStore, type DocStore } from '../src/server/store.js';
 import { entry, newClientId, newEntryId, putEntry, request } from './fixtures.js';
-import { day, dayKey, liftsBlock, ms, program, slot } from './training.fixtures.js';
-
-/** Local noon, so the mini's calendar reads this date in any time zone. */
-const noonOf = (date: string): Millis => ms(new Date(`${date}T12:00:00`).getTime());
+import { day, dayKey, liftsBlock, ms, noFoods, noonOf, program, session, slot } from './training.fixtures.js';
 
 const SUNDAY = '2030-03-10';
 const MONDAY = '2030-03-11';
-
-const foods: FoodSources = {
-  lookup: () => Promise.reject(new Error('no food sources here')),
-  search: () => Promise.reject(new Error('no food sources here')),
-};
 
 const stores: DocStore[] = [];
 let stdout: ReturnType<typeof spyOnStdout>;
@@ -56,7 +46,7 @@ function setup(options: { readonly seeded?: boolean; readonly phone?: boolean } 
   const store = openStore(':memory:');
   stores.push(store);
   const clock = { date: SUNDAY };
-  const app = buildApp({ store, foods, ai: null, staticDir: '.', now: () => noonOf(clock.date) });
+  const app = buildApp({ store, foods: noFoods, ai: null, staticDir: '.', now: () => noonOf(clock.date) });
   const phoneReports = () => store.sync({ ...request(newClientId(), []), build: 'abc-1' }, { now: ms(77), userAgent: null });
   if (options.phone ?? true) phoneReports();
   if (options.seeded ?? true) store.writeProgram(version, { now: ms(1) });
@@ -420,6 +410,28 @@ describe('a phone after a publish', () => {
     expect(await replica.read.programOn(day(MONDAY))).toEqual(published);
     expect(await replica.read.programOn(day('2030-03-17'))).toEqual(published);
     expect(await replica.read.programOn(day(SUNDAY)), 'the day before its date reads the version before it').toEqual(version);
+    replica.close();
+  });
+
+  it('moves a session pinned on a copy the mini has replaced, the one case the calendar rule does not cover', async () => {
+    const { app, publish, store, clock } = setup({ phone: false });
+    const { replica, port } = await openReplica({ name: 'train-pin-gap', indexedDB: new IDBFactory(), IDBKeyRange, build: 'abc-1' });
+    const transport: Transport = async (req) => SyncReply.parse(await (await app.request('/api/sync', { method: 'POST', body: JSON.stringify(req) })).json());
+    await syncRounds(port, transport);
+    await publish(onlyThe(draftOf(version, MONDAY), 'Sunday morning'));
+    await syncRounds(port, transport);
+    await publish(onlyThe(draftOf(version, MONDAY), 'Sunday evening'));
+
+    clock.date = MONDAY;
+    const held = await replica.read.programOn(day(MONDAY));
+    expect(held?.notes, 'offline on Monday, it holds the first copy').toEqual([{ text: 'Sunday morning' }]);
+    const open = session({ date: day(MONDAY), ...(held === undefined ? {} : { programId: held.id }) });
+    await replica.commit([{ op: 'put', kind: 'session', doc: open }]);
+
+    await syncRounds(port, transport);
+    expect((await replica.read.get('session', open.id))?.programId, 'the pin itself stays').toBe(`p:${MONDAY}`);
+    expect((await replica.read.programOn(day(MONDAY)))?.notes, 'but its next sync brings the replacement').toEqual([{ text: 'Sunday evening' }]);
+    expect((await publish(onlyThe(draftOf(version, MONDAY), 'Monday'), store.highestRev('program'))).answer.status, 'and from here the version is frozen').toBe('frozen');
     replica.close();
   });
 

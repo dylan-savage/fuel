@@ -3,26 +3,30 @@
  * the network drops requests, drops responses, delivers twice, and local writes land while
  * a request is in flight. Then checks that everyone converges and nothing applied twice.
  * The same invariants run again with shells older than the server, which skip what they
- * cannot read and update partway through.
+ * cannot read and update partway through. A coach publishes through the real route between
+ * phone syncs, while phones hold open sessions and offline outboxes.
  */
 import { copyFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import fc from 'fast-check';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { openReplica, type Replica, type SyncPort } from '../src/client/replica.js';
 import { syncRounds, type Transport } from '../src/client/sync.js';
 import { PROFILE_ID, goalId } from '../src/domain/goals.js';
 import { weighInId } from '../src/domain/body.js';
-import { FastEndId, FastId, FoodId, LocalDate, RecipeId, SavedMealId, SessionId, TrainingNoteId, WaterId, WorkoutId } from '../src/domain/ids.js';
+import { FastEndId, FastId, FoodId, LocalDate, RecipeId, SavedMealId, SessionId, TrainingNoteId, WaterId, WorkoutId, addDays, type ProgramId } from '../src/domain/ids.js';
 import { KIND_NAMES, type Kind, type Mutation } from '../src/domain/kinds.js';
-import { performanceId } from '../src/domain/lifts.js';
-import { programId } from '../src/domain/program.js';
-import type { SyncReply, SyncRequest, SyncResponse } from '../src/protocol.js';
+import { performanceId, type SetLog } from '../src/domain/lifts.js';
+import { programId, type Program } from '../src/domain/program.js';
+import { PublishAnswer, Rev, type SyncReply, type SyncRequest, type SyncResponse } from '../src/protocol.js';
+import { buildApp } from '../src/server/routes.js';
 import { openStore, type DocStore } from '../src/server/store.js';
 import { at, entry, fast, fastEnd, food, goal, newClientId, newEntryId, profile, recipe, request, savedMeal, water, weighIn, workout } from './fixtures.js';
-import { lb, lift, liftsBlock, ms, performance, program, session, slot, slotId } from './training.fixtures.js';
+import { lb, lift, liftsBlock, ms, newSessionId, noFoods, noonOf, performance, program, session, slot, slotId } from './training.fixtures.js';
 
 const ENTRY_IDS = Array.from({ length: 4 }, newEntryId);
 const FOOD_IDS = [FoodId.parse('0f0e0d0c-0b0a-4908-8706-050403020100'), FoodId.parse('1f1e1d1c-1b1a-4918-9716-151413121110')];
@@ -85,6 +89,8 @@ const SLOT_WRITES: { readonly [K in Kind]: readonly SlotWrite<K>[] } = {
 };
 const ALL_SLOTS = KIND_NAMES.flatMap((kind): readonly ((w: WriteOp) => Mutation)[] => SLOT_WRITES[kind]);
 const SLOTS = ALL_SLOTS.length;
+/** What the app itself can write. Only a restore pushes a program, and a coached schedule has none. */
+const PHONE_SLOTS = ALL_SLOTS.flatMap((write, slot) => (write({ op: 'delete', slot }).kind === 'program' ? [] : [slot]));
 
 type Fate = 'deliver' | 'drop-request' | 'drop-response' | 'deliver-twice';
 type Step =
@@ -100,7 +106,20 @@ type Step =
     }
   | { readonly kind: 'update'; readonly replica: number }
   | { readonly kind: 'backup' }
-  | { readonly kind: 'restore' };
+  | { readonly kind: 'restore' }
+  | {
+      readonly kind: 'publish';
+      /** Days from today. Negative aims at a version already in effect. */
+      readonly startsIn: number;
+      /** Tells contents apart, and a repeat of one makes a repeat publish. */
+      readonly text: number;
+      /** An old read echoes a rev from before the last read. */
+      readonly read: 'fresh' | 'old';
+      readonly fate: 'deliver' | 'lost-response';
+    }
+  | { readonly kind: 'open'; readonly replica: number }
+  | { readonly kind: 'set'; readonly replica: number; readonly reps: number }
+  | { readonly kind: 'tomorrow' };
 
 function toMutation(w: WriteOp): Mutation {
   const write = ALL_SLOTS[w.slot];
@@ -108,13 +127,15 @@ function toMutation(w: WriteOp): Mutation {
   return write(w);
 }
 
-const writeOp: fc.Arbitrary<WriteOp> = fc.oneof(
-  { weight: 4, arbitrary: fc.record({ op: fc.constant('put' as const), slot: fc.nat(SLOTS - 1), kcal: fc.integer({ min: 1, max: 2000 }) }) },
-  { weight: 1, arbitrary: fc.record({ op: fc.constant('delete' as const), slot: fc.nat(SLOTS - 1) }) },
-);
+const writeOpOver = (slot: fc.Arbitrary<number>): fc.Arbitrary<WriteOp> =>
+  fc.oneof(
+    { weight: 4, arbitrary: fc.record({ op: fc.constant('put' as const), slot, kcal: fc.integer({ min: 1, max: 2000 }) }) },
+    { weight: 1, arbitrary: fc.record({ op: fc.constant('delete' as const), slot }) },
+  );
 
-function schedule(replicas: number, withRestore: boolean, withUpdates = false): fc.Arbitrary<Step[]> {
+function schedule(replicas: number, withRestore: boolean, withUpdates = false, coached = false, length: fc.ArrayConstraints = { minLength: 1, maxLength: 60 }): fc.Arbitrary<Step[]> {
   const replica = fc.nat(replicas - 1);
+  const writeOp = writeOpOver(coached ? fc.constantFrom(...PHONE_SLOTS) : fc.nat(SLOTS - 1));
   const steps: fc.WeightedArbitrary<Step>[] = [
     { weight: 5, arbitrary: fc.record({ kind: fc.constant('write' as const), replica, ops: fc.array(writeOp, { minLength: 1, maxLength: 3 }) }) },
     // A long offline stretch: many writes before the next successful sync.
@@ -135,7 +156,54 @@ function schedule(replicas: number, withRestore: boolean, withUpdates = false): 
     steps.push({ weight: 1, arbitrary: fc.constant({ kind: 'restore' as const }) });
   }
   if (withUpdates) steps.push({ weight: 1, arbitrary: fc.record({ kind: fc.constant('update' as const), replica }) });
-  return fc.array(fc.oneof(...steps), { minLength: 1, maxLength: 60 });
+  if (coached) {
+    steps.push({
+      weight: 4,
+      arbitrary: fc.record({
+        kind: fc.constant('publish' as const),
+        startsIn: fc.constantFrom(-1, 0, 1, 2, 7),
+        text: fc.integer({ min: 1, max: 3 }),
+        read: fc.constantFrom<'fresh' | 'old'>('fresh', 'fresh', 'old'),
+        fate: fc.constantFrom<'deliver' | 'lost-response'>('deliver', 'lost-response'),
+      }),
+    });
+    steps.push({ weight: 2, arbitrary: fc.record({ kind: fc.constant('open' as const), replica }) });
+    steps.push({ weight: 3, arbitrary: fc.record({ kind: fc.constant('set' as const), replica, reps: fc.integer({ min: 1, max: 20 }) }) });
+    steps.push({ weight: 2, arbitrary: fc.constant({ kind: 'tomorrow' as const }) });
+  }
+  return fc.array(fc.oneof(...steps), length);
+}
+
+/**
+ * Most runs start with phones that have reported in and a version in effect, because random
+ * steps alone almost never reached a pin, and the rest start at the gate. Long, because what is
+ * under test takes several steps in a row.
+ */
+function coachedSchedule(replicas: number, older: boolean): fc.Arbitrary<Step[]> {
+  const publishToday: Step = { kind: 'publish', startsIn: 0, text: 1, read: 'fresh', fate: 'deliver' };
+  const startedUp: Step[] = [...Array.from({ length: replicas }, (_, replica): Step => ({ kind: 'sync', replica, fate: 'deliver', during: [], roundTrips: 4 })), publishToday];
+  const opening = fc.constantFrom(startedUp, startedUp, startedUp, [publishToday]);
+  return fc.tuple(opening, schedule(replicas, false, older, true, { minLength: 25, maxLength: 50, size: 'max' })).map(([first, rest]) => [...first, ...rest]);
+}
+
+/** A session a phone started, and what it pinned as that phone held it then. */
+interface Pin {
+  readonly replica: number;
+  readonly session: SessionId;
+  readonly date: LocalDate;
+  readonly programId: ProgramId;
+  readonly plan: Program;
+  sets: readonly SetLog[];
+}
+
+interface Coach {
+  today: LocalDate;
+  /** The rev of the read before the last, so a publish can be stale. */
+  oldRead: Rev;
+  /** Every version the store answered as published. */
+  readonly landed: Map<string, unknown>;
+  published: number;
+  readonly pins: Pin[];
 }
 
 interface World {
@@ -145,6 +213,7 @@ interface World {
   readonly committed: Mutation[];
   /** Phones still on a shell older than the server. */
   readonly older: Set<number>;
+  readonly coach: Coach;
 }
 
 interface Phone {
@@ -182,11 +251,12 @@ function answer(world: World, index: number, req: SyncRequest): SyncReply {
   return world.older.has(index) ? asOlderShell(res) : res;
 }
 
-async function commit(world: World, index: number, ops: readonly WriteOp[]): Promise<void> {
-  const mutations = ops.map(toMutation);
+async function commitAll(world: World, index: number, mutations: readonly Mutation[]): Promise<void> {
   await world.replicas[index]?.replica.commit(mutations);
   world.committed.push(...mutations);
 }
+
+const commit = (world: World, index: number, ops: readonly WriteOp[]) => commitAll(world, index, ops.map(toMutation));
 
 class Dropped extends Error {}
 
@@ -246,6 +316,107 @@ function modelOf(mutations: readonly Mutation[]): Map<string, unknown> {
   return docs;
 }
 
+const isProgram = (key: string) => key.startsWith('program/');
+
+function partOf(docs: Map<string, unknown>, keep: (key: string) => boolean): Map<string, unknown> {
+  return new Map([...docs].filter(([key]) => keep(key)));
+}
+
+/** Everything but the coach's kind, all of which a phone wrote. */
+const phoneDocsIn = (docs: Map<string, unknown>) => partOf(docs, (key) => !isProgram(key));
+
+const programsIn = (docs: Map<string, unknown>) => partOf(docs, isProgram);
+
+/** How often a coached schedule reached each case, so a property cannot pass by never getting there. */
+const reached = new Map<string, number>();
+const reach = (what: string) => reached.set(what, (reached.get(what) ?? 0) + 1);
+
+const ReadRev = z.looseObject({ basedOnRev: Rev });
+
+/**
+ * One coach run through the real routes. Whatever it answers, every phone document and any
+ * version already in effect stay as they were, and a retry of a lost response lands nowhere new.
+ */
+async function coachPublishes(world: World, step: Extract<Step, { kind: 'publish' }>): Promise<void> {
+  const { coach, server } = world;
+  const app = buildApp({ store: server, foods: noFoods, ai: null, staticDir: '.', now: () => noonOf(coach.today) });
+  const read = ReadRev.parse(await (await app.request('/api/train/snapshot')).json()).basedOnRev;
+  const basedOnRev = step.read === 'fresh' ? read : coach.oldRead;
+  coach.oldRead = read;
+
+  const effectiveFrom = addDays(coach.today, step.startsIn);
+  const { id: _id, publishedAt: _publishedAt, ...draft } = program(effectiveFrom, PUSH_DAY, { notes: [{ text: `Coach ${step.text}` }] });
+  const send = async () => {
+    const res = await app.request('/api/train/publish', { method: 'POST', body: JSON.stringify({ basedOnRev, ...draft }) });
+    return PublishAnswer.parse(await res.json());
+  };
+
+  const before = serverDocs(server);
+  const beforeRev = server.stats().rev;
+  const beforePhones = await Promise.all(world.replicas.map(({ replica }) => replicaDocs(replica)));
+
+  const answer = await send();
+  reach(answer.status);
+  const outboxes = await Promise.all(world.replicas.map(({ port }) => port.pendingCount()));
+  if (coach.pins.some((pin) => (outboxes[pin.replica] ?? 0) > 0)) reach('over an open session and an outbox');
+  if (step.fate === 'lost-response') expect((await send()).status).toBe(answer.status === 'published' ? 'unchanged' : answer.status);
+
+  const after = serverDocs(server);
+  expect(phoneDocsIn(after), 'a publish changes no document a phone wrote').toEqual(phoneDocsIn(before));
+  expect(await Promise.all(world.replicas.map(({ replica }) => replicaDocs(replica))), 'a publish reaches a phone only by its sync').toEqual(beforePhones);
+  for (const [key, version] of programsIn(before)) {
+    if (key <= `program/${programId(coach.today)}`) expect(after.get(key), 'a version in effect never changes').toEqual(version);
+  }
+
+  const id = `program/${programId(effectiveFrom)}`;
+  if (answer.status === 'published') {
+    expect(server.stats().rev).toBe(beforeRev + 1);
+    expect(after.get(id)).toMatchObject({ ...draft, id: programId(effectiveFrom), publishedAt: noonOf(coach.today) });
+    coach.landed.set(id, after.get(id));
+    coach.published += 1;
+  } else {
+    expect(server.stats().rev).toBe(beforeRev);
+    expect(programsIn(after)).toEqual(programsIn(before));
+  }
+}
+
+/** Starts a session on whatever this phone holds, which may be behind the mini. It stays in the outbox until a sync. */
+async function phoneOpensSession(world: World, index: number): Promise<void> {
+  const phone = world.replicas[index];
+  if (phone === undefined) return;
+  const { coach } = world;
+  const plan = await phone.replica.read.programOn(coach.today);
+  const id = newSessionId();
+  await commitAll(world, index, [{ op: 'put', kind: 'session', doc: session({ id, date: coach.today, ...(plan === undefined ? {} : { programId: plan.id }) }) }]);
+  if (plan === undefined) return;
+  reach('a pinned session');
+  coach.pins.push({ replica: index, session: id, date: coach.today, programId: plan.id, plan, sets: [] });
+}
+
+async function phoneLogsSet(world: World, index: number, reps: number): Promise<void> {
+  const pin = world.coach.pins.findLast((candidate) => candidate.replica === index);
+  if (pin === undefined) return;
+  pin.sets = [...pin.sets, lb(100, reps)];
+  await commitAll(world, index, [{ op: 'put', kind: 'performance', doc: performance({ session: pin.session, date: pin.date, slot: 'a1', lift: 'bench-press', sets: pin.sets }) }]);
+}
+
+/**
+ * Every session still names what it pinned. The phone reads that version as it did then, or as
+ * the mini froze it: a phone that slept through a replacement published before the version's
+ * date pins the copy it holds and moves to the mini's on its next sync. The mini's copy never
+ * moves once the date has arrived, which coachPublishes checks.
+ */
+async function pinsHold(world: World): Promise<void> {
+  const onMini = new Map(world.server.liveDocs('program').map(({ doc }) => [doc.id, doc]));
+  for (const pin of world.coach.pins) {
+    const phone = world.replicas[pin.replica];
+    if (phone === undefined) throw new Error('no replica');
+    expect((await phone.replica.read.get('session', pin.session))?.programId).toBe(pin.programId);
+    const held = await phone.replica.read.get('program', pin.programId);
+    if (!isDeepStrictEqual(held, pin.plan)) expect(held, 'a pinned version never changes').toEqual(onMini.get(pin.programId));
+  }
+}
+
 async function run(steps: readonly Step[], replicaCount: number, olderShells: boolean, afterStep?: (world: World) => Promise<void>): Promise<World> {
   const dir = mkdtempSync(join(tmpdir(), 'fuel-sim-'));
   const world: World = {
@@ -253,6 +424,7 @@ async function run(steps: readonly Step[], replicaCount: number, olderShells: bo
     replicas: await Promise.all(Array.from({ length: replicaCount }, (_, i) => openPhone(i, new IDBFactory(), 'old'))),
     committed: [],
     older: new Set(olderShells ? Array.from({ length: replicaCount }, (_, i) => i) : []),
+    coach: { today: LocalDate.parse('2030-03-04'), oldRead: Rev.parse(0), landed: new Map(), published: 0, pins: [] },
   };
   let backup: string | null = null;
   let restores = 0;
@@ -288,6 +460,18 @@ async function run(steps: readonly Step[], replicaCount: number, olderShells: bo
         world.server.rotateEpoch();
         break;
       }
+      case 'publish':
+        await coachPublishes(world, step);
+        break;
+      case 'open':
+        await phoneOpensSession(world, step.replica);
+        break;
+      case 'set':
+        await phoneLogsSet(world, step.replica, step.reps);
+        break;
+      case 'tomorrow':
+        world.coach.today = addDays(world.coach.today, 1);
+        break;
     }
     await afterStep?.(world);
   }
@@ -364,6 +548,45 @@ describe.each([
       }),
       { numRuns: runs, ...seed },
     );
+  }, 120_000);
+
+  it('a coach publishing between syncs touches no phone document, phones converge on its versions, and a pin never moves', async () => {
+    const quiet = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    reached.clear();
+    try {
+      await fc.assert(
+        fc.asyncProperty(fc.integer({ min: 1, max: 3 }).chain((n) => fc.tuple(fc.constant(n), coachedSchedule(n, older))), async ([n, steps]) => {
+          const world = await run(steps, n, older, pinsHold);
+          try {
+            const truth = serverDocs(world.server);
+            expect(programsIn(truth), 'the mini holds what the coach landed').toEqual(world.coach.landed);
+            for (const { replica, port } of world.replicas) {
+              expect(await port.pendingCount()).toBe(0);
+              const held = await replicaDocs(replica);
+              expect(programsIn(held), 'every phone holds the coach\'s versions').toEqual(world.coach.landed);
+              expect(phoneDocsIn(held)).toEqual(phoneDocsIn(truth));
+            }
+            if (n === 1) expect(phoneDocsIn(truth)).toEqual(modelOf(world.committed));
+            expect(world.server.stats().rev, 'every write and every publish applied once').toBe(world.committed.length + world.coach.published);
+            await pinsHold(world);
+            for (const pin of world.coach.pins) {
+              expect(truth.get(`session/${pin.session}`)).toMatchObject({ programId: pin.programId });
+              if (pin.sets.length > 0) expect(truth.get(`performance/${performanceId(pin.session, slotId('a1'), lift('bench-press'))}`)).toMatchObject({ sets: pin.sets });
+            }
+          } finally {
+            await close(world);
+          }
+        }),
+        { numRuns: runs, ...seed },
+      );
+    } finally {
+      quiet.mockRestore();
+    }
+    if (runs >= 100) {
+      for (const what of ['published', 'unchanged', 'frozen', 'stale', 'invalid', 'phone_behind', 'a pinned session', 'over an open session and an outbox']) {
+        expect(reached.get(what) ?? 0, `the schedules reached ${what}`).toBeGreaterThan(0);
+      }
+    }
   }, 120_000);
 
   it('after the server is restored from an older backup, the phone puts back everything it holds', async () => {

@@ -3,6 +3,7 @@ import { LocalDate, Millis, SessionId, type ProgramId } from '../src/domain/ids.
 import { LiftId, SlotId, performanceId, type Performance, type SetLog, type Target } from '../src/domain/lifts.js';
 import { BlockId, DayKey, programId, type Block, type ChecklistBlock, type LiftsBlock, type Program, type Slot } from '../src/domain/program.js';
 import type { Session } from '../src/domain/session.js';
+import type { FoodSources } from '../src/server/foods.js';
 
 export const day = (date: string): LocalDate => LocalDate.parse(date);
 export const ms = (value: number): Millis => Millis.parse(value);
@@ -11,6 +12,15 @@ export const slotId = (id: string): SlotId => SlotId.parse(id);
 export const blockId = (id: string): BlockId => BlockId.parse(id);
 export const dayKey = (key: string): DayKey => DayKey.parse(key);
 export const newSessionId = (): SessionId => SessionId.parse(randomUUID());
+
+/** Local noon, so the mini's calendar reads this date in any time zone. */
+export const noonOf = (date: string): Millis => ms(new Date(`${date}T12:00:00`).getTime());
+
+/** For an app under test that never looks a food up. */
+export const noFoods: FoodSources = {
+  lookup: () => Promise.reject(new Error('no food sources here')),
+  search: () => Promise.reject(new Error('no food sources here')),
+};
 
 /** A fixed start, so a set's `at` reads as minutes into the session. */
 export const T0 = 1_900_000_000_000;

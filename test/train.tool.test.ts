@@ -9,20 +9,15 @@ import { serve, type ServerType } from '@hono/node-server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { ProgramDraft, type Program } from '../src/domain/program.js';
-import type { FoodSources } from '../src/server/foods.js';
 import { buildApp } from '../src/server/routes.js';
 import { openStore, type DocStore } from '../src/server/store.js';
 import { newClientId, request } from './fixtures.js';
-import { day, liftsBlock, ms, program, slot } from './training.fixtures.js';
+import { day, liftsBlock, ms, noFoods, noonOf, program, slot } from './training.fixtures.js';
 
 // Each unreachable case waits out the tool's one retry in a real child process.
 vi.setConfig({ testTimeout: 20_000 });
 
 const TOOL = fileURLToPath(new URL('../scripts/train.mjs', import.meta.url));
-const foods: FoodSources = {
-  lookup: () => Promise.reject(new Error('no food sources here')),
-  search: () => Promise.reject(new Error('no food sources here')),
-};
 
 const version = program('2030-03-04', [{ key: 'push', blocks: [liftsBlock('a', [slot('a1', 'bench-press', 3, { cue: 'Elbows in' })])] }]);
 
@@ -68,7 +63,7 @@ async function realServer(options: { readonly phone?: boolean; readonly seeded?:
   const store: DocStore = openStore(join(scratch, 'fuel.db'));
   if (options.phone ?? true) store.sync({ ...request(newClientId(), []), build: 'abc-1' }, { now: ms(77), userAgent: null });
   if (options.seeded ?? true) store.writeProgram(version, { now: ms(1) });
-  const app = buildApp({ store, foods, ai: null, staticDir: '.', now: () => ms(new Date('2030-03-10T12:00:00').getTime()) });
+  const app = buildApp({ store, foods: noFoods, ai: null, staticDir: '.', now: () => noonOf('2030-03-10') });
   const { server, port } = await new Promise<{ server: ServerType; port: number }>((done) => {
     const started: ServerType = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 }, (info) => {
       done({ server: started, port: info.port });
