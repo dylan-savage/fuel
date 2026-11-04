@@ -5,7 +5,7 @@
 //   node scripts/ui-review.mjs --sheet <dir>
 //
 // It copies the live database, serves the copy on its own port and walks the training screens,
-// so nothing touches the live server. The copy and the shots hold real data, so both stay under
+// logging a set on the copy, so nothing touches the live server. The copy and the shots hold real data, so both stay under
 // .private/ui-review, which git ignores. Food screens use invented data in e2e/shots.spec.ts,
 // because the live diary is empty. --serve keeps the server up for a live look at port 8796.
 // --sheet makes contact sheets of a folder of shots, such as those, and does nothing else.
@@ -119,12 +119,9 @@ const button = (name) => page.getByRole('button', { name }).first();
 
 const train = page.locator('.train');
 
+// A set in the last three hours of the real data starts the app on Train, and this tab finds it either way.
 await tab('Train');
 const week = page.getByTestId('week-count');
-const openSession = page.getByRole('region', { name: 'Session' });
-await week.or(openSession).waitFor({ timeout: 20_000 });
-// A session open in the real data stands in front of the week, so it is finished here, on the copy.
-if (await openSession.isVisible()) await page.getByRole('button', { name: 'Finish', exact: true }).click({ timeout: 4000 });
 await week.waitFor({ timeout: 20_000 });
 
 await shot('train-week');
@@ -135,15 +132,6 @@ await shot('coach', () => train.getByRole('button', { name: /^Coach/ }).click({ 
 await shot('coach-bottom', scrollSheet);
 await close();
 await shot('program', () => button(/^Program/).click({ timeout: 4000 }));
-await close();
-
-const nextDay = page.getByRole('region', { name: 'Next day' });
-await shot('train-day', () => nextDay.getByRole('button').first().click({ timeout: 4000 }));
-await shot('train-day-exercise', () => dialog().locator('details.expand').filter({ hasNotText: /moves|Optional/ }).nth(1).locator('summary').click({ timeout: 4000 }));
-await shot('train-day-bottom', async () => {
-  await dialog().getByRole('region', { name: 'Optional' }).locator('summary').first().click({ timeout: 2000 }).catch(() => {});
-  await scrollSheet();
-});
 await close();
 
 await shot('progress', () => button('Progress').click({ timeout: 4000 }));
@@ -159,35 +147,78 @@ await shot('all-lifts', async () => {
 });
 await close();
 
-// A real session, on the copy: the first lifts it reaches, a rest once a round ends, and each sheet over it.
-await nextDay.getByRole('button', { name: 'Start', exact: true }).click({ timeout: 4000 });
-await page.waitForTimeout(400);
-for (let i = 0; i < 6; i++) {
-  if (await page.getByRole('region', { name: 'Set', exact: true }).count()) break;
-  await page.getByRole('button', { name: 'Done', exact: true }).first().click({ timeout: 2000 }).catch(() => {});
-  await page.waitForTimeout(400);
+// A real day, on the copy: the list, an exercise, a set logged, each of the five actions, and back.
+const back = () => page.getByRole('button', { name: 'Back', exact: true }).click({ timeout: 4000 });
+const pageBottom = () => page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+const pageTop = () => page.evaluate(() => window.scrollTo(0, 0));
+const exercises = page.locator('.train button.row:has(.dots)');
+const days = page.getByRole('list', { name: 'Days' }).getByRole('button');
+
+/** The first day with exercises to log, passing over a cardio-only one. */
+async function openLiftingDay() {
+  const undone = days.filter({ hasNotText: 'Done' });
+  const choices = (await undone.count()) > 0 ? undone : days;
+  for (let i = 0; i < (await choices.count()); i++) {
+    await choices.nth(i).click({ timeout: 4000 });
+    await page.waitForTimeout(300);
+    if ((await exercises.count()) > 0) return;
+    await back();
+    await page.waitForTimeout(150);
+  }
 }
-await shot('session-card');
-await shot('session-logged', async () => {
+
+/** A load on an exercise with no history, so Log set can be tapped. */
+async function fillBlanks() {
+  const load = page.getByLabel('Load', { exact: true });
+  if ((await load.count()) > 0 && (await load.inputValue()) === '') await load.fill('50');
+  const band = page.getByLabel('Band', { exact: true });
+  if ((await band.count()) > 0 && (await band.inputValue()) === '') await band.fill('green');
+}
+
+// Every day once, for what one day holds and another does not, and the first checklist opened.
+let checklistSeen = false;
+for (let i = 0; i < (await days.count()); i++) {
+  await shot(`day-${i + 1}`, () => days.nth(i).click({ timeout: 4000 }));
+  const checklist = page.locator('details.expand summary').filter({ hasText: /\d moves?/ }).first();
+  if (!checklistSeen && (await checklist.count()) > 0) {
+    checklistSeen = true;
+    await shot('day-checklist', () => checklist.click({ timeout: 2000 }));
+  }
+  await back();
+  await page.waitForTimeout(150);
+}
+
+await shot('day', openLiftingDay);
+await shot('day-bottom', async () => {
+  await page.getByRole('region', { name: 'Optional' }).locator('summary').first().click({ timeout: 2000 }).catch(() => {});
+  await pageBottom();
+});
+await pageTop();
+
+const openExercises = exercises.filter({ visible: true });
+await shot('exercise', () => openExercises.first().click({ timeout: 4000 }));
+await shot('exercise-logged', async () => {
+  await fillBlanks();
   await button('Log set').click({ timeout: 4000 });
   await page.waitForTimeout(450);
 });
-for (let i = 0; i < 6 && (await page.getByRole('timer').count()) === 0; i++) {
-  await button('Log set').click({ timeout: 2000 }).catch(() => {});
-  await page.waitForTimeout(450);
-}
-await shot('session-rest', () => page.getByRole('status').first().waitFor({ state: 'hidden', timeout: 8000 }).catch(() => {}));
-await shot('session-plan', () => button('Plan').click({ timeout: 4000 }));
-await shot('session-plan-bottom', scrollSheet);
+await shot('exercise-after-set', () => page.getByRole('status').first().waitFor({ state: 'hidden', timeout: 8000 }).catch(() => {}));
+await shot('action-swap', () => button('Swap').click({ timeout: 4000 }));
 await close();
-await shot('session-swap', () => button('Swap').click({ timeout: 4000 }));
+await shot('action-skip', () => button('Skip').click({ timeout: 4000 }));
 await close();
-await shot('session-note', () => button('Note').click({ timeout: 4000 }));
+await shot('action-note', () => button('Note').click({ timeout: 4000 }));
 await close();
-await shot('session-cue', () => button('Cue').click({ timeout: 4000 }));
+await shot('action-cue', () => button('Cue').click({ timeout: 4000 }));
 await close();
-await shot('session-edit-set', () => page.getByRole('group', { name: "Today's sets" }).getByRole('button').first().click({ timeout: 2000 }));
+await shot('action-warm-up', () => button('Warm-up').click({ timeout: 4000 }));
+await button('Warm-up').click({ timeout: 4000 });
+await shot('edit-set', () => page.getByRole('group', { name: "Today's sets" }).getByRole('button').first().click({ timeout: 2000 }));
 await close();
+await shot('day-after-set', back);
+await shot('exercise-out-of-order', () => openExercises.last().click({ timeout: 4000 }));
+await back();
+await shot('week-after-set', back);
 
 await shot('diary', () => tab('Diary'));
 await shot('add', () => tab('Add'));
