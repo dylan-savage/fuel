@@ -12,7 +12,6 @@ import { GoalScreen } from './screens/Goal.js';
 import { Train } from './screens/Train.js';
 import { Icon, useToast } from './screens/ui.js';
 import { openSessionView, useIntents, useLive } from './views.js';
-import { useWakeLock } from './wakeLock.js';
 
 export type Tab = 'diary' | 'add' | 'train' | 'goal';
 
@@ -72,7 +71,6 @@ export function App({ startOn }: { readonly startOn: Tab }) {
   const today = useToday();
   const [tab, setTab] = useState<Tab>(startOn);
   const open = useLive((r) => openSessionView(r, { today, now: now() }), [today]);
-  useWakeLock(open !== null && open !== undefined);
   useSettleLapsed();
   const [date, setDate] = useState(today);
   const [meal, setMeal] = useState<Meal>(mealNow);

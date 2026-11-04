@@ -64,31 +64,6 @@ async function openWeek(page: Page) {
   await expect(startButton(page)).toBeVisible({ timeout: 15_000 });
 }
 
-function stubWakeLock(context: BrowserContext, behaviour: 'grant' | 'refuse') {
-  return context.addInitScript((mode) => {
-    const log: string[] = [];
-    Object.defineProperty(window, 'wakeLockLog', { value: log });
-    Object.defineProperty(navigator, 'wakeLock', {
-      configurable: true,
-      value: {
-        request: () => {
-          log.push('request');
-          if (mode === 'refuse') return Promise.reject(new DOMException('not allowed', 'NotAllowedError'));
-          return Promise.resolve({
-            released: false,
-            release() {
-              log.push('release');
-              return Promise.resolve();
-            },
-          });
-        },
-      },
-    });
-  }, behaviour);
-}
-
-const wakeLockLog = (page: Page) => page.evaluate((): unknown => Reflect.get(window, 'wakeLockLog'));
-
 /** Notes on the root element if the Diary was ever on screen, which a reload during a session must not do. */
 function watchForDiary(context: BrowserContext) {
   return context.addInitScript(() => {
@@ -633,16 +608,14 @@ for (const policy of ['activity-level', 'eat-back-workouts'] as const) {
   });
 }
 
-test('a forgotten session is settled at its last set on the next launch, and a session with nothing in it is dropped', async ({ page, context, request }) => {
+test('a forgotten session is settled at its last set on the next launch, and a session with nothing in it is dropped', async ({ page, request }) => {
   const MONDAY = '2031-09-08';
   const DAY = '2031-09-10';
   const version = program(MONDAY, [{ key: 'solo', label: 'Solo day', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'seal-row', 3, { label: 'Seal row', target: target(3, 8, 12) })], { restSeconds: 90 })] }]);
   const weighIn: Mutation = { op: 'put', kind: 'weighIn', doc: { id: `w:${DAY}`, date: day(DAY), kg: 80, loggedAt: ms(at(DAY, '07:00:00').getTime()) } };
   await seed(request, docs(putPrograms(version), [weighIn]));
-  await stubWakeLock(context, 'grant');
   await page.clock.install({ time: at(DAY, '09:00:00') });
   await openWeek(page);
-  expect(await wakeLockLog(page), 'no lock with no session').toEqual([]);
 
   // A mistaken Start undoes from its toast.
   await startButton(page).click();
@@ -656,7 +629,6 @@ test('a forgotten session is settled at its last set on the next launch, and a s
   await finishButton(page).click();
   await expect(toast(page, 'Nothing logged, not counted')).toBeVisible();
   await expect(page.getByTestId('week-count')).toHaveText('0 of 1 done');
-  await expect.poll(async () => JSON.stringify(await wakeLockLog(page)), 'a session asks to keep the screen on, and lets go when it ends').toMatch(/^\["request","release",.*"request","release"\]$/);
   await toast(page, 'Nothing logged, not counted').getByRole('button', { name: 'Undo' }).click();
   await expectCard(page, 'Seal row', 'Set 1 of 3');
 
@@ -688,14 +660,11 @@ test('a forgotten session is settled at its last set on the next launch, and a s
   expect(settled?.finishedAt, 'at the last set’s time').toBe(tapped);
 });
 
-test('midnight keeps the session’s date, and a refused wake lock changes nothing', async ({ page, context, request }) => {
+test('midnight keeps the session’s date', async ({ page, request }) => {
   const MONDAY = '2031-08-11';
   const DAY = '2031-08-13';
   const version = program(MONDAY, [{ key: 'late', label: 'Late day', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'pendlay-row', 2, { label: 'Pendlay row', target: target(2, 8, 12) })], { restSeconds: 60 })] }]);
   await seed(request, putPrograms(version));
-  const trouble: string[] = [];
-  page.on('pageerror', (err) => trouble.push(err.message));
-  await stubWakeLock(context, 'refuse');
   await page.clock.install({ time: at(DAY, '23:50:00') });
   await openWeek(page);
   await startButton(page).click();
@@ -708,8 +677,6 @@ test('midnight keeps the session’s date, and a refused wake lock changes nothi
   await logSet(page);
   await expect.poll(() => reachesServer(DAY).map((p) => p.sets.length), { timeout: 15_000 }).toEqual([2]);
   expect(stored('session').find((s) => s.date === DAY)?.date, 'the date it started').toBe(DAY);
-  expect(await wakeLockLog(page)).toContain('request');
-  expect(trouble).toEqual([]);
 });
 
 test('says so when this phone does not hold the version a session pinned, and still finishes', async ({ page, request }) => {
