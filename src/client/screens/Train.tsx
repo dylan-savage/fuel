@@ -5,6 +5,7 @@ import type { Block, DayKey, DayPart, ProgramNote, Slot, StandingText } from '..
 import type { WeekDay } from '../../domain/progress.js';
 import { dayPreviewView, useLive, weekView, type DayPreview, type WeekView } from '../views.js';
 import { clipped, pastMoment, prescriptionText, shortDate, weekdayName } from './format.js';
+import { ProgressSheet } from './Progress.js';
 import { Icon, Sheet, TitleBar } from './ui.js';
 import { WeighInSheet } from './Weight.js';
 
@@ -230,8 +231,9 @@ function Week({ week, today }: { readonly week: WeekView; readonly today: LocalD
   const [open, setOpen] = useState<WeekDay | null>(null);
   const [weighing, setWeighing] = useState(false);
   const [reading, setReading] = useState(false);
+  const [charting, setCharting] = useState(false);
   const planned = week.days.length;
-  const chips = week.weighedInToday ? [] : [{ label: 'Weigh in', onClick: () => setWeighing(true) }];
+  const chips = [{ label: 'Progress', onClick: () => setCharting(true) }, ...(week.weighedInToday ? [] : [{ label: 'Weigh in', onClick: () => setWeighing(true) }])];
 
   return (
     <>
@@ -282,6 +284,7 @@ function Week({ week, today }: { readonly week: WeekView; readonly today: LocalD
       {open !== null && <DaySheet dayKey={open.plan.key} label={open.plan.label} today={today} onClose={() => setOpen(null)} />}
       {reading && <ProgramSheet standing={week.standing} onClose={() => setReading(false)} />}
       {weighing && <WeighInSheet date={today} today={today} onClose={() => setWeighing(false)} />}
+      {charting && <ProgressSheet today={today} onClose={() => setCharting(false)} />}
     </>
   );
 }

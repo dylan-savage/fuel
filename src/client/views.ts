@@ -266,7 +266,7 @@ export interface LiftChartView {
   readonly recent: readonly RecentSession[];
 }
 
-/** Nothing older than this holds a performance. Fuel's first version is years after it. */
+/** Earlier than any training log, so a read from here is a lift's whole history. */
 const BEFORE_ANY_LOG = LocalDate.parse('2000-01-01');
 
 /**
