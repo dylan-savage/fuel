@@ -73,7 +73,7 @@ function FastSheet({ view, today, onClose }: { readonly view: FastView; readonly
       )}
       {view.state.kind === 'overlap' && <p class="hint warn">A fast was started on two devices while offline. Ending it ends both.</p>}
 
-      <h4 class="group-title">Goal</h4>
+      <h4 class="section-heading">Goal</h4>
       <Segmented
         label="Fasting goal"
         options={TARGETS.map((hours) => ({ value: String(hours), label: fastLabel(hours) }))}
@@ -92,7 +92,7 @@ function FastSheet({ view, today, onClose }: { readonly view: FastView; readonly
         )}
       </div>
 
-      <h4 class="group-title">History</h4>
+      <h4 class="section-heading">History</h4>
       <dl class="streak card">
         <div>
           <dt>Current streak</dt>

@@ -23,6 +23,11 @@
   --toast: rgba(28, 28, 30, 0.96);
   --segment: #ffffff;
   --tab-height: 50px;
+  /* The four text sizes. Weight does the rest. */
+  --text-title: 28px;
+  --text-hero: 22px;
+  --text-row: 17px;
+  --text-detail: 13px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -56,7 +61,7 @@
 
 html {
   font-family: -apple-system, system-ui, sans-serif;
-  font-size: 17px;
+  font-size: var(--text-row);
   line-height: 1.3;
   background: var(--bg);
   color: var(--text);
@@ -108,7 +113,7 @@ button:disabled {
 input,
 select {
   font: inherit;
-  font-size: 17px;
+  font-size: var(--text-row);
   color: inherit;
 }
 
@@ -151,9 +156,8 @@ main {
 }
 
 .title-bar h1 {
-  font-size: 34px;
+  font-size: var(--text-title);
   font-weight: 700;
-  letter-spacing: 0.01em;
 }
 
 .title-bar-end,
@@ -194,14 +198,51 @@ main {
   margin-bottom: 12px;
 }
 
-.section-title,
-.group-title {
-  font-size: 13px;
-  font-weight: 400;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  color: var(--muted);
+/* One heading over a list. A plain noun, in line with the rows' text. */
+.section-heading {
+  display: block;
+  font-size: var(--text-row);
+  font-weight: 600;
   margin: 24px 16px 8px;
+}
+
+/* The big number or name on a summary card. */
+.hero-number {
+  font-size: var(--text-hero);
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+/* A hero number with its words beside it: "1 of 5 this week". */
+.hero-line {
+  line-height: 1.25;
+}
+
+.hero-line strong {
+  font-size: var(--text-hero);
+  font-weight: 700;
+}
+
+.detail {
+  color: var(--muted);
+  font-size: var(--text-detail);
+}
+
+/* A status on a small mark, in the green that reads on a card. */
+.mark-good {
+  color: var(--goal-line);
+  font-size: var(--text-detail);
+  font-weight: 600;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .badge {
@@ -209,7 +250,7 @@ main {
   color: #000;
   border-radius: 999px;
   padding: 2px 10px;
-  font-size: 13px;
+  font-size: var(--text-detail);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -228,6 +269,7 @@ main {
 
 /* Cards, lists and groups */
 
+/* The one summary card: a hero number, its detail, and at most one chart or action. */
 .card {
   background: var(--card);
   border-radius: 14px;
@@ -262,6 +304,121 @@ main {
 /* Buttons shrink-wrap, so a full-width one must subtract the inset or it overflows the card. */
 .group > button {
   width: calc(100% - 16px);
+}
+
+/* The one row, inside a .list: a name, at most one muted line, and a value or chevron at the right edge. */
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 16px 11px 0;
+  text-align: left;
+}
+
+.row-name {
+  overflow-wrap: anywhere;
+}
+
+.row-detail {
+  grid-column: 1;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--text-detail);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-end {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.row-end strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.row-end .icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* A row that opens in place. */
+.expand > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.expand > summary::-webkit-details-marker {
+  display: none;
+}
+
+.expand > summary .icon {
+  transition: transform 0.2s ease-out;
+}
+
+.expand[open] > summary .icon {
+  transform: rotate(90deg);
+}
+
+.expand-body {
+  display: grid;
+  gap: 6px;
+  padding: 0 16px 12px 0;
+}
+
+.expand-body > p {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* A list opened inside a row is already on its card. */
+.expand-body .list {
+  background: none;
+  border-radius: 0;
+}
+
+.expand-body .list > li {
+  margin-left: 0;
+}
+
+.expand.clamp > summary .row-name {
+  white-space: pre-line;
+}
+
+.expand.clamp:not([open]) > summary .row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A row of longer words, where a tap has already asked for them. */
+.row-text {
+  display: grid;
+  gap: 2px;
+  padding: 11px 16px 11px 0;
+  overflow-wrap: anywhere;
+}
+
+/* Small text actions under a screen's one primary action. Use .text-button inside. */
+.quiet-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.quiet-actions.start {
+  justify-content: flex-start;
+  gap: 16px;
 }
 
 .entry-row,
@@ -777,9 +934,9 @@ main {
 }
 
 .segmented button {
-  min-height: 36px;
+  min-height: 40px;
   border-radius: 7px;
-  font-size: 15px;
+  font-size: var(--text-detail);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -790,6 +947,23 @@ main {
 .segmented button[aria-checked='true'] {
   background: var(--segment);
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
+}
+
+.segmented.quiet {
+  background: none;
+  padding: 0;
+}
+
+.segmented.quiet button {
+  min-height: 44px;
+  color: var(--muted);
+}
+
+.segmented.quiet button[aria-checked='true'] {
+  background: none;
+  box-shadow: none;
+  color: var(--text);
+  font-weight: 700;
 }
 
 .chips {
@@ -1078,7 +1252,7 @@ main {
   padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
 }
 
-.sheet-body > .group-title:first-child {
+.sheet-body > .section-heading:first-child {
   margin-top: 0;
 }
 
@@ -1325,7 +1499,6 @@ main {
   border-radius: 14px;
   background: var(--toast);
   color: #fff;
-  font-size: 15px;
   animation: sheet-in 0.2s ease-out;
 }
 
@@ -1451,7 +1624,7 @@ main {
 .chart-grid text,
 .chart-axis text {
   fill: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
 

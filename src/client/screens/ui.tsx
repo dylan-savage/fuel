@@ -19,6 +19,53 @@ export function TitleBar({ title, children }: { readonly title: string; readonly
   );
 }
 
+interface RowParts {
+  readonly name: ComponentChildren;
+  /** At most one muted line. */
+  readonly detail?: ComponentChildren;
+  /** A value at the right edge. */
+  readonly end?: ComponentChildren;
+}
+
+function RowBody({ name, detail, end, chevron }: RowParts & { readonly chevron: boolean }) {
+  return (
+    <>
+      <span class="row-name">{name}</span>
+      {detail !== undefined && <span class="row-detail">{detail}</span>}
+      {(end !== undefined || chevron) && (
+        <span class="row-end">
+          {end}
+          {chevron && <Icon name="chevronRight" />}
+        </span>
+      )}
+    </>
+  );
+}
+
+/** The one row, for inside a `.list`: a name, at most one muted line and a value or chevron. A button once it has `onClick`, and plain text before that. */
+export function Row({ name, detail, end, chevron = false, onClick }: RowParts & { readonly chevron?: boolean; readonly onClick?: () => void }) {
+  const body = <RowBody name={name} detail={detail} end={end} chevron={chevron} />;
+  return onClick === undefined ? (
+    <div class="row">{body}</div>
+  ) : (
+    <button type="button" class="row" onClick={onClick}>
+      {body}
+    </button>
+  );
+}
+
+/** A row that opens in place, for words on request. `clamp` holds the name to one line until it opens, for a name that is the whole text. */
+export function ExpandRow({ name, detail, end, clamp = false, children }: RowParts & { readonly clamp?: boolean; readonly children?: ComponentChildren }) {
+  return (
+    <details class={clamp ? 'expand clamp' : 'expand'}>
+      <summary class="row">
+        <RowBody name={name} detail={detail} end={end} chevron={!clamp} />
+      </summary>
+      {children !== undefined && <div class="expand-body">{children}</div>}
+    </details>
+  );
+}
+
 /** Open sheets and alerts, oldest first. One can open over another, and only the top one answers Escape. */
 const openModals: object[] = [];
 
@@ -159,14 +206,17 @@ export function Segmented<T extends string>({
   options,
   value,
   onChange,
+  quiet = false,
 }: {
   readonly label: string;
   readonly options: readonly { readonly value: T; readonly label: string }[];
   readonly value: T;
   readonly onChange: (value: T) => void;
+  /** Text with the choice in bold, for a control that should not compete with what it controls. */
+  readonly quiet?: boolean;
 }) {
   return (
-    <div class="segmented" role="radiogroup" aria-label={label}>
+    <div class={quiet ? 'segmented quiet' : 'segmented'} role="radiogroup" aria-label={label}>
       {options.map((option) => (
         <button type="button" role="radio" key={option.value} aria-checked={option.value === value} onClick={() => onChange(option.value)}>
           {option.label}
@@ -231,11 +281,26 @@ export function TextField({
 }
 
 /** Several lines of free text, labelled above. */
-export function NoteField({ label, value, onInput, maxLength }: { readonly label: string; readonly value: string; readonly onInput: (value: string) => void; readonly maxLength: number }) {
+export function NoteField({
+  label,
+  value,
+  onInput,
+  maxLength,
+  labelClass = 'field-label',
+  placeholder,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly onInput: (value: string) => void;
+  readonly maxLength: number;
+  /** `section-heading` where the label heads its section, `sr-only` where a control beside it already says it. */
+  readonly labelClass?: string;
+  readonly placeholder?: string;
+}) {
   return (
     <label class="note-field">
-      <span class="field-label">{label}</span>
-      <textarea rows={3} maxLength={maxLength} value={value} onInput={(event) => onInput(event.currentTarget.value)} />
+      <span class={labelClass}>{label}</span>
+      <textarea rows={3} maxLength={maxLength} value={value} placeholder={placeholder ?? ''} onInput={(event) => onInput(event.currentTarget.value)} />
     </label>
   );
 }

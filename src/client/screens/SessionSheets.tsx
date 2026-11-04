@@ -12,7 +12,7 @@ function ChoiceList({ title, choices, onPick }: { readonly title: string; readon
   if (choices.length === 0) return null;
   return (
     <>
-      <h4 class="group-title">{title}</h4>
+      <h4 class="section-heading">{title}</h4>
       <ul class="list" aria-label={title}>
         {choices.map((choice) => (
           <li key={choice.liftId}>

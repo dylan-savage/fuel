@@ -93,7 +93,7 @@ function IngredientPicker({
           onInput={(event) => setQuery(event.currentTarget.value)}
         />
       </div>
-      <h2 class="section-title">Your foods</h2>
+      <h2 class="section-heading">Your foods</h2>
       {shown.length === 0 ? (
         <p class="empty">{trimmed === '' ? 'Foods you create or import show up here.' : 'No match in your foods.'}</p>
       ) : (
@@ -235,10 +235,10 @@ export function RecipeBuilder({
         </div>
         <p class="hint">Weigh the finished dish to log servings by the gram.</p>
 
-        <h4 class="group-title">Per serving</h4>
+        <h4 class="section-heading">Per serving</h4>
         <NutritionPreview nutrients={serving} />
 
-        <h4 class="group-title">Ingredients</h4>
+        <h4 class="section-heading">Ingredients</h4>
         <ul class="list" aria-label="Ingredients">
           {ingredients.map((item, i) => (
             <li key={i}>

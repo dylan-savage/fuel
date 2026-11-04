@@ -72,7 +72,7 @@ export function ConfirmSheet({
         <TextField label="Name" value={name} onInput={setName} />
         <TextField label="Brand" value={brand} onInput={setBrand} placeholder="Optional" />
       </div>
-      <h4 class="group-title">Per {BASIS_LABEL[candidate.unit]}</h4>
+      <h4 class="section-heading">Per {BASIS_LABEL[candidate.unit]}</h4>
       <div class="group">
         {CORE_KEYS.map((key) => (
           <NumberField

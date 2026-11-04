@@ -142,7 +142,7 @@ export function WeightSheet({ today, onClose, onGoal }: { readonly today: LocalD
               Weigh in
             </button>
           </div>
-          <h4 class="group-title">Weigh-ins</h4>
+          <h4 class="section-heading">Weigh-ins</h4>
           {view.weighIns.length === 0 ? (
             <p class="empty">No weigh-ins yet.</p>
           ) : (

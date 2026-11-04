@@ -57,7 +57,7 @@ function WaterSheet({ date, today, view, onClose }: { readonly date: LocalDate; 
           Add {otherOz === null ? 'water' : `${amount(otherOz)} fl oz`}
         </button>
       </div>
-      <h4 class="group-title">Drinks</h4>
+      <h4 class="section-heading">Drinks</h4>
       {view.drinks.length === 0 ? (
         <p class="empty">No water logged yet.</p>
       ) : (

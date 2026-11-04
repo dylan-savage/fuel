@@ -113,7 +113,7 @@ export function OnlineSection({
 
   return (
     <>
-      <h2 class="section-title">Online</h2>
+      <h2 class="section-heading">Online</h2>
       {online.kind === 'loading' && <p class="empty">Searching…</p>}
       {online.kind === 'failed' && <p class="empty">{FAILED_TEXT[online.reason]}</p>}
       {online.kind === 'done' && external.length === 0 && <p class="empty">No online results.</p>}

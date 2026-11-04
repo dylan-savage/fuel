@@ -75,7 +75,7 @@ export function DiaryMenu({
     case 'menu':
       body = (
         <>
-          <h4 class="group-title">Copy into {into}</h4>
+          <h4 class="section-heading">Copy into {into}</h4>
           <div class="group">
             <button type="button" class="action-row" disabled={toCopy.length === 0} onClick={() => void copy()}>
               <span>
@@ -109,7 +109,7 @@ export function DiaryMenu({
             </label>
           </div>
           {fromMeal !== null && <MealPicker value={fromMeal} onChange={setFromMeal} />}
-          <h4 class="group-title">{ontoItself ? `Pick another ${target.kind === 'day' ? 'day' : 'day or meal'}` : summaryText(source)}</h4>
+          <h4 class="section-heading">{ontoItself ? `Pick another ${target.kind === 'day' ? 'day' : 'day or meal'}` : summaryText(source)}</h4>
           {toCopy.length > 0 && <ItemList items={toCopy.map(itemOf)} label="To copy" />}
           <div class="sheet-actions">
             <button type="button" class="primary" disabled={toCopy.length === 0} onClick={() => void copy()}>
@@ -125,7 +125,7 @@ export function DiaryMenu({
           <div class="group">
             <TextField label="Name" value={name} onInput={setName} placeholder="Usual breakfast" />
           </div>
-          <h4 class="group-title">{count(entries.length, 'item')}</h4>
+          <h4 class="section-heading">{count(entries.length, 'item')}</h4>
           <ItemList items={entries.map(itemOf)} label="In this meal" />
           <div class="sheet-actions">
             <button type="button" class="primary" disabled={name.trim() === '' || entries.length === 0} onClick={() => void save()}>

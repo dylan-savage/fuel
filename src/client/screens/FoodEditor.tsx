@@ -80,10 +80,10 @@ export function FoodEditor({ seed, onSaved, onClose }: { readonly seed: EditorSe
         <TextField label="Name" value={name} onInput={setName} placeholder="Required" />
         <TextField label="Brand" value={brand} onInput={setBrand} placeholder="Optional" />
       </div>
-      <h4 class="group-title">Measured in</h4>
+      <h4 class="section-heading">Measured in</h4>
       <Segmented label="Measured in" options={UNITS.map((u) => ({ value: u, label: UNIT_LABEL[u] }))} value={unit} onChange={setUnit} />
 
-      <h4 class="group-title">Servings</h4>
+      <h4 class="section-heading">Servings</h4>
       <div class="group">
         {servings.map((row, i) => (
           <div class="serving-row" key={i}>
@@ -121,7 +121,7 @@ export function FoodEditor({ seed, onSaved, onClose }: { readonly seed: EditorSe
         </button>
       </div>
 
-      <h4 class="group-title">Nutrition per</h4>
+      <h4 class="section-heading">Nutrition per</h4>
       <Segmented label="Nutrition per" options={perOptions} value={String(per)} onChange={(v) => setPer(Number(v))} />
       <div class="group">
         {NUTRIENTS.map((n) => (

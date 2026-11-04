@@ -35,7 +35,7 @@ function Picker({
       </div>
       {recents.length > 0 && (
         <>
-          <h4 class="group-title">Recent</h4>
+          <h4 class="section-heading">Recent</h4>
           <ul class="list" aria-label="Recent workouts">
             {recents.map((draft) => (
               <li key={`${draft.name}-${draft.minutes}`}>
@@ -50,7 +50,7 @@ function Picker({
       )}
       {ACTIVITY_GROUPS.map((group) => (
         <section key={group} aria-label={group}>
-          <h4 class="group-title">{group}</h4>
+          <h4 class="section-heading">{group}</h4>
           <ul class="list">
             {MET_ACTIVITY_IDS.filter((id) => MET_ACTIVITIES[id].group === group).map((id) => {
               const { label, met } = MET_ACTIVITIES[id];

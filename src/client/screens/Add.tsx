@@ -153,11 +153,11 @@ export function Add({
         </>
       ) : (
         <>
-          <h2 class="section-title">Your foods</h2>
+          <h2 class="section-heading">Your foods</h2>
           {local.length === 0 ? <p class="empty">No match in your foods.</p> : <ul class="list" aria-label="Your foods">{local.map(localRow)}</ul>}
           {mealHits.length > 0 && (
             <>
-              <h2 class="section-title">Saved meals</h2>
+              <h2 class="section-heading">Saved meals</h2>
               <ul class="list" aria-label="Saved meals">
                 {mealHits.map(mealRow)}
               </ul>

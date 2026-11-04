@@ -68,7 +68,7 @@ function ProfileSheet({ profile, today, onClose }: { readonly profile: Profile |
 
   return (
     <Sheet title="Your details" onClose={onClose}>
-      <h4 class="group-title">Sex</h4>
+      <h4 class="section-heading">Sex</h4>
       <Segmented
         label="Sex"
         options={[
@@ -207,7 +207,7 @@ function GoalForm({
 
   return (
     <>
-      <h2 class="section-title">Profile</h2>
+      <h2 class="section-heading">Profile</h2>
       <div class="group">
         <button type="button" class="row-button disclosure" onClick={() => setEditingProfile(true)}>
           {profile === undefined ? 'Add your details' : profileSummary(profile, today)}
@@ -231,7 +231,7 @@ function GoalForm({
         )}
       </div>
 
-      <h2 class="section-title">Workouts and your target</h2>
+      <h2 class="section-heading">Workouts and your target</h2>
       <Segmented
         label="Workouts and your target"
         options={(['activity-level', 'eat-back-workouts'] as const).map((kind) => ({ value: kind, label: POLICY_LABEL[kind] }))}
@@ -266,7 +266,7 @@ function GoalForm({
         </>
       )}
 
-      <h2 class="section-title">Weekly goal</h2>
+      <h2 class="section-heading">Weekly goal</h2>
       <div class="group">
         <label class="field">
           <span class="field-label">Rate</span>
@@ -286,7 +286,7 @@ function GoalForm({
         <NumberField label="Goal weight" unit="lb" value={goalWeightText} onInput={setGoalWeightText} placeholder="Optional" invalid={!goalWeightValid} />
       </div>
 
-      <h2 class="section-title">Macros</h2>
+      <h2 class="section-heading">Macros</h2>
       <Segmented
         label="Macro targets in"
         options={[
@@ -310,7 +310,7 @@ function GoalForm({
       </div>
       {macroKind === 'percent' && <p class={Math.abs(percentTotal - 100) < 0.5 ? 'hint' : 'hint warn'}>Total {amount(percentTotal)}%. A split must add up to 100%.</p>}
 
-      <h2 class="section-title">Water</h2>
+      <h2 class="section-heading">Water</h2>
       <div class="group">
         <NumberField label="Daily goal" unit="fl oz" value={waterText} onInput={setWaterText} invalid={!waterValid} />
       </div>
