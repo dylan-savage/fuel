@@ -253,21 +253,51 @@ function prescriptionChange({ label, before, after }: DiffItem): string {
   return `${label} went from ${sameLift ? withoutLift(before) : before} to ${sameLift ? withoutLift(after) : after}`;
 }
 
+const renamed = ({ before, after }: DiffItem) => `${before} is now called ${after}`;
+
 const CHANGE_WORDS: Readonly<Record<DiffKind, (item: DiffItem) => string>> = {
   'day-removed': ({ label }) => `${label} is gone`,
   'block-removed': ({ label }) => `${label} is gone`,
   'slot-removed': ({ label }) => `${label} is gone`,
   'cue-removed': ({ label }) => `The cue on ${label} is gone`,
+  'block-note-removed': ({ label }) => `The note on ${label} is gone`,
+  'swaps-removed': ({ label }) => `The swaps on ${label} are gone`,
+  'set-note-removed': ({ label }) => `The set note on ${label} is gone`,
+  'note-removed': ({ label }) => `A note on ${label} is gone`,
   'standing-removed': ({ label }) => `${label} left the program`,
   'prescription-changed': prescriptionChange,
+  'one-week': ({ label }) => `${label} is now one week only`,
   'day-added': ({ label }) => `${label} is new`,
+  'day-renamed': renamed,
+  'day-weekday-changed': ({ label, after }) => (after === null ? `${label} has no set day` : `${label} moved to ${after}`),
+  'day-minutes-changed': ({ label, after }) => (after === null ? `${label} has no set length` : `${label} is now ${after}`),
   'block-added': ({ label }) => `${label} is new`,
+  'block-renamed': ({ label, after }) => `${label} is now called ${after}`,
+  'block-note-added': ({ label }) => `${label} has a new note`,
+  'block-note-edited': ({ label }) => `The note on ${label} changed`,
+  'block-optional-changed': ({ label, after }) => `${label} is now ${after}`,
+  'block-rest-changed': ({ label, after }) => (after === null ? `${label} has no set rest` : `Rest on ${label} is now ${after}`),
+  'checklist-edited': ({ label }) => `The moves in ${label} changed`,
+  'every-week': ({ label }) => `${label} is now every week`,
   'slot-added': ({ label }) => `${label} is new`,
   'slot-renamed': ({ label, after }) => `${label} is now called ${after}`,
+  'slot-moved': ({ label, after }) => `${label} moved to ${after}`,
+  'side-changed': ({ label, after }) => `${label} now goes ${after}`,
   'cue-added': ({ label }) => `${label} has a new cue`,
   'cue-edited': ({ label }) => `The cue on ${label} changed`,
+  'swaps-added': ({ label }) => `${label} has new swaps`,
+  'swaps-edited': ({ label }) => `The swaps on ${label} changed`,
+  'set-note-added': ({ label }) => `${label} asks for a set note`,
+  'set-note-edited': ({ label }) => `The set note on ${label} changed`,
+  'note-added': ({ label }) => `A new note on ${label}`,
+  'note-edited': ({ label }) => `A note on ${label} changed`,
   'standing-added': ({ label }) => `${label} joined the program`,
   'standing-edited': ({ label }) => `${label} changed in the program`,
+  'standing-renamed': renamed,
+  'minimum-changed': ({ label, after }) => (after === null ? `${label} is gone` : `${label} is now ${after}`),
+  'lift-renamed': renamed,
+  'lift-aliases-changed': ({ label }) => `The other names for ${label} changed`,
+  'lift-key-changed': ({ label, after }) => (after === null ? `${label} left the key lifts` : `${label} is now a key lift`),
 };
 
 /** One row of What changed. */

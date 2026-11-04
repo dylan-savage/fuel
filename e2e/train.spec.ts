@@ -80,7 +80,8 @@ test('a fake clock crosses two Mondays offline with no writes', async ({ page, c
   let coach = await openCoach(page);
   await expect(coach).toContainText(/Sunday 7:02\sAM/);
   await expect(coach.getByText('Invented report for the first week.')).toBeVisible();
-  await expect(coach.getByRole('list', { name: 'Changes' }).getByRole('listitem')).toHaveCount(2);
+  await expect(coach.getByRole('list', { name: 'Changes' }).getByRole('listitem'), 'two blocks, the minimum and three notes').toHaveCount(6);
+  await expect(coach.getByText('A new note on the week')).toHaveCount(3);
   await expect(coach.getByText('First week only.')).toBeVisible();
   await expect(coach.getByText('Second week only.')).toBeHidden();
   await closeCoach(page);
@@ -209,6 +210,8 @@ test('shows the week and a day as approved, from imports, a mid-week version and
   await expect(coach).toContainText('Invented report: the week went to plan.');
   await expect(coach.getByText('Press day / Trap bar deadlift went from 3 x 8-12 to 3 x 6-10')).toBeVisible();
   await expect(coach.getByText('Invented reason for fewer reps.')).toBeVisible();
+  await expect(coach.getByText('Pull day is now called Pull day, renamed')).toBeVisible();
+  await expect(coach.getByText('Weekly minimum is now 2')).toBeVisible();
   await expect(coach.getByText(/The very end of the note\./), 'a note in full, with no More link').toBeVisible();
   await expect(coach.getByRole('button', { name: 'More', exact: true })).toHaveCount(0);
   await expect(coach.getByText('Only on press day.')).toBeHidden();

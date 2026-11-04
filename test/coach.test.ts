@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { checkPublish, coachWeek, parseProgramDraft, programDiff, sameContent, snapshotOf, targetMondayOf, type DiffItem, type PublishVerdict, type TrainDocs } from '../src/domain/coach.js';
+import { changeWords } from '../src/client/screens/format.js';
+import { checkPublish, coachWeek, parseProgramDraft, programDiff, sameContent, snapshotOf, targetMondayOf, type DiffItem, type DiffKind, type PublishVerdict, type TrainDocs } from '../src/domain/coach.js';
 import { makeWorkout, metDraft } from '../src/domain/burn.js';
 import type { Entry } from '../src/domain/diary.js';
-import { TrainingNoteId, WorkoutId } from '../src/domain/ids.js';
-import { ProgramDraft, type Block, type Program, type Slot } from '../src/domain/program.js';
+import { TrainingNoteId, WorkoutId, type LocalDate } from '../src/domain/ids.js';
+import { Lift, Target } from '../src/domain/lifts.js';
+import { CardioBlock, ChecklistBlock, Day, LiftsBlock, ProgramDraft, ProgramNote, Slot, StandingText, SwapOption, type Block, type Program } from '../src/domain/program.js';
 import { entry, newEntryId, weighIn } from './fixtures.js';
-import { T0, blockId, bw, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, pinned, program, session, slot, slotId, target, warm } from './training.fixtures.js';
+import { T0, blockId, bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, pinned, program, session, slot, slotId, target, warm } from './training.fixtures.js';
 
 const benchSlot = slot('a1', 'bench-press', 3, { cue: 'Pause on the chest.', swaps: [{ liftId: lift('incline-press'), label: 'Incline press', cue: 'Elbows in.' }] });
 const rowSlot = slot('a2', 'cable-row', 3);
@@ -65,7 +67,7 @@ describe('programDiff', () => {
 
   it('does not read a slot moved between blocks as removed', () => {
     const moved = withDay(draftOf(base, '2030-03-11'), 'push', [liftsBlock('main', [benchSlot], { title: 'Main' }), liftsBlock('abs', [rowSlot, ...abBlock.slots], { title: 'Abs' })]);
-    expect(programDiff(base, moved)).toEqual([]);
+    expect(programDiff(base, moved)).toEqual([{ kind: 'slot-moved', target: 'slot:push/a2', label: 'Day push / cable-row', before: 'Main', after: 'Abs', needsReason: false, why: null }]);
   });
 
   it('lists a removed or emptied cue, on a slot and on a swap', () => {
@@ -75,7 +77,10 @@ describe('programDiff', () => {
     const noSwapCue = { ...benchSlot, swaps: [{ liftId: lift('incline-press'), label: 'Incline press' }] };
     expect(kinds(diffOf((d) => withDay(d, 'push', onlySlots(noSwapCue, rowSlot))))).toEqual([['cue-removed', 'cue:push/a1/incline-press']]);
     const { swaps: _swaps, ...noSwaps } = benchSlot;
-    expect(kinds(diffOf((d) => withDay(d, 'push', onlySlots(noSwaps, rowSlot))))).toEqual([['cue-removed', 'cue:push/a1/incline-press']]);
+    expect(kinds(diffOf((d) => withDay(d, 'push', onlySlots(noSwaps, rowSlot))))).toEqual([
+      ['swaps-removed', 'swaps:push/a1'],
+      ['cue-removed', 'cue:push/a1/incline-press'],
+    ]);
   });
 
   it('shows an edited or new cue with no reason needed', () => {
@@ -131,6 +136,162 @@ describe('programDiff', () => {
     const before = program('2030-03-04', [{ key: 'push', blocks: [pushBlock, liftsBlock('retest', [slot('r1', 'squat', 1)], { onlyWeek: day('2030-03-11') })] }]);
     const after = draftOf(program('2030-03-04', [{ key: 'push', blocks: [pushBlock] }]), '2030-03-11');
     expect(kinds(programDiff(before, after))).toEqual([['block-removed', 'block:push/retest']]);
+  });
+
+  describe('every field of the plan', () => {
+    const inclineSwap = { liftId: lift('incline-press'), label: 'Incline press' };
+    const deckSwap = { liftId: lift('pec-deck'), label: 'Pec deck' };
+    const first = slot('a1', 'bench-press', 3, { cue: 'Slow down.', setPrompt: 'Which bar?', swaps: [inclineSwap, deckSwap] });
+    const second = slot('a2', 'cable-row', 3, { swaps: [deckSwap], target: target(3, 8, 10, { perSide: 'left-first', load: 'band' }) });
+    const main = liftsBlock('main', [first, second], { title: 'Main', note: 'Go slow.', restSeconds: 60 });
+    const warmUp = checklist('warm', { title: 'Warm up', items: ['Jumping jacks', 'Light row'] });
+    const swim = cardio('swim', { title: 'Swim', optional: true });
+    const later = checklist('later', { title: 'Later', onlyWeek: day('2030-03-18') });
+    const lifts: Lift[] = [{ id: lift('bench-press'), name: 'Bench press', aliases: [] }, { id: lift('cable-row'), name: 'Cable row', aliases: [lift('seated-row')], key: true }, { id: lift('incline-press'), name: 'Incline press', aliases: [] }, { id: lift('pec-deck'), name: 'Pec deck', aliases: [] }];
+    const weekNote = { title: 'Focus', text: 'Go slow.' };
+    const laterNote = { text: 'Next week is light.', onlyWeek: day('2030-03-18') };
+    const dayNote = { text: 'Bring chalk.', day: dayKey('push') };
+    const full = program('2030-03-04', [{ key: 'push', label: 'Push', weekday: 1, minutes: 60, blocks: [main, warmUp, swim, later] }], { weeklyMinimum: 3, standing, lifts, notes: [weekNote, laterNote, dayNote] });
+
+    type Edit = (draft: ProgramDraft) => ProgramDraft;
+    const onDay = (change: Partial<Day>): Edit => (d) => ({ ...d, days: d.days.map((x) => ({ ...x, ...change })) });
+    const onBlock = (id: string, change: { readonly title?: string | undefined; readonly note?: string | undefined; readonly optional?: true | undefined; readonly onlyWeek?: LocalDate | undefined; readonly restSeconds?: number | undefined; readonly items?: string[]; readonly slots?: Slot[] }): Edit => (d) => ({ ...d, days: d.days.map((x) => ({ ...x, blocks: x.blocks.map((b) => (b.id === id ? { ...b, ...change } : b)) })) });
+    const onSlot = (edited: Slot): Edit => onBlock('main', { slots: main.slots.map((s) => (s.id === edited.id ? edited : s)) });
+    const onLift = (id: string, change: Partial<Lift>): Edit => (d) => ({ ...d, lifts: d.lifts.map((l) => (l.id === id ? { ...l, ...change } : l)) });
+    const withNotes = (...notes: ProgramNote[]): Edit => (d) => ({ ...d, notes });
+
+    const FIELDS: readonly [field: string, edit: Edit, kind: DiffKind, target: string, needsReason: boolean, words: string][] = [
+      ['Program.weeklyMinimum', (d) => ({ ...d, weeklyMinimum: 4 }), 'minimum-changed', 'weekly-minimum', false, 'Weekly minimum is now 4'],
+      ['Program.weeklyMinimum cleared', (d) => ({ ...d, weeklyMinimum: undefined }), 'minimum-changed', 'weekly-minimum', false, 'Weekly minimum is gone'],
+      ['Program.days', (d) => ({ ...d, days: [...d.days, { key: dayKey('arms'), label: 'Arms', blocks: [warmUp] }] }), 'day-added', 'day:arms', false, 'Arms is new'],
+      ['Program.lifts', onLift('bench-press', { key: true }), 'lift-key-changed', 'lift:bench-press', false, 'Bench press is now a key lift'],
+      ['Program.notes', withNotes(weekNote, laterNote, dayNote, { text: 'Bring water.' }), 'note-added', 'note:week/3', false, 'A new note on the week'],
+      ['Program.standing', (d) => ({ ...d, standing: [] }), 'standing-removed', 'standing:rules', true, 'Rules left the program'],
+      ['Day.label', onDay({ label: 'Upper' }), 'day-renamed', 'day:push', false, 'Push is now called Upper'],
+      ['Day.weekday', onDay({ weekday: 2 }), 'day-weekday-changed', 'weekday:push', false, 'Push moved to Tue'],
+      ['Day.weekday cleared', onDay({ weekday: undefined }), 'day-weekday-changed', 'weekday:push', false, 'Push has no set day'],
+      ['Day.minutes', onDay({ minutes: 45 }), 'day-minutes-changed', 'minutes:push', false, 'Push is now 45 min'],
+      ['Day.minutes cleared', onDay({ minutes: undefined }), 'day-minutes-changed', 'minutes:push', false, 'Push has no set length'],
+      ['Day.blocks', onDay({ blocks: [main, swim, later] }), 'block-removed', 'block:push/warm', true, 'Push / Warm up is gone'],
+      ['Block.title', onBlock('main', { title: 'Core' }), 'block-renamed', 'block:push/main', false, 'Push / Main is now called Core'],
+      ['Block.title cleared', onBlock('main', { title: undefined }), 'block-renamed', 'block:push/main', false, 'Push / Main is now called main'],
+      ['Block.note', onBlock('main', { note: 'Go slower.' }), 'block-note-edited', 'block-note:push/main', false, 'The note on Push / Main changed'],
+      ['Block.note added', onBlock('warm', { note: 'Take your time.' }), 'block-note-added', 'block-note:push/warm', false, 'Push / Warm up has a new note'],
+      ['Block.note emptied', onBlock('main', { note: '  ' }), 'block-note-removed', 'block-note:push/main', true, 'The note on Push / Main is gone'],
+      ['Block.note removed', onBlock('main', { note: undefined }), 'block-note-removed', 'block-note:push/main', true, 'The note on Push / Main is gone'],
+      ['Block.optional', onBlock('main', { optional: true }), 'block-optional-changed', 'optional:push/main', false, 'Push / Main is now optional'],
+      ['Block.optional cleared', onBlock('swim', { optional: undefined }), 'block-optional-changed', 'optional:push/swim', false, 'Push / Swim is now required'],
+      ['Block.onlyWeek', onBlock('main', { onlyWeek: day('2030-03-11') }), 'one-week', 'only-week:push/main', true, 'Push / Main is now one week only'],
+      ['Block.onlyWeek cleared', onBlock('later', { onlyWeek: undefined }), 'every-week', 'only-week:push/later', false, 'Push / Later is now every week'],
+      ['Block.restSeconds', onBlock('main', { restSeconds: 90 }), 'block-rest-changed', 'rest:push/main', false, 'Rest on Push / Main is now 90s'],
+      ['Block.restSeconds cleared', onBlock('main', { restSeconds: undefined }), 'block-rest-changed', 'rest:push/main', false, 'Push / Main has no set rest'],
+      ['Block.items', onBlock('warm', { items: ['Jumping jacks'] }), 'checklist-edited', 'moves:push/warm', false, 'The moves in Push / Warm up changed'],
+      ['Block.slots', onBlock('main', { slots: [first] }), 'slot-removed', 'slot:push/a2', true, 'Push / cable-row is gone'],
+      ['Slot.liftId', onSlot({ ...first, liftId: lift('incline-press') }), 'prescription-changed', 'prescription:push/a1', true, 'Push / bench-press went from bench-press 3 x 8-10 to incline-press 3 x 8-10'],
+      ['Slot.label', onSlot({ ...first, label: 'Paused bench' }), 'slot-renamed', 'slot:push/a1', false, 'Push / bench-press is now called Paused bench'],
+      ['Slot.target', onSlot({ ...first, target: target(4, 8, 10) }), 'prescription-changed', 'prescription:push/a1', true, 'Push / bench-press went from 3 x 8-10 to 4 x 8-10'],
+      ['Slot.cue', onSlot({ ...first, cue: 'Slower.' }), 'cue-edited', 'cue:push/a1', false, 'The cue on Push / bench-press changed'],
+      ['Slot.setPrompt', onSlot({ ...first, setPrompt: 'Which grip?' }), 'set-note-edited', 'set-note:push/a1', false, 'The set note on Push / bench-press changed'],
+      ['Slot.setPrompt added', onSlot({ ...second, setPrompt: 'Which grip?' }), 'set-note-added', 'set-note:push/a2', false, 'Push / cable-row asks for a set note'],
+      ['Slot.setPrompt removed', onSlot({ ...first, setPrompt: undefined }), 'set-note-removed', 'set-note:push/a1', true, 'The set note on Push / bench-press is gone'],
+      ['Slot.swaps', onSlot({ ...first, swaps: [inclineSwap] }), 'swaps-edited', 'swaps:push/a1', false, 'The swaps on Push / bench-press changed'],
+      ['Slot.swaps emptied', onSlot({ ...second, swaps: [] }), 'swaps-removed', 'swaps:push/a2', true, 'The swaps on Push / cable-row are gone'],
+      ['Slot.swaps removed', onSlot({ ...second, swaps: undefined }), 'swaps-removed', 'swaps:push/a2', true, 'The swaps on Push / cable-row are gone'],
+      ['SwapOption.liftId', onSlot({ ...second, swaps: [{ ...deckSwap, liftId: lift('incline-press') }] }), 'swaps-edited', 'swaps:push/a2', false, 'The swaps on Push / cable-row changed'],
+      ['SwapOption.label', onSlot({ ...second, swaps: [{ ...deckSwap, label: 'Flyes' }] }), 'swaps-edited', 'swaps:push/a2', false, 'The swaps on Push / cable-row changed'],
+      ['SwapOption.cue', onSlot({ ...second, swaps: [{ ...deckSwap, cue: 'Slower.' }] }), 'cue-added', 'cue:push/a2/pec-deck', false, 'Push / cable-row / pec-deck has a new cue'],
+      ['Target.sets', onSlot({ ...second, target: { ...second.target, sets: 4 } }), 'prescription-changed', 'prescription:push/a2', true, 'Push / cable-row went from 3 x 8-10 per side band to 4 x 8-10 per side band'],
+      ['Target.reps', onSlot({ ...second, target: { ...second.target, reps: { min: 6, max: 8 } } }), 'prescription-changed', 'prescription:push/a2', true, 'Push / cable-row went from 3 x 8-10 per side band to 3 x 6-8 per side band'],
+      ['Target.load', onSlot({ ...second, target: { ...second.target, load: 'bodyweight' } }), 'prescription-changed', 'prescription:push/a2', true, 'Push / cable-row went from 3 x 8-10 per side band to 3 x 8-10 per side bodyweight'],
+      ['Target.perSide', onSlot({ ...second, target: { ...second.target, perSide: 'right-first' } }), 'side-changed', 'side:push/a2', false, 'Push / cable-row now goes right first'],
+      ['Target.perSide with none named', onSlot({ ...second, target: { ...second.target, perSide: 'either' } }), 'side-changed', 'side:push/a2', false, 'Push / cable-row now goes either side first'],
+      ['Target.perSide cleared', onSlot({ ...second, target: { ...second.target, perSide: undefined } }), 'prescription-changed', 'prescription:push/a2', true, 'Push / cable-row went from 3 x 8-10 per side band to 3 x 8-10 band'],
+      ['ProgramNote.text', withNotes({ ...weekNote, text: 'Go slower.' }, laterNote, dayNote), 'note-edited', 'note:week/2', false, 'A note on the week changed'],
+      ['ProgramNote.text on a day', withNotes(weekNote, laterNote, { ...dayNote, text: 'Bring a towel.' }), 'note-edited', 'note:push/1', false, 'A note on Push changed'],
+      ['ProgramNote.title', withNotes({ ...weekNote, title: 'Tempo' }, laterNote, dayNote), 'note-edited', 'note:week/2', false, 'A note on the week changed'],
+      ['ProgramNote.onlyWeek', withNotes({ ...weekNote, onlyWeek: day('2030-03-11') }, laterNote, dayNote), 'one-week', 'only-week:note:week/1', true, 'A note on the week is now one week only'],
+      ['ProgramNote.onlyWeek cleared', withNotes(weekNote, { text: laterNote.text }, dayNote), 'every-week', 'only-week:note:week/2', false, 'A note on the week is now every week'],
+      ['ProgramNote.text gone', withNotes(laterNote, dayNote), 'note-removed', 'note:week/2', true, 'A note on the week is gone'],
+      ['StandingText.title', (d) => ({ ...d, standing: [{ key: 'rules', title: 'House rules', text: 'Stop two reps short.' }] }), 'standing-renamed', 'standing:rules', false, 'Rules is now called House rules'],
+      ['StandingText.text', (d) => ({ ...d, standing: [{ key: 'rules', title: 'Rules', text: 'Stop one rep short.' }] }), 'standing-edited', 'standing:rules', false, 'Rules changed in the program'],
+      ['Lift.name', onLift('bench-press', { name: 'Flat bench' }), 'lift-renamed', 'lift:bench-press', false, 'Bench press is now called Flat bench'],
+      ['Lift.aliases', onLift('bench-press', { aliases: [lift('barbell-bench')] }), 'lift-aliases-changed', 'lift:bench-press', false, 'The other names for Bench press changed'],
+      ['Lift.key', onLift('cable-row', { key: undefined }), 'lift-key-changed', 'lift:cable-row', false, 'Cable row left the key lifts'],
+    ];
+
+    /** Fields with no row: the version's own date and words, and ids, where a new one reads as removed and added. */
+    const LEFT_OUT = ['Program.effectiveFrom', 'Program.report', 'Program.changes', 'Day.key', 'Block.id', 'Block.kind', 'Slot.id', 'ProgramNote.day', 'StandingText.key', 'Lift.id'];
+
+    it('has a row for each, or says why not, so a new field cannot slip past the diff', () => {
+      const fieldsOf = (name: string, ...schemas: readonly { readonly shape: object }[]) => schemas.flatMap((schema) => Object.keys(schema.shape).map((field) => `${name}.${field}`));
+      const schema = [
+        ...fieldsOf('Program', ProgramDraft),
+        ...fieldsOf('Day', Day),
+        ...fieldsOf('Block', LiftsBlock, ChecklistBlock, CardioBlock),
+        ...fieldsOf('Slot', Slot),
+        ...fieldsOf('SwapOption', SwapOption),
+        ...fieldsOf('Target', Target),
+        ...fieldsOf('ProgramNote', ProgramNote),
+        ...fieldsOf('StandingText', StandingText),
+        ...fieldsOf('Lift', Lift),
+      ];
+      const covered = [...FIELDS.map(([field]) => field.split(' ')[0] ?? ''), ...LEFT_OUT];
+      expect([...new Set(schema)].filter((field) => !covered.includes(field))).toEqual([]);
+      expect([...new Set(covered)].filter((field) => !schema.includes(field))).toEqual([]);
+    });
+
+    it.each(FIELDS)('lists %s, in words the phone can show', (_field, edit, kind, changeTarget, needsReason, words) => {
+      const items = programDiff(full, draftOf(full, '2030-03-11', edit));
+      expect(items.map((item) => [item.kind, item.target, item.needsReason])).toEqual([[kind, changeTarget, needsReason]]);
+      expect(items.map(changeWords)).toEqual([words]);
+    });
+
+    it('never puts a note\'s words on the phone, so a day\'s or a later week\'s does not show early', () => {
+      const items = programDiff(full, draftOf(full, '2030-03-11', withNotes(weekNote, laterNote, dayNote, { text: 'Invented next week.', onlyWeek: day('2030-03-18') })));
+      expect(items.map((item) => item.after)).toEqual(['Invented next week.']);
+      expect(items.map(changeWords)).toEqual(['A new note on the week']);
+    });
+
+    it('reads a shorter list of notes as a loss, however the rest were edited', () => {
+      const items = programDiff(full, draftOf(full, '2030-03-11', withNotes({ text: 'Only this now.' }, dayNote)));
+      expect(items.map((item) => [item.kind, item.before, item.after])).toEqual([
+        ['note-edited', 'Focus: Go slow.', 'Only this now.'],
+        ['note-removed', 'Next week is light.', null],
+      ]);
+    });
+
+    it('reads a note moved to another day as one gone and one new', () => {
+      const items = programDiff(full, draftOf(full, '2030-03-11', withNotes(weekNote, laterNote, { text: dayNote.text })));
+      expect(kinds(items)).toEqual([
+        ['note-added', 'note:week/3'],
+        ['note-removed', 'note:push/1'],
+      ]);
+    });
+
+    it('does not call a one-week note a loss once its week is before the new version', () => {
+      expect(programDiff(full, draftOf(full, '2030-03-25', withNotes(weekNote, dayNote)))).toEqual([]);
+    });
+
+    it('reads a block changing kind under one id as one gone and one new, with one reason for its slots', () => {
+      const edit: Edit = (d) => ({ ...d, days: d.days.map((x) => ({ ...x, blocks: [checklist('main', { title: 'Main' }), warmUp, swim, later] })) });
+      expect(kinds(programDiff(full, draftOf(full, '2030-03-11', edit)))).toEqual([
+        ['block-removed', 'block:push/main'],
+        ['block-added', 'block:push/main'],
+      ]);
+    });
+
+    it('leaves out a new lift, which shows through the slot naming it, unless it joins histories or the board', () => {
+      const added = (extra: Partial<Lift>): Edit => (d) => ({ ...d, lifts: [...d.lifts, { id: lift('landmine-press'), name: 'Landmine press', aliases: [], ...extra }] });
+      expect(programDiff(full, draftOf(full, '2030-03-11', added({})))).toEqual([]);
+      expect(kinds(programDiff(full, draftOf(full, '2030-03-11', added({ aliases: [lift('landmine')] }))))).toEqual([['lift-aliases-changed', 'lift:landmine-press']]);
+      expect(kinds(programDiff(full, draftOf(full, '2030-03-11', added({ key: true }))))).toEqual([['lift-key-changed', 'lift:landmine-press']]);
+    });
+
+    it('does not read reordered aliases, or a key flag set false, as a change', () => {
+      const aliased = program('2030-03-04', [{ key: 'push', blocks: [main] }], { lifts: [{ id: lift('squat'), name: 'Squat', aliases: [lift('a'), lift('b')] }] });
+      const edit: Edit = (d) => ({ ...d, lifts: [{ id: lift('squat'), name: 'Squat', aliases: [lift('b'), lift('a')], key: false }] });
+      expect(programDiff(aliased, draftOf(aliased, '2030-03-11', edit))).toEqual([]);
+    });
   });
 
   it('carries the reason from changes, as plain data the phone can render', () => {
@@ -271,6 +432,23 @@ describe('checkPublish', () => {
 
     it('needs no reason for a cue text edit', () => {
       expect(check((d) => withDay(d, 'push', onlySlots({ ...benchSlot, cue: 'Pause longer.' }, rowSlot))).status).toBe('valid');
+    });
+
+    it('refuses every swap gone or a block set to one week with no reason, and needs none to change one swap', () => {
+      const { swaps: _swaps, ...noSwaps } = rowSlot;
+      const swapped = { ...rowSlot, swaps: [{ liftId: lift('incline-press'), label: 'Incline press' }] };
+      const withSwap = program('2030-03-04', [{ key: 'push', blocks: [liftsBlock('main', [benchSlot, swapped], { title: 'Main' }), abBlock] }, ...DAYS.slice(1)], { standing });
+      const from = (edit: (draft: ProgramDraft) => ProgramDraft) => checkPublish(draftOf(withSwap, '2030-03-11', edit), [withSwap], AT);
+      expect(problemsOf(from((d) => withDay(d, 'push', onlySlots(benchSlot, noSwaps)))).map((p) => p.message)).toEqual([expect.stringContaining('"swaps:push/a2"')]);
+      expect(from((d) => withDay(d, 'push', onlySlots(benchSlot, { ...swapped, swaps: [{ liftId: lift('incline-press'), label: 'Incline' }] }))).status).toBe('valid');
+      expect(problemsOf(check((d) => withDay(d, 'push', [{ ...pushBlock, onlyWeek: day('2030-03-11') }, abBlock]))).map((p) => p.message)).toEqual([expect.stringContaining('"only-week:push/main"')]);
+    });
+
+    it('refuses an emptied block note with no reason, and needs none to edit one', () => {
+      const noted = program('2030-03-04', [{ key: 'push', blocks: [{ ...pushBlock, note: 'Go slow.' }, abBlock] }, ...DAYS.slice(1)], { standing });
+      const from = (note: string) => checkPublish(draftOf(noted, '2030-03-11', (d) => withDay(d, 'push', [{ ...pushBlock, note }, abBlock])), [noted], AT);
+      expect(problemsOf(from(' ')).map((p) => p.message)).toEqual([expect.stringContaining('"block-note:push/main"')]);
+      expect(from('Go slower.').status).toBe('valid');
     });
   });
 

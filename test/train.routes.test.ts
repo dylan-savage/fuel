@@ -154,6 +154,7 @@ describe('POST /api/train/publish', () => {
         ['bad-only-week', 'days[0].blocks[0].onlyWeek'],
         ['unexplained', 'changes'],
         ['unexplained', 'changes'],
+        ['unexplained', 'changes'],
       ]);
       expect(store.stats().rev).toBe(rev);
     });

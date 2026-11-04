@@ -3,8 +3,8 @@ import type { WeighIn } from './body.js';
 import type { Workout } from './burn.js';
 import { summarizeDay, type Entry } from './diary.js';
 import { addDays, isMonday, mondayOf, type LocalDate, type Millis, type ProgramId, type SessionId } from './ids.js';
-import { liftBook, type LiftId, type Performance } from './lifts.js';
-import { Program, ProgramDraft, plannedDay, programId, programOn, type Block, type Day, type Report, type Slot, type StandingText } from './program.js';
+import { liftBook, type Lift, type LiftId, type Performance, type Target } from './lifts.js';
+import { Program, ProgramDraft, plannedDay, programId, programOn, type Block, type Day, type ProgramNote, type Report, type Slot, type StandingText } from './program.js';
 import { addWeightNext, skipsOf, sessionsDone, swapsOf, totalsOf, typedLine, workingSets, type Skip, type Swap } from './progress.js';
 import { finishOf, sessionPhase, sessionWorkoutDraft, type Session, type SessionPhase, type TrainingNote } from './session.js';
 import { isRecord, unknownFields } from './strict.js';
@@ -18,16 +18,45 @@ const NEEDS_REASON = {
   'block-removed': true,
   'slot-removed': true,
   'cue-removed': true,
+  'block-note-removed': true,
+  'swaps-removed': true,
+  'set-note-removed': true,
+  'note-removed': true,
   'standing-removed': true,
   'prescription-changed': true,
+  // It lapses later with no diff to name it, so setting it is the removal.
+  'one-week': true,
   'day-added': false,
+  'day-renamed': false,
+  'day-weekday-changed': false,
+  'day-minutes-changed': false,
   'block-added': false,
+  'block-renamed': false,
+  'block-note-added': false,
+  'block-note-edited': false,
+  'block-optional-changed': false,
+  'block-rest-changed': false,
+  'checklist-edited': false,
+  'every-week': false,
   'slot-added': false,
   'slot-renamed': false,
+  'slot-moved': false,
+  'side-changed': false,
   'cue-added': false,
   'cue-edited': false,
+  'swaps-added': false,
+  'swaps-edited': false,
+  'set-note-added': false,
+  'set-note-edited': false,
+  'note-added': false,
+  'note-edited': false,
   'standing-added': false,
   'standing-edited': false,
+  'standing-renamed': false,
+  'minimum-changed': false,
+  'lift-renamed': false,
+  'lift-aliases-changed': false,
+  'lift-key-changed': false,
 } as const satisfies Readonly<Record<string, boolean>>;
 export type DiffKind = keyof typeof NEEDS_REASON;
 
@@ -45,10 +74,11 @@ export interface DiffItem {
 }
 
 type Change = Omit<DiffItem, 'needsReason' | 'why'>;
+type At = Pick<Change, 'target' | 'label'>;
 
 const blank = (text: string | undefined) => text === undefined || text.trim() === '';
 
-function textChange(kinds: { readonly added: DiffKind; readonly removed: DiffKind; readonly edited: DiffKind }, at: { readonly target: string; readonly label: string }, was: string | undefined, now: string | undefined): readonly Change[] {
+function textChange(kinds: { readonly added: DiffKind; readonly removed: DiffKind; readonly edited: DiffKind }, at: At, was: string | undefined, now: string | undefined): readonly Change[] {
   const before = blank(was) ? null : (was ?? null);
   const after = blank(now) ? null : (now ?? null);
   if (before === after) return [];
@@ -58,6 +88,22 @@ function textChange(kinds: { readonly added: DiffKind; readonly removed: DiffKin
 
 const CUE_KINDS = { added: 'cue-added', removed: 'cue-removed', edited: 'cue-edited' } as const;
 const STANDING_KINDS = { added: 'standing-added', removed: 'standing-removed', edited: 'standing-edited' } as const;
+const BLOCK_NOTE_KINDS = { added: 'block-note-added', removed: 'block-note-removed', edited: 'block-note-edited' } as const;
+const SWAPS_KINDS = { added: 'swaps-added', removed: 'swaps-removed', edited: 'swaps-edited' } as const;
+const SET_NOTE_KINDS = { added: 'set-note-added', removed: 'set-note-removed', edited: 'set-note-edited' } as const;
+const NOTE_KINDS = { added: 'note-added', removed: 'note-removed', edited: 'note-edited' } as const;
+
+/** A setting has one kind however it moves, because taking it away loses nothing he wrote. */
+function valueChange(kind: DiffKind, at: At, was: string | null, now: string | null): readonly Change[] {
+  return was === now ? [] : [{ kind, ...at, before: was, after: now }];
+}
+
+function weekChange(at: At, was: LocalDate | undefined, now: LocalDate | undefined): readonly Change[] {
+  return was === now ? [] : [{ kind: now === undefined ? 'every-week' : 'one-week', ...at, before: was ?? null, after: now ?? null }];
+}
+
+/** One-week items gone by this Monday had already lapsed by themselves. */
+const liveFrom = (monday: LocalDate) => (item: { readonly onlyWeek?: LocalDate | undefined }) => item.onlyWeek === undefined || item.onlyWeek >= monday;
 
 function prescription(slot: Slot): string {
   const { sets, reps, perSide, load } = slot.target;
@@ -65,13 +111,21 @@ function prescription(slot: Slot): string {
   return [slot.liftId, `${sets} x ${range}`, ...(perSide === undefined ? [] : ['per side']), ...(load === undefined || load === 'weight' ? [] : [load])].join(' ');
 }
 
+const swapList = (slot: Slot) => (slot.swaps ?? []).map((swap) => `${swap.label} (${swap.liftId})`).join(', ');
+
+const SIDE_WORDS: Readonly<Record<NonNullable<Target['perSide']>, string>> = { 'left-first': 'left first', 'right-first': 'right first', either: 'either side first' };
+
 function slotChanges(day: Day, was: Slot, now: Slot): readonly Change[] {
   const path = `${day.key}/${was.id}`;
   const label = `${day.label} / ${was.label}`;
   const changes: Change[] = [];
   if (prescription(was) !== prescription(now)) changes.push({ kind: 'prescription-changed', target: `prescription:${path}`, label, before: prescription(was), after: prescription(now) });
   if (was.label !== now.label) changes.push({ kind: 'slot-renamed', target: `slot:${path}`, label, before: was.label, after: now.label });
+  // Going per side or back is already a changed prescription.
+  if (was.target.perSide !== undefined && now.target.perSide !== undefined && was.target.perSide !== now.target.perSide) changes.push({ kind: 'side-changed', target: `side:${path}`, label, before: SIDE_WORDS[was.target.perSide], after: SIDE_WORDS[now.target.perSide] });
   changes.push(...textChange(CUE_KINDS, { target: `cue:${path}`, label }, was.cue, now.cue));
+  changes.push(...textChange(SET_NOTE_KINDS, { target: `set-note:${path}`, label }, was.setPrompt, now.setPrompt));
+  changes.push(...textChange(SWAPS_KINDS, { target: `swaps:${path}`, label }, swapList(was), swapList(now)));
   const swapIds = new Set([...(was.swaps ?? []), ...(now.swaps ?? [])].map((swap) => swap.liftId));
   for (const liftId of swapIds) {
     const cueOf = (slot: Slot) => slot.swaps?.find((swap) => swap.liftId === liftId)?.cue;
@@ -82,31 +136,67 @@ function slotChanges(day: Day, was: Slot, now: Slot): readonly Change[] {
 
 /** What a day holds at a date. A slot is known by its id within the day, so moving it between blocks does not read as removing it. */
 function dayContents(day: Day, monday: LocalDate) {
-  const blocks = day.blocks.filter((block) => block.onlyWeek === undefined || block.onlyWeek >= monday);
+  const blocks = day.blocks.filter(liveFrom(monday));
   const slots = new Map(blocks.flatMap((block) => (block.kind === 'lifts' ? block.slots.map((slot) => [slot.id, { slot, block }] as const) : [])));
   return { blocks: new Map(blocks.map((block) => [block.id, block])), slots };
 }
 
-const blockLabel = (day: Day, block: Block) => `${day.label} / ${block.title ?? block.id}`;
+const blockName = (block: Block) => block.title ?? block.id;
+const blockLabel = (day: Day, block: Block) => `${day.label} / ${blockName(block)}`;
 
-/** A removed day or block already names what was inside it, so one reason covers its slots. */
+function blockChanges(day: Day, was: Block, now: Block): readonly Change[] {
+  const at = (name: string): At => ({ target: `${name}:${day.key}/${was.id}`, label: blockLabel(day, was) });
+  const need = (block: Block) => (block.optional === true ? 'optional' : 'required');
+  const rest = (block: Block) => (block.kind === 'lifts' && block.restSeconds !== undefined ? `${block.restSeconds}s` : null);
+  const moves = (block: Block) => (block.kind === 'checklist' ? block.items.join(', ') : null);
+  return [
+    ...valueChange('block-renamed', at('block'), blockName(was), blockName(now)),
+    ...textChange(BLOCK_NOTE_KINDS, at('block-note'), was.note, now.note),
+    ...valueChange('block-optional-changed', at('optional'), need(was), need(now)),
+    ...weekChange(at('only-week'), was.onlyWeek, now.onlyWeek),
+    ...valueChange('block-rest-changed', at('rest'), rest(was), rest(now)),
+    ...valueChange('checklist-edited', at('moves'), moves(was), moves(now)),
+  ];
+}
+
+const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function daySettingChanges(was: Day, now: Day): readonly Change[] {
+  const at = (name: string): At => ({ target: `${name}:${was.key}`, label: now.label });
+  const weekday = (day: Day) => (day.weekday === undefined ? null : (WEEKDAY_NAMES[day.weekday - 1] ?? null));
+  const length = (day: Day) => (day.minutes === undefined ? null : `${day.minutes} min`);
+  return [
+    ...valueChange('day-renamed', { target: `day:${was.key}`, label: was.label }, was.label, now.label),
+    ...valueChange('day-weekday-changed', at('weekday'), weekday(was), weekday(now)),
+    ...valueChange('day-minutes-changed', at('minutes'), length(was), length(now)),
+  ];
+}
+
+/**
+ * A removed day or block already names what was inside it, so one reason covers its slots. A block
+ * that changes kind under one id holds nothing the old one did, so it reads as one gone and one new.
+ */
 function dayChanges(wasDay: Day, nowDay: Day, monday: LocalDate): readonly Change[] {
   const was = dayContents(wasDay, monday);
   const now = dayContents(nowDay, monday);
-  const changes: Change[] = [];
+  const changes: Change[] = [...daySettingChanges(wasDay, nowDay)];
   for (const [id, block] of was.blocks) {
-    if (!now.blocks.has(id)) changes.push({ kind: 'block-removed', target: `block:${wasDay.key}/${id}`, label: blockLabel(wasDay, block), before: block.title ?? block.id, after: null });
+    const next = now.blocks.get(id);
+    if (next?.kind === block.kind) changes.push(...blockChanges(nowDay, block, next));
+    else changes.push({ kind: 'block-removed', target: `block:${wasDay.key}/${id}`, label: blockLabel(wasDay, block), before: blockName(block), after: null });
   }
   for (const [id, block] of now.blocks) {
-    if (!was.blocks.has(id)) changes.push({ kind: 'block-added', target: `block:${nowDay.key}/${id}`, label: blockLabel(nowDay, block), before: null, after: block.title ?? block.id });
+    if (was.blocks.get(id)?.kind !== block.kind) changes.push({ kind: 'block-added', target: `block:${nowDay.key}/${id}`, label: blockLabel(nowDay, block), before: null, after: blockName(block) });
   }
   for (const [id, { slot, block }] of was.slots) {
     const next = now.slots.get(id);
-    if (next !== undefined) changes.push(...slotChanges(nowDay, slot, next.slot));
-    else if (now.blocks.has(block.id)) changes.push({ kind: 'slot-removed', target: `slot:${wasDay.key}/${id}`, label: `${wasDay.label} / ${slot.label}`, before: prescription(slot), after: null });
+    if (next !== undefined) {
+      if (next.block.id !== block.id) changes.push({ kind: 'slot-moved', target: `slot:${nowDay.key}/${id}`, label: `${nowDay.label} / ${slot.label}`, before: blockName(block), after: blockName(next.block) });
+      changes.push(...slotChanges(nowDay, slot, next.slot));
+    } else if (now.blocks.get(block.id)?.kind === block.kind) changes.push({ kind: 'slot-removed', target: `slot:${wasDay.key}/${id}`, label: `${wasDay.label} / ${slot.label}`, before: prescription(slot), after: null });
   }
   for (const [id, { slot, block }] of now.slots) {
-    if (!was.slots.has(id) && was.blocks.has(block.id)) changes.push({ kind: 'slot-added', target: `slot:${nowDay.key}/${id}`, label: `${nowDay.label} / ${slot.label}`, before: null, after: prescription(slot) });
+    if (!was.slots.has(id) && was.blocks.get(block.id)?.kind === block.kind) changes.push({ kind: 'slot-added', target: `slot:${nowDay.key}/${id}`, label: `${nowDay.label} / ${slot.label}`, before: null, after: prescription(slot) });
   }
   return changes;
 }
@@ -116,13 +206,50 @@ function standingChanges(was: readonly StandingText[], now: readonly StandingTex
   return [...keys].flatMap((key) => {
     const before = was.find((text) => text.key === key);
     const after = now.find((text) => text.key === key);
-    return textChange(STANDING_KINDS, { target: `standing:${key}`, label: after?.title ?? before?.title ?? key }, before?.text, after?.text);
+    const target = `standing:${key}`;
+    return [...textChange(STANDING_KINDS, { target, label: after?.title ?? before?.title ?? key }, before?.text, after?.text), ...(before === undefined || after === undefined ? [] : valueChange('standing-renamed', { target, label: before.title }, before.title, after.title))];
+  });
+}
+
+const noteWords = ({ title, text }: ProgramNote) => (title === undefined ? text : `${title}: ${text}`);
+
+/** A note has no id. Unchanged words match, and what is left pairs up in order as edits, so only a shorter list reads as a loss. */
+function notePairs(was: readonly ProgramNote[], now: readonly ProgramNote[]): readonly (readonly [ProgramNote | undefined, ProgramNote | undefined])[] {
+  const has = (notes: readonly ProgramNote[], note: ProgramNote) => notes.find((other) => noteWords(other) === noteWords(note));
+  const gone = was.filter((note) => has(now, note) === undefined);
+  const fresh = now.filter((note) => has(was, note) === undefined);
+  return [...was.map((note) => [note, has(now, note)] as const).filter(([, match]) => match !== undefined), ...Array.from({ length: Math.max(gone.length, fresh.length) }, (_, i) => [gone[i], fresh[i]] as const)];
+}
+
+/** The label is where the note sits, never its words, because a day's note or a later week's must not show early. */
+function noteChanges(before: Program, after: ProgramDraft, monday: LocalDate): readonly Change[] {
+  const scopeOf = (note: ProgramNote): string => note.day ?? 'week';
+  const inScope = (notes: readonly ProgramNote[], scope: string) => notes.filter(liveFrom(monday)).filter((note) => scopeOf(note) === scope);
+  const days = [...after.days, ...before.days];
+  return [...new Set([...before.notes, ...after.notes].map(scopeOf))].flatMap((scope) => {
+    const label = scope === 'week' ? 'the week' : (days.find((day) => day.key === scope)?.label ?? scope);
+    return notePairs(inScope(before.notes, scope), inScope(after.notes, scope)).flatMap(([was, now], i): readonly Change[] => {
+      const name = `${scope}/${i + 1}`;
+      const words = (note: ProgramNote | undefined) => (note === undefined ? undefined : noteWords(note));
+      return [...textChange(NOTE_KINDS, { target: `note:${name}`, label }, words(was), words(now)), ...(was === undefined || now === undefined ? [] : weekChange({ target: `only-week:note:${name}`, label: `A note on ${label}` }, was.onlyWeek, now.onlyWeek))];
+    });
+  });
+}
+
+/** A lift can only leave as an alias of another, or a publish refuses it, so the lift taking it in names the change. A new lift shows through the slot naming it, and here only when it joins histories or the board. */
+function liftChanges(was: readonly Lift[], now: readonly Lift[]): readonly Change[] {
+  const otherNames = (lift: Lift | undefined) => lift?.aliases.toSorted().join(', ') || null;
+  const keyLift = (lift: Lift | undefined) => (lift?.key === true ? 'key lift' : null);
+  return now.flatMap((lift): readonly Change[] => {
+    const at = { target: `lift:${lift.id}`, label: lift.name };
+    const before = was.find((other) => other.id === lift.id);
+    return [...(before === undefined ? [] : valueChange('lift-renamed', { ...at, label: before.name }, before.name, lift.name)), ...valueChange('lift-aliases-changed', at, otherNames(before), otherNames(lift)), ...valueChange('lift-key-changed', at, keyLift(before), keyLift(lift))];
   });
 }
 
 /**
- * What a version changes from the one before it. Blocks that lapsed before the new version's
- * week are not losses, because they had already gone by themselves.
+ * What a version changes from the one before it. Blocks and notes that lapsed before the new
+ * version's week are not losses, because they had already gone by themselves.
  */
 export function programDiff(before: Program | null, after: ProgramDraft): readonly DiffItem[] {
   if (before === null) return [];
@@ -137,6 +264,9 @@ export function programDiff(before: Program | null, after: ProgramDraft): readon
     }),
     ...now.filter((day) => !was.some((other) => other.key === day.key)).map((day): Change => ({ kind: 'day-added', target: `day:${day.key}`, label: day.label, before: null, after: day.label })),
     ...standingChanges(before.standing, after.standing),
+    ...noteChanges(before, after, monday),
+    ...valueChange('minimum-changed', { target: 'weekly-minimum', label: 'Weekly minimum' }, before.weeklyMinimum?.toString() ?? null, after.weeklyMinimum?.toString() ?? null),
+    ...liftChanges(before.lifts, after.lifts),
   ];
   return changes.map((change) => ({
     ...change,
@@ -426,7 +556,7 @@ export function targetMondayOf(today: LocalDate): LocalDate {
  */
 function draftFrom(program: Program, targetMonday: LocalDate): ProgramDraft {
   const { id: _id, publishedAt: _publishedAt, report: _report, ...rest } = program;
-  const stillLive = (item: { readonly onlyWeek?: LocalDate | undefined }) => item.onlyWeek === undefined || item.onlyWeek >= targetMonday;
+  const stillLive = liveFrom(targetMonday);
   return {
     ...rest,
     effectiveFrom: targetMonday,
