@@ -184,8 +184,10 @@ describe('train.mjs read', () => {
     });
 
     it('through a symlink that leads into one', async () => {
+      const inside = join(checkout(), 'sub');
+      mkdirSync(inside);
       const link = join(scratch, 'innocent');
-      symlinkSync(checkout(), link);
+      symlinkSync(inside, link);
       const { exit, line } = await tool(['read'], { FUEL_COACH_DIR: join(link, 'coach'), FUEL_URL: 'http://127.0.0.1:1' });
       expect(exit).toBe(1);
       expect(Printed.parse(line).status).toBe('refused');
