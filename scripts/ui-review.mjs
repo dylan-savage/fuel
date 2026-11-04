@@ -2,11 +2,13 @@
 // Photographs the built app the way Dylan sees it: an iPhone-sized WebKit browser, real data.
 //
 //   npm run build && node scripts/ui-review.mjs <label> [--dark] [--serve]
+//   node scripts/ui-review.mjs --sheet <dir>
 //
 // It copies the live database, serves the copy on its own port and walks the training screens,
 // so nothing touches the live server. The copy and the shots hold real data, so both stay under
 // .private/ui-review, which git ignores. Food screens use invented data in e2e/shots.spec.ts,
 // because the live diary is empty. --serve keeps the server up for a live look at port 8796.
+// --sheet makes contact sheets of a folder of shots, such as those, and does nothing else.
 /* global window, document */
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
@@ -15,6 +17,37 @@ import { join, resolve } from 'node:path';
 import { devices, webkit } from '@playwright/test';
 
 const args = process.argv.slice(2);
+
+/** One image of every shot with its name, because reading them one at a time costs far more. Answers how many shots and sheets it made. */
+async function contactSheets(browser, from, to, prefix) {
+  const context = await browser.newContext({ viewport: { width: 1560, height: 900 } });
+  const sheet = await context.newPage();
+  const files = readdirSync(from).filter((f) => f.endsWith('.png') && !f.startsWith('contact-')).sort();
+  for (let i = 0; i < files.length; i += 10) {
+    const cells = files.slice(i, i + 10).map((f) => {
+      const src = `data:image/png;base64,${readFileSync(join(from, f)).toString('base64')}`;
+      return `<figure><figcaption>${f}</figcaption><img src="${src}"></figure>`;
+    });
+    await sheet.setContent(`<!doctype html><style>
+      body{margin:8px;background:#666;font:13px -apple-system,sans-serif;color:#fff;display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+      figure{margin:0}figcaption{padding:2px 0}img{width:100%;display:block}
+    </style>${cells.join('')}`);
+    await sheet.waitForLoadState('load');
+    await sheet.screenshot({ path: join(to, `${prefix}-${i / 10 + 1}.png`), fullPage: true });
+  }
+  await context.close();
+  return { shots: files.length, sheets: Math.ceil(files.length / 10) };
+}
+
+const sheetAt = args.indexOf('--sheet');
+if (sheetAt !== -1) {
+  const dir = resolve(args[sheetAt + 1] ?? '.');
+  const browser = await webkit.launch();
+  process.stdout.write(`${JSON.stringify({ dir, ...(await contactSheets(browser, dir, dir, 'contact')) })}\n`);
+  await browser.close();
+  process.exit(0);
+}
+
 const label = args.find((a) => !a.startsWith('--')) ?? 'latest';
 const colorScheme = args.includes('--dark') ? 'dark' : 'light';
 const PORT = 8796;
@@ -157,25 +190,10 @@ await shot('goal', () => tab('Goal'));
 
 await context.close();
 
-// One image of every shot with its name, because reading them one at a time costs far more.
-const sheetContext = await browser.newContext({ viewport: { width: 1560, height: 900 } });
-const sheet = await sheetContext.newPage();
-const files = readdirSync(out).filter((f) => f.endsWith('.png')).sort();
-for (let i = 0; i < files.length; i += 10) {
-  const cells = files.slice(i, i + 10).map((f) => {
-    const src = `data:image/png;base64,${readFileSync(join(out, f)).toString('base64')}`;
-    return `<figure><figcaption>${f}</figcaption><img src="${src}"></figure>`;
-  });
-  await sheet.setContent(`<!doctype html><style>
-    body{margin:8px;background:#666;font:13px -apple-system,sans-serif;color:#fff;display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
-    figure{margin:0}figcaption{padding:2px 0}img{width:100%;display:block}
-  </style>${cells.join('')}`);
-  await sheet.waitForLoadState('load');
-  await sheet.screenshot({ path: join(root, label, `contact-${colorScheme}-${i / 10 + 1}.png`), fullPage: true });
-}
+const { shots, sheets } = await contactSheets(browser, out, join(root, label), `contact-${colorScheme}`);
 await browser.close();
 
-process.stdout.write(`${JSON.stringify({ out, shots: files.length, sheets: Math.ceil(files.length / 10), failures })}\n`);
+process.stdout.write(`${JSON.stringify({ out, shots, sheets, failures })}\n`);
 if (args.includes('--serve')) {
   process.stdout.write(`serving the copy at ${base}, Ctrl-C to stop\n`);
   await new Promise(() => {});
