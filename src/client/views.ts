@@ -151,7 +151,6 @@ async function coachCard(r: ReplicaReader, inEffect: Program, monday: LocalDate,
 }
 
 export interface WeekView extends WeekProgress {
-  readonly minimum: number | null;
   readonly coach: CoachWeek;
   /** The week's own notes in effect. A note naming a day is on that day's preview. */
   readonly notes: readonly ProgramNote[];
@@ -176,7 +175,6 @@ export async function weekView(r: ReplicaReader, today: LocalDate): Promise<Week
   ]);
   return {
     ...weekProgress({ program, sessions, performances, today }),
-    minimum: program.weeklyMinimum ?? null,
     coach,
     notes: notesFor(program, today),
     standing: program.standing,
@@ -284,7 +282,10 @@ export async function showUpView(r: ReplicaReader, today: LocalDate): Promise<Sh
   return { ...shown, done, planned, unfinished: weekUnfinished(done, shown.minimum, planned) };
 }
 
-/** The key lifts in catalog order. Two seeks per id, so the rest of the history is never read. */
+/**
+ * The key lifts done in the window, in catalog order, with too few topped up from the lifts logged
+ * most recently. Two seeks per id, so the rest of the history is never read.
+ */
 export async function boardView(r: ReplicaReader, today: LocalDate): Promise<readonly BoardRow[]> {
   const program = await r.programOn(today);
   if (program === undefined) return [];

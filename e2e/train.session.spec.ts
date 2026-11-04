@@ -3,7 +3,7 @@
  * week, later than any other spec's clock and earlier than the test before it, so a session one
  * leaves open is still in the future for the next and nothing settles it.
  */
-import { expect, test, type BrowserContext, type Locator, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { PROFILE_ID, goalId } from '../src/domain/goals.js';
 import { addDays } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
@@ -33,7 +33,7 @@ async function logExpecting(page: Page, name: string, round: string) {
   await logSet(page);
 }
 
-const startButton = (page: Page) => page.getByRole('list', { name: 'Days' }).getByRole('button', { name: 'Start', exact: true });
+const startButton = (page: Page) => page.getByRole('region', { name: 'Next day' }).getByRole('button', { name: 'Start', exact: true });
 
 async function openWeek(page: Page) {
   await page.goto('/');
@@ -700,7 +700,7 @@ test('says so when this phone does not hold the version a session pinned, and st
   await expect(startButton(page)).toBeVisible();
 });
 
-test('Tell the coach writes a loose note beside the chip that was there, with an undo', async ({ page, request }) => {
+test('Tell the coach writes a loose note from the Coach sheet, with an undo', async ({ page, request }) => {
   const MONDAY = '2031-07-14';
   const DAY = '2031-07-16';
   const version = program(MONDAY, [{ key: 'one', label: 'One day', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'pin-press', 3, { label: 'Pin press' })])] }]);
@@ -709,18 +709,18 @@ test('Tell the coach writes a loose note beside the chip that was there, with an
   await page.goto('/');
   await tab(page, 'Train').click();
   await expect(page.getByTestId('week-count')).toBeVisible({ timeout: 15_000 });
-  const chips: Locator = page.locator('.train > .pills .pill');
-  await expect(chips).toHaveText(['Progress', 'Weigh in', 'Tell the coach']);
+  await expect(page.getByRole('list', { name: 'More' }).getByRole('button'), 'no weigh-in today, so its row is there').toHaveText(['Coach', 'Progress', 'Weigh in']);
 
-  await page.getByRole('button', { name: 'Tell the coach' }).click();
-  const sheet = page.getByRole('dialog', { name: 'Tell the coach' });
+  const openCoach = () => page.getByRole('button', { name: /^Coach/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'Coach' });
+  await openCoach();
   await expect(sheet.getByRole('button', { name: 'Save note' })).toBeDisabled();
-  await sheet.getByLabel("For Sunday's review").fill('Invented line one.');
+  await sheet.getByLabel('Tell the coach').fill('Invented line one.');
   await sheet.getByRole('button', { name: 'Save note' }).click();
   await toast(page, 'Saved for the coach').getByRole('button', { name: 'Undo' }).click();
 
-  await page.getByRole('button', { name: 'Tell the coach' }).click();
-  await sheet.getByLabel("For Sunday's review").fill('Invented line two.');
+  await openCoach();
+  await sheet.getByLabel('Tell the coach').fill('Invented line two.');
   await sheet.getByRole('button', { name: 'Save note' }).click();
   await expect(toast(page, 'Saved for the coach')).toBeVisible();
   await expect.poll(() => stored('trainingNote').filter((n) => n.date === DAY).map((n) => n.text), { timeout: 15_000 }).toEqual(['Invented line two.']);

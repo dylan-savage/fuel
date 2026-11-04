@@ -126,7 +126,7 @@ test('reports the time from a tap on Train to the day list, on years of invented
       await tab(page, 'Diary').click();
       await expect(page.getByRole('region', { name: 'Breakfast' })).toBeVisible();
       taps.push(await tapTrain(page));
-      await expect(page.getByTestId('week-count')).toHaveText(`0 of ${SESSIONS_A_WEEK} done, minimum 3`);
+      await expect(page.getByTestId('week-count')).toHaveText(`0 of ${SESSIONS_A_WEEK} done`);
     }
     return taps;
   };
@@ -150,11 +150,11 @@ test('reports the time from a tap on Train to the day list, on years of invented
     await expect(page.getByRole('region', { name: 'Breakfast' })).toBeVisible();
     await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 1000)));
     afterReload.push(await tapTrain(page));
-    await expect(page.getByTestId('week-count')).toHaveText(`0 of ${SESSIONS_A_WEEK} done, minimum 3`);
+    await expect(page.getByTestId('week-count')).toHaveText(`0 of ${SESSIONS_A_WEEK} done`);
   }
   const afterSwitch = await tapsFromDiary();
 
-  for (const tap of [...beforeHistory, ...afterReload, ...afterSwitch]) expect(tap.rows, 'the list held every day when timed').toBe(SESSIONS_A_WEEK);
+  for (const tap of [...beforeHistory, ...afterReload, ...afterSwitch]) expect(tap.rows, 'the list held every day but the next one, which is the hero, when timed').toBe(SESSIONS_A_WEEK - 1);
   const marks = (taps: readonly Tap[]) => ({ painted: summary(taps.map((t) => t.paintedMs)), list: summary(taps.map((t) => t.listMs)), title: summary(taps.map((t) => t.titleMs)) });
   const report = { data: { ...held, versionBytes, today }, beforeHistory: marks(beforeHistory), afterReload: marks(afterReload), afterTabSwitch: marks(afterSwitch) };
   const dir = join('test-results', 'timing');
@@ -220,9 +220,9 @@ test('reports the time from a tap on Log set to the card showing the next step, 
   const taps: LogTap[] = [];
   const startedOn: string[] = [];
   for (let s = 0; s < SESSIONS_TIMED; s++) {
-    const start = page.getByRole('list', { name: 'Days' }).getByRole('button', { name: 'Start', exact: true });
+    const start = page.getByRole('region', { name: 'Next day' }).getByRole('button', { name: 'Start', exact: true });
     await expect(start).toBeVisible();
-    const label = (await page.locator('.day-startable .food-name').textContent()) ?? '';
+    const label = (await page.locator('.next-day .hero-number').textContent()) ?? '';
     await start.tap();
     await expect(page.getByRole('button', { name: 'Log set' })).toBeVisible();
     startedOn.push(label);
@@ -236,7 +236,7 @@ test('reports the time from a tap on Log set to the card showing the next step, 
       taps.push(tap);
     }
     await page.getByRole('button', { name: 'Finish', exact: true }).tap();
-    await expect(page.getByTestId('week-count')).toHaveText(`${s + 1} of ${SESSIONS_A_WEEK} done, minimum 3`);
+    await expect(page.getByTestId('week-count')).toHaveText(`${s + 1} of ${SESSIONS_A_WEEK} done`);
   }
 
   const expectedSets = taps.length;

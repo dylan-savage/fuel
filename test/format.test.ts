@@ -1,8 +1,9 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { clipped, editable, lbField, parseNumber, pastMoment, prescriptionText, weekdayName } from '../src/client/screens/format.js';
+import { checklistLabel, clipped, editable, lbField, parseNumber, pastMoment, planSections, prescriptionText, supersetLabel, targetNotes, weekdayName } from '../src/client/screens/format.js';
 import { KG_PER_LB } from '../src/domain/goals.js';
-import { day, target } from './training.fixtures.js';
+import { dayParts, type PlannedDay } from '../src/domain/program.js';
+import { checklist, day, dayKey, liftsBlock, slot, target } from './training.fixtures.js';
 
 describe('form field prefills', () => {
   it('parse back to the exact value, so saving an untouched field changes nothing', () => {
@@ -36,16 +37,46 @@ describe('the Train tab\'s wording', () => {
   });
 
   it.each([
-    [target(3, 8, 12), '3 × 8–12'],
-    [target(2, 10, 10), '2 × 10'],
-    [target(3, 8, 12, { perSide: 'left-first' }), '3 × 8–12, per side, left first'],
-    [target(3, 8, 12, { perSide: 'right-first' }), '3 × 8–12, per side, right first'],
-    [target(3, 8, 12, { perSide: 'either' }), '3 × 8–12, per side'],
-    [target(2, 15, 15, { load: 'bodyweight' }), '2 × 15, bodyweight'],
-    [target(2, 15, 15, { load: 'band' }), '2 × 15, band'],
-    [target(3, 8, 12, { load: 'weight' }), '3 × 8–12'],
-  ])('writes a prescription as %j', (prescribed, text) => {
+    [target(3, 8, 12), '3 × 8–12', []],
+    [target(2, 10, 10), '2 × 10', []],
+    [target(3, 8, 12, { perSide: 'left-first' }), '3 × 8–12', ['Per side, left first']],
+    [target(3, 8, 12, { perSide: 'right-first' }), '3 × 8–12', ['Per side, right first']],
+    [target(3, 8, 12, { perSide: 'either' }), '3 × 8–12', ['Per side']],
+    [target(2, 15, 15, { load: 'bodyweight' }), '2 × 15', ['Bodyweight']],
+    [target(2, 15, 15, { load: 'band', perSide: 'either' }), '2 × 15', ['Per side', 'Band']],
+    [target(3, 8, 12, { load: 'weight' }), '3 × 8–12', []],
+  ])('writes a prescription as %j', (prescribed, text, notes) => {
     expect(prescriptionText(prescribed)).toBe(text);
+    expect(targetNotes(prescribed)).toEqual(notes);
+  });
+
+  describe('a day read as lists', () => {
+    const pair = liftsBlock('pair', [slot('a1', 'seal-row', 3), slot('a2', 'pin-press', 3)], { restSeconds: 60 });
+    const one = liftsBlock('one', [slot('b1', 'front-squat', 3)], { restSeconds: 90 });
+    const warm = checklist('warm', { title: 'Warm-up', items: ['One', 'Two', 'Three'] });
+    const plan = (...blocks: PlannedDay['blocks']): PlannedDay => ({ key: dayKey('a'), label: 'A', minutes: undefined, blocks });
+
+    it('labels only a superset, the way the design words it', () => {
+      const [first, second] = dayParts(plan(pair, liftsBlock('named', [slot('c1', 'dip', 2), slot('c2', 'row', 2)], { title: 'Finisher' })));
+      expect(first && supersetLabel(first)).toBe('Superset · 3 rounds · rest 60s');
+      expect(second && supersetLabel(second)).toBe('Finisher · 2 rounds');
+      const [alone] = dayParts(plan(one));
+      expect(alone && supersetLabel(alone)).toBeNull();
+    });
+
+    it('counts a checklist in moves', () => {
+      expect(checklistLabel(warm)).toBe('Warm-up · 3 moves');
+      expect(checklistLabel(checklist('short', { items: ['One'] }))).toBe('Checklist · 1 move');
+    });
+
+    it('keeps a superset to itself, and the rows around it in one list each', () => {
+      const sections = planSections(dayParts(plan(warm, one, pair, one, warm)));
+      expect(sections.map((section) => [section.label, section.parts.length])).toEqual([
+        [null, 2],
+        ['Superset · 3 rounds · rest 60s', 1],
+        [null, 2],
+      ]);
+    });
   });
 
   it('clips long text at a word and leaves short text whole', () => {

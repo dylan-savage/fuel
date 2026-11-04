@@ -4,7 +4,7 @@ import { KG_PER_LB } from '../../domain/goals.js';
 import { ML_PER_FL_OZ } from '../../domain/habits.js';
 import { addDays, type LocalDate } from '../../domain/ids.js';
 import type { Target } from '../../domain/lifts.js';
-import type { DayPart } from '../../domain/program.js';
+import type { ChecklistBlock, DayPart } from '../../domain/program.js';
 import type { FoodUnit } from '../../domain/units.js';
 import { localDate } from '../clock.js';
 
@@ -163,19 +163,55 @@ export function pastMoment(at: number, today: LocalDate): string {
   return date > addDays(today, -7) ? `${LONG_WEEKDAY.format(new Date(at))} ${timeOfDay(at)}` : `${shortDate(date, today)}, ${timeOfDay(at)}`;
 }
 
-const PER_SIDE: Readonly<Record<NonNullable<Target['perSide']>, string>> = { 'left-first': 'per side, left first', 'right-first': 'per side, right first', either: 'per side' };
+const PER_SIDE: Readonly<Record<NonNullable<Target['perSide']>, string>> = { 'left-first': 'Per side, left first', 'right-first': 'Per side, right first', either: 'Per side' };
+
+const LOAD_NOTE: Readonly<Record<NonNullable<Target['load']>, string | null>> = { weight: null, bodyweight: 'Bodyweight', band: 'Band' };
 
 const repRange = ({ reps }: Target) => (reps.min === reps.max ? `${reps.max}` : `${reps.min}–${reps.max}`);
 
-/** "3 × 8–12", "2 × 10, per side, left first", "3 × 15, band". */
+/** "3 × 8–12". */
 export function prescriptionText(target: Target): string {
-  const { sets, perSide, load } = target;
-  return [`${sets} × ${repRange(target)}`, ...(perSide === undefined ? [] : [PER_SIDE[perSide]]), ...(load === undefined || load === 'weight' ? [] : [load])].join(', ');
+  return `${target.sets} × ${repRange(target)}`;
+}
+
+/** What the prescription leaves unsaid: "Per side, left first", "Band". Each on its own line when opened. */
+export function targetNotes({ perSide, load }: Target): readonly string[] {
+  const note = load === undefined ? null : LOAD_NOTE[load];
+  return [...(perSide === undefined ? [] : [PER_SIDE[perSide]]), ...(note === null ? [] : [note])];
 }
 
 /** "8–12 reps", "10 reps per side", "1 rep": a set's target, on the card. */
 export function repsTargetText(target: Target): string {
   return `${repRange(target)} ${target.reps.max === 1 ? 'rep' : 'reps'}${target.perSide === undefined ? '' : ' per side'}`;
+}
+
+/** "Superset · 3 rounds · rest 60s". Null for anything that is not a superset, which has no heading. */
+export function supersetLabel({ block, superset }: DayPart): string | null {
+  if (block.kind !== 'lifts' || superset === null) return null;
+  return [block.title ?? 'Superset', `${superset.rounds} rounds`, ...(block.restSeconds === undefined ? [] : [`rest ${block.restSeconds}s`])].join(' · ');
+}
+
+/** "Warm-up · 3 moves". */
+export function checklistLabel({ title, items }: ChecklistBlock): string {
+  return `${title ?? 'Checklist'} · ${count(items.length, 'move')}`;
+}
+
+/** One list of a day. `label` heads a superset, and is null for the rows between supersets. */
+export interface PlanSection {
+  readonly label: string | null;
+  readonly parts: readonly DayPart[];
+}
+
+/** A day as its lists: a superset stands alone under its label, and everything between supersets shares one list. */
+export function planSections(parts: readonly DayPart[]): readonly PlanSection[] {
+  const sections: PlanSection[] = [];
+  for (const part of parts) {
+    const label = supersetLabel(part);
+    const last = sections.at(-1);
+    if (label === null && last !== undefined && last.label === null) sections.splice(-1, 1, { label: null, parts: [...last.parts, part] });
+    else sections.push({ label, parts: [part] });
+  }
+  return sections;
 }
 
 const phrase = (...words: readonly (string | undefined)[]) => words.filter((word) => word !== undefined).join(', ');

@@ -24,11 +24,20 @@ function put(docs: { readonly performances?: readonly Performance[]; readonly se
 
 const title = (page: Page, name: string) => page.getByRole('heading', { name, exact: true, level: 1 });
 const dayRow = (page: Page, name: string | RegExp) => page.getByRole('list', { name: 'Days' }).getByRole('button', { name });
+const nextDay = (page: Page) => page.getByRole('region', { name: 'Next day' });
 
+/** From its row, or from the hero when it is the next day. */
 async function openDay(page: Page, name: string) {
-  await dayRow(page, name).click();
+  await page.locator('.train').getByRole('button', { name: new RegExp(`^${name}`) }).click();
   return page.getByRole('dialog', { name });
 }
+
+async function openCoach(page: Page) {
+  await page.getByRole('button', { name: /^Coach/ }).click();
+  return page.getByRole('dialog', { name: 'Coach' });
+}
+
+const closeCoach = (page: Page) => page.getByRole('dialog', { name: 'Coach' }).getByRole('button', { name: 'Done' }).click();
 
 test('says so in one sentence before any program exists', async ({ page }) => {
   await page.clock.install({ time: at('2020-01-08') });
@@ -59,18 +68,21 @@ test('a fake clock crosses two Mondays offline with no writes', async ({ page, c
   await page.clock.install({ time: at('2031-03-05') });
   await openControlled(page);
   await tab(page, 'Train').click();
-  await expect(page.getByTestId('week-count')).toHaveText('1 of 2 done, minimum 1');
+  await expect(page.getByTestId('week-count')).toHaveText('1 of 2 done');
   await context.setOffline(true);
   await page.reload();
   await tab(page, 'Train').click();
 
-  const lastLine = 'Last, Mar 3: 40 lb × 10/10/9';
+  const lastLine = '40 lb × 10/10/9 · Mar 3';
   await expect(title(page, 'Week of Mar 3')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Coach' })).toContainText(/Coach, Sunday 7:02\sAM/);
-  await expect(page.getByText('Invented report for the first week.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'What changed (2) ›' })).toBeVisible();
-  await expect(page.getByText('First week only.')).toBeVisible();
-  await expect(page.getByText('Second week only.')).toBeHidden();
+  await expect(page.getByRole('button', { name: /^Coach/ }), 'one line of the report on the row').toContainText('Invented report for the first week.');
+  let coach = await openCoach(page);
+  await expect(coach).toContainText(/Sunday 7:02\sAM/);
+  await expect(coach.getByText('Invented report for the first week.')).toBeVisible();
+  await expect(coach.getByRole('list', { name: 'Changes' }).getByRole('listitem')).toHaveCount(2);
+  await expect(coach.getByText('First week only.')).toBeVisible();
+  await expect(coach.getByText('Second week only.')).toBeHidden();
+  await closeCoach(page);
   await expect(dayRow(page, /^Strength one/)).toContainText('Done Mon');
   let sheet = await openDay(page, 'Strength one');
   await expect(sheet.getByText('Retest one')).toBeVisible();
@@ -80,13 +92,15 @@ test('a fake clock crosses two Mondays offline with no writes', async ({ page, c
 
   await page.clock.fastForward(7 * DAY_MS);
   await expect(title(page, 'Week of Mar 10')).toBeVisible();
-  await expect(page.getByTestId('week-count')).toHaveText('0 of 2 done, minimum 1');
-  await expect(page.getByText('No coach check-in this week')).toBeVisible();
-  await expect(page.getByText('Invented report for the first week.')).toBeHidden();
-  await expect(page.getByText('First week only.')).toBeHidden();
-  await expect(page.getByText('Second week only.')).toBeVisible();
-  await expect(page.getByText('Every week.')).toBeVisible();
-  await expect(dayRow(page, /^Strength one/)).not.toContainText('Done');
+  await expect(page.getByTestId('week-count')).toHaveText('0 of 2 done');
+  coach = await openCoach(page);
+  await expect(coach.getByText('No check-in this week')).toBeVisible();
+  await expect(coach.getByText('Invented report for the first week.')).toBeHidden();
+  await expect(coach.getByText('First week only.')).toBeHidden();
+  await expect(coach.getByText('Second week only.')).toBeVisible();
+  await expect(coach.getByText('Every week.')).toBeVisible();
+  await closeCoach(page);
+  await expect(nextDay(page), 'undone again, so it is next').toContainText('Strength one');
   sheet = await openDay(page, 'Strength one');
   await expect(sheet.getByText('Retest one')).toBeHidden();
   await expect(sheet.getByText('Retest two')).toBeVisible();
@@ -95,8 +109,10 @@ test('a fake clock crosses two Mondays offline with no writes', async ({ page, c
 
   await page.clock.fastForward(7 * DAY_MS);
   await expect(title(page, 'Week of Mar 17')).toBeVisible();
-  await expect(page.getByText('No coach check-in this week')).toBeVisible();
-  await expect(page.getByText('Second week only.')).toBeHidden();
+  coach = await openCoach(page);
+  await expect(coach.getByText('No check-in this week')).toBeVisible();
+  await expect(coach.getByText('Second week only.')).toBeHidden();
+  await closeCoach(page);
   sheet = await openDay(page, 'Strength one');
   await expect(sheet.getByText('Retest two')).toBeHidden();
   await expect(sheet.getByText(lastLine)).toBeVisible();
@@ -105,7 +121,7 @@ test('a fake clock crosses two Mondays offline with no writes', async ({ page, c
   await page.reload();
   await tab(page, 'Train').click();
   await expect(title(page, 'Week of Mar 17')).toBeVisible();
-  await expect(page.getByText('No coach check-in this week')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Coach', exact: true }), 'a quiet week leaves the row its name').toBeVisible();
 
   expect(await countOnPhone(page, 'outbox'), 'nothing was written').toBe(0);
   await expect(page.getByText(/\d+ waiting/)).toBeHidden();
@@ -178,51 +194,68 @@ test('shows the week and a day as approved, from imports, a mid-week version and
   await tab(page, 'Train').click();
 
   await expect(title(page, 'Week of Jun 2')).toBeVisible();
-  await expect(page.getByTestId('week-count')).toHaveText('3 of 4 done, minimum 2', { timeout: 15_000 });
-  await expect(page.getByRole('list', { name: 'Days' }).getByRole('listitem')).toHaveCount(4);
-  await expect(dayRow(page, /^Press day/)).toContainText('55 min');
+  await expect(page.getByTestId('week-count')).toHaveText('3 of 4 done', { timeout: 15_000 });
+  await expect(page.getByRole('list', { name: 'Days' }).getByRole('listitem'), 'every day but the next').toHaveCount(3);
   await expect(dayRow(page, /^Press day/), 'an imported session with no pin').toContainText('Done Mon');
   await expect(dayRow(page, /^Pull day, renamed/), 'a Tuesday plan done on Wednesday, under a version published since').toContainText('Done Wed');
-  await expect(page.locator('[aria-current="true"]'), 'today is Thursday and leg day is undone').toContainText('Leg day');
+  await expect(nextDay(page), 'today is Thursday and leg day is undone').toContainText('Leg day');
+  await expect(nextDay(page)).toContainText('60 min · 1 exercise');
 
-  const coach = page.getByRole('region', { name: 'Coach' });
-  await expect(coach).toContainText(/Coach, Sunday 7:02\sAM/);
+  const coach = await openCoach(page);
+  await expect(coach).toContainText(/Sunday 7:02\sAM/);
   await expect(coach).toContainText('Week thirteen');
   await expect(coach).toContainText('Invented report: the week went to plan.');
-  await coach.getByRole('button', { name: /What changed \(\d+\) ›/ }).click();
-  const changes = page.getByRole('dialog', { name: 'What changed' });
-  await expect(changes.getByText('Press day / Trap bar deadlift went from 3 x 8-12 to 3 x 6-10')).toBeVisible();
-  await expect(changes.getByText('Invented reason for fewer reps.')).toBeVisible();
-  await changes.getByRole('button', { name: 'Done' }).click();
-
-  await expect(page.getByText('The very end of the note.')).toBeHidden();
-  await page.getByRole('button', { name: 'More', exact: true }).click();
-  await expect(page.getByText(/The very end of the note\./)).toBeVisible();
-  await expect(page.getByText('Only on press day.')).toBeHidden();
+  await expect(coach.getByText('Press day / Trap bar deadlift went from 3 x 8-12 to 3 x 6-10')).toBeVisible();
+  await expect(coach.getByText('Invented reason for fewer reps.')).toBeVisible();
+  await expect(coach.getByText(/The very end of the note\./), 'a note in full, with no More link').toBeVisible();
+  await expect(coach.getByRole('button', { name: 'More', exact: true })).toHaveCount(0);
+  await expect(coach.getByText('Only on press day.')).toBeHidden();
+  await closeCoach(page);
 
   const sheet = await openDay(page, 'Press day');
+  await expect(sheet.getByText('55 min · 3 exercises')).toBeVisible();
   await expect(sheet.getByText('Only on press day.')).toBeVisible();
-  await expect(sheet.getByRole('heading', { level: 4 })).toHaveText(['Warm up', 'Superset A, 3 rounds, rest 75s', 'Heavy, rest 120s', 'Easy ride, cardio', 'Extras']);
-  await expect(sheet.getByRole('region', { name: 'Extras' })).toContainText('Optional');
+  await expect(sheet.getByRole('heading', { level: 3 }), 'a one-lift block has no heading').toHaveText(['Superset · 3 rounds · rest 75s']);
   await expect(sheet.getByText('Lapsed block')).toBeHidden();
+
+  // A checklist is one row that opens.
+  await expect(sheet.getByText('Warm up · 2 moves')).toBeVisible();
+  await expect(sheet.getByText('Band pull-apart')).toBeHidden();
+  await sheet.getByText('Warm up · 2 moves').click();
   await expect(sheet.getByText('Invented note on warming up.')).toBeVisible();
   await expect(sheet.getByText('Band pull-apart')).toBeVisible();
 
-  const pair = sheet.getByRole('region', { name: 'Superset A' });
-  await expect(pair).toContainText('3 × 8–12');
-  await expect(pair).toContainText('3 × 8–12, per side, left first');
-  await expect(pair.getByText('Last, May 30: 22.5 kg × 12/10/9'), 'a kg set as typed').toBeVisible();
-  await expect(pair.getByText('Last, May 29: 35 lb × 10+9/9+9'), 'a per-side set as typed').toBeVisible();
-  await expect(pair.getByText('Swaps: Pec deck')).toBeVisible();
+  // A row shows the name, the target and last time. A tap opens the rest.
+  const pair = sheet.getByRole('region', { name: /^Superset/ });
+  await expect(pair.locator('details').filter({ hasText: 'Cable fly' }).locator('.row-end')).toHaveText('3 × 8–12');
+  await expect(pair.getByText('22.5 kg × 12/10/9 · May 30'), 'a kg set as typed').toBeVisible();
+  await expect(pair.getByText('35 lb × 10+9/9+9 · May 29'), 'a per-side set as typed').toBeVisible();
+  await expect(pair.getByText('Swaps: Pec deck')).toBeHidden();
   await expect(pair.getByText('Invented cue about tempo.')).toBeHidden();
-  await pair.getByText('Cue', { exact: true }).click();
+  await pair.getByText('Cable fly', { exact: true }).click();
+  await expect(pair.getByText('Swaps: Pec deck')).toBeVisible();
   await expect(pair.getByText('Invented cue about tempo.')).toBeVisible();
+  await pair.getByText('Meadows row', { exact: true }).click();
+  await expect(pair.getByText('Per side, left first')).toBeVisible();
 
-  const heavy = sheet.getByRole('region', { name: /^Heavy/ });
-  await expect(heavy.getByText('Last, May 28: 225 lb × 12/12/12'), 'a lift logged under an alias').toBeVisible();
-  await expect(heavy.getByText('Add weight next time')).toBeVisible();
-  await expect(pair.getByText('Add weight next time')).toBeHidden();
-  await expect(sheet.getByRole('region', { name: 'Extras' })).toContainText('2 × 15, bodyweight');
+  const heavy = sheet.locator('details').filter({ hasText: 'Trap bar deadlift' });
+  await expect(heavy.getByText('225 lb × 12/12/12 · May 28'), 'a lift logged under an alias').toBeVisible();
+  await expect(heavy.locator('.row-end')).toContainText('3 × 6–10');
+  await expect(heavy.getByText('Add weight')).toBeVisible();
+  await expect(pair.getByText('Add weight')).toBeHidden();
+  await expect(heavy.getByText('Rest 120s')).toBeHidden();
+  await heavy.locator('summary').click();
+  await expect(heavy.getByText('Rest 120s')).toBeVisible();
+  await expect(heavy.getByText('Heavy', { exact: true })).toBeVisible();
+
+  // Optional blocks fold into one row at the end.
+  const optional = sheet.getByRole('region', { name: 'Optional' });
+  await expect(optional.locator('.row-detail').first()).toHaveText('Reverse crunch');
+  await expect(optional.getByText('2 × 15')).toBeHidden();
+  await optional.getByText('Optional', { exact: true }).click();
+  await expect(optional.getByText('2 × 15')).toBeVisible();
+  await expect(sheet.locator('.sheet-body > section').last(), 'at the end').toHaveAccessibleName('Optional');
+
   await sheet.getByRole('button', { name: 'Done' }).click();
 
   await page.getByRole('button', { name: 'Program', exact: true }).click();
@@ -296,16 +329,18 @@ test.describe('a shell that has just updated', () => {
     await tab(page, 'Train').click();
     await expect(dayRow(page, /^Older push/), 'the older version in effect, its session marked by key').toContainText('Done Mon', { timeout: 15_000 });
     await expect(page.getByTestId('week-count')).toHaveText('1 of 1 done');
-    await expect(page.getByText('No coach check-in this week')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Coach', exact: true })).toBeVisible();
 
     phase = 'open';
     release();
     await expect(dayRow(page, /^Newer push/), 'the rest arrives with no tap').toContainText('Done Mon', { timeout: 15_000 });
     await expect(page.getByTestId('week-count')).toHaveText('1 of 2 done');
-    await expect(page.getByText('Invented report past the re-pull.')).toBeVisible();
-    await expect(page.getByRole('button', { name: /What changed/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Coach/ })).toContainText('Invented report past the re-pull.');
+    const coach = await openCoach(page);
+    await expect(coach.getByRole('heading', { name: 'What changed' })).toBeVisible();
+    await closeCoach(page);
     const sheet = await openDay(page, 'New pull');
-    await expect(sheet.getByText('Last, Aug 28: 70 lb × 9')).toBeVisible();
+    await expect(sheet.getByText('70 lb × 9 · Aug 28')).toBeVisible();
     expect(trouble).toEqual([]);
   });
 });

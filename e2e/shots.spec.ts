@@ -668,33 +668,41 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.clock.setFixedTime(TRAIN_NOON);
       await page.goto('/');
       await tab(page, 'Train').click();
-      await expect(page.getByTestId('week-count')).toHaveText('2 of 4 done, minimum 3', { timeout: 15_000 });
+      await expect(page.getByTestId('week-count')).toHaveText('2 of 4 done', { timeout: 15_000 });
       await page.screenshot({ path: join(dir, `train-${colorScheme}.png`), animations: 'disabled' });
 
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       await page.screenshot({ path: join(dir, `train-bottom-${colorScheme}.png`), animations: 'disabled' });
-      const lastRow = await page.getByRole('button', { name: 'Program', exact: true }).boundingBox();
+      const lastRow = await page.getByRole('list', { name: 'More' }).boundingBox();
       const bar = await page.getByRole('navigation', { name: 'Sections' }).boundingBox();
       expect((lastRow?.y ?? Infinity) + (lastRow?.height ?? 0), 'nothing sits under the tab bar').toBeLessThanOrEqual(bar?.y ?? 0);
       // A full-page capture would paint the fixed tab bar mid-page.
       await page.screenshot({ path: join(dir, `train-${colorScheme}-full.png`), fullPage: true, animations: 'disabled', style: '.tab-bar { display: none; }' });
 
-      await page.getByRole('button', { name: 'More', exact: true }).first().click();
       await page.evaluate(() => window.scrollTo(0, 0));
-      await page.screenshot({ path: join(dir, `train-report-open-${colorScheme}.png`), animations: 'disabled' });
-
-      await page.getByRole('button', { name: /What changed/ }).click();
-      const changes = page.getByRole('dialog', { name: 'What changed' });
-      await expect(changes.getByRole('listitem')).not.toHaveCount(0);
-      await page.screenshot({ path: join(dir, `train-changes-${colorScheme}.png`), animations: 'disabled' });
-      await changes.getByRole('button', { name: 'Done' }).click();
+      await page.getByRole('button', { name: /^Coach/ }).click();
+      const coach = page.getByRole('dialog', { name: 'Coach' });
+      await expect(coach.getByRole('list', { name: 'Changes' }).getByRole('listitem')).not.toHaveCount(0);
+      await page.screenshot({ path: join(dir, `train-coach-${colorScheme}.png`), animations: 'disabled' });
+      await coach.locator('.sheet-body').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await page.screenshot({ path: join(dir, `train-coach-bottom-${colorScheme}.png`), animations: 'disabled' });
+      await coach.getByLabel('Tell the coach').focus();
+      const aboveCoachKeys = await raiseKeyboard(page);
+      const saveCoach = await boxOf(page, coach.getByRole('button', { name: 'Save note' }));
+      expect(saveCoach.y + saveCoach.height, 'the keyboard does not hide Save note').toBeLessThanOrEqual(aboveCoachKeys);
+      const coachField = await boxOf(page, coach.getByLabel('Tell the coach'));
+      expect(coachField.y + coachField.height, 'and Save note does not hide what he is typing').toBeLessThanOrEqual(saveCoach.y + 0.5);
+      await page.screenshot({ path: join(dir, `train-coach-keyboard-${colorScheme}.png`), animations: 'disabled' });
+      await lowerKeyboard(page);
+      await coach.getByRole('button', { name: 'Done' }).click();
 
       await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Upper body/ }).click();
       const preview = page.getByRole('dialog', { name: 'Upper body strength and accessory work' });
-      await expect(preview.getByText('Last, Nov 25: 40 kg × 12/12/12')).toBeVisible();
+      await expect(preview.getByText('40 kg × 12/12/12 · Nov 25')).toBeVisible();
       await page.screenshot({ path: join(dir, `train-day-${colorScheme}.png`), animations: 'disabled' });
-      await preview.getByText('Cue', { exact: true }).first().click();
-      await preview.getByRole('region', { name: 'Easy ride, cardio' }).scrollIntoViewIfNeeded();
+      await preview.getByText('Pin press', { exact: true }).click();
+      await preview.getByRole('region', { name: 'Optional' }).getByText('Optional', { exact: true }).click();
+      await preview.locator('.sheet-body').evaluate((el) => el.scrollTo(0, el.scrollHeight));
       await page.screenshot({ path: join(dir, `train-day-bottom-${colorScheme}.png`), animations: 'disabled' });
       await preview.getByRole('button', { name: 'Done' }).click();
 
@@ -732,7 +740,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
           expect(fits, await button.innerText()).toBe(true);
         }
         await tab(page, 'Train').click();
-        await expect(page.getByTestId('week-count')).toHaveText('2 of 4 done, minimum 3', { timeout: 15_000 });
+        await expect(page.getByTestId('week-count')).toHaveText('2 of 4 done', { timeout: 15_000 });
         await page.screenshot({ path: join(dir, `train-small-${colorScheme}.png`), animations: 'disabled' });
         await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
         await page.screenshot({ path: join(dir, `train-small-bottom-${colorScheme}.png`), animations: 'disabled' });
@@ -740,7 +748,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
         await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Upper body/ }).click();
         const preview = page.getByRole('dialog', { name: 'Upper body strength and accessory work' });
-        await expect(preview.getByText('Last, Nov 25: 40 kg × 12/12/12')).toBeVisible();
+        await expect(preview.getByText('40 kg × 12/12/12 · Nov 25')).toBeVisible();
         await page.screenshot({ path: join(dir, `train-small-day-${colorScheme}.png`), animations: 'disabled' });
         const body = preview.locator('.sheet-body');
         expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth), 'the sheet does not scroll sideways').toBe(true);
