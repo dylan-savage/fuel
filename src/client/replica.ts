@@ -68,6 +68,8 @@ export interface ReplicaReader {
   performancesOfSession(sessionId: SessionId): Promise<DocOf<'performance'>[]>;
   /** These lifts from `from` on, plus what was done as a swap for them, which a chart draws as a tick. */
   performancesFrom(liftIds: readonly LiftId[], from: LocalDate): Promise<DocOf<'performance'>[]>;
+  /** One row for each lift ever logged, its newest, and one seek per lift: each row says where the next lift's rows end. */
+  newestOfEachLift(): Promise<DocOf<'performance'>[]>;
   /** Local writes the server has not acknowledged yet. */
   pendingCount(): Promise<number>;
 }
@@ -202,6 +204,15 @@ export async function openReplica(options: ReplicaOptions = {}): Promise<{ repli
     performancesFrom: async (liftIds, from) => {
       const rows = await Promise.all([...fromDate(LIFT_DATE_INDEX, liftIds, from), ...fromDate(PLANNED_DATE_INDEX, liftIds, from)]);
       return [...new Map(rows.flat().map((row) => [row.id, row.doc])).values()];
+    },
+    newestOfEachLift: async () => {
+      const docs: DocOf<'performance'>[] = [];
+      let row = await table('performance').orderBy(LIFT_DATE_INDEX).last();
+      while (row !== undefined) {
+        docs.push(row.doc);
+        row = await table('performance').where(LIFT_DATE_INDEX).below([row.doc.liftId, Dexie.minKey]).last();
+      }
+      return docs;
     },
     pendingCount: () => outbox.count(),
   };
