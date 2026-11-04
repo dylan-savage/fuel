@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { localDate } from '../src/client/clock.js';
 import { weighInId } from '../src/domain/body.js';
-import { KG_PER_LB } from '../src/domain/goals.js';
+import { KG_PER_LB, goalId } from '../src/domain/goals.js';
 import { Millis, addDays } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import { kcalOf, openControlled, openRow, saveGoal, seed, setGoal, stored, tab } from './app.js';
@@ -28,6 +28,9 @@ async function weighIn(page: Page, daysAgo: number, pounds: string) {
   await expect(sheet).toBeHidden();
   await weight.getByRole('button', { name: 'Done' }).click();
 }
+
+/** The goal saved today, as fuel.db holds it. */
+const todaysGoal = () => stored('goal').find((goal) => goal.id === goalId(localDate()));
 
 /** Clears the workouts other specs left, so today's burn is only what this spec logs. */
 function clearWorkouts(): Mutation[] {
@@ -179,7 +182,7 @@ test('Save appears only once something has changed, and a collapsed row keeps it
   await save.click();
   await expect(page.getByRole('status').filter({ hasText: 'Goal saved' })).toBeVisible();
   await expect(save, 'saved, so nothing is left to save').toBeHidden();
-  await expect.poll(() => stored('goal').at(-1)?.waterMl, { timeout: 15_000 }).toBeCloseTo(96 * 29.5735, 0);
+  await expect.poll(() => todaysGoal()?.waterMl, { timeout: 15_000 }).toBeCloseTo(96 * 29.5735, 0);
 });
 
 test('a custom target, macros in grams, a goal weight and the share of workouts counted all save', async ({ page }) => {
@@ -204,8 +207,8 @@ test('a custom target, macros in grams, a goal weight and the share of workouts 
   await page.getByRole('button', { name: 'Save goal' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Goal saved' })).toBeVisible();
 
-  await expect.poll(() => stored('goal').at(-1)?.kcalOverride, { timeout: 15_000 }).toBe(2100);
-  const goal = stored('goal').at(-1);
+  await expect.poll(() => todaysGoal()?.kcalOverride, { timeout: 15_000 }).toBe(2100);
+  const goal = todaysGoal();
   expect(goal?.macros).toMatchObject({ kind: 'grams', protein: 180, carbs: 200, fat: 70 });
   expect(goal?.policy).toEqual({ kind: 'eat-back-workouts', fraction: 0.5 });
   expect(goal?.goalWeightKg).toBeCloseTo(165 * KG_PER_LB, 3);
@@ -225,4 +228,6 @@ test('a custom target, macros in grams, a goal weight and the share of workouts 
     await page.getByLabel(label).fill(value);
   }
   await saveGoal(page);
+  // Later specs start from what reached fuel.db, not from this phone.
+  await expect.poll(() => todaysGoal()?.kcalOverride, { timeout: 15_000 }).toBeUndefined();
 });
