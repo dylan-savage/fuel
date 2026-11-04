@@ -14,6 +14,7 @@ import { KG_PER_LB } from '../src/domain/goals.js';
 import { FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, WorkoutId, addDays } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import type { Recipe, SavedMeal } from '../src/domain/reuse.js';
+import { bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, target } from '../test/training.fixtures.js';
 import { seed, setGoal, stored, tab, typeBarcode } from './app.js';
 
 const dir = process.env.FUEL_SHOTS_DIR ?? join('test-results', 'shots');
@@ -111,8 +112,81 @@ function bodyDocs(): Mutation[] {
   return [...cleared, ...weighIns, ...workouts];
 }
 
+/** A Wednesday far from any other spec's dates, so the week photographs the same on any run date. */
+const TRAIN_MONDAY = '2031-12-01';
+const TRAIN_NOON = new Date('2031-12-03T12:00:00');
+const LAST_WEEK = '2031-11-25';
+
+/**
+ * A week of invented training with the longest text the schema allows in spirit: a long report,
+ * a long note, a very long lift name and a long day label.
+ */
+function trainDocs(): Mutation[] {
+  const longName = 'Single-arm cable press with a pause and a slow three-second lowering phase';
+  const press = slot('a1', 'single-arm-cable-press', 3, {
+    label: longName,
+    target: target(3, 8, 12, { perSide: 'left-first' }),
+    cue: 'Invented cue. Keep the tempo even and let the cable set the pace, so every rep looks the same from the first to the last.',
+    swaps: [{ liftId: lift('landmine-press'), label: 'Landmine press' }, { liftId: lift('machine-press'), label: 'Machine press' }],
+  });
+  const row = slot('a2', 'seal-row', 3, { label: 'Seal row', target: target(3, 8, 12) });
+  const upper = {
+    key: 'upper',
+    label: 'Upper body strength and accessory work',
+    weekday: 1,
+    minutes: 55,
+    blocks: [
+      checklist('warm', { title: 'Warm up', items: ['Band pull-apart', 'Easy row, 3 minutes'] }),
+      liftsBlock('pair', [press, row], { restSeconds: 75, note: 'Invented note: move straight from the press to the row, then rest.' }),
+      liftsBlock('main', [slot('b1', 'pin-press', 4, { label: 'Pin press', target: target(4, 5, 5), cue: 'Invented cue about bar path.' })], { title: 'Main lift', restSeconds: 150 }),
+      liftsBlock('extra', [slot('c1', 'reverse-crunch', 2, { label: 'Reverse crunch', target: target(2, 12, 15, { load: 'bodyweight' }) })], { title: 'Extras', optional: true }),
+      cardio('ride', { title: 'Easy ride', optional: true }),
+    ],
+  };
+  const days = [
+    upper,
+    { key: 'lower', label: 'Lower body', weekday: 2, minutes: 60, blocks: [liftsBlock('main', [slot('d1', 'front-squat', 4, { label: 'Front squat', target: target(4, 6, 8) })])] },
+    { key: 'pull', label: 'Pull', weekday: 3, minutes: 45, blocks: [liftsBlock('main', [slot('e1', 'pendlay-row', 3, { label: 'Pendlay row', target: target(3, 8, 12) })])] },
+    { key: 'full', label: 'Full body', weekday: 5, minutes: 50, blocks: [liftsBlock('main', [slot('f1', 'trap-bar-deadlift', 3, { label: 'Trap bar deadlift', target: target(3, 6, 10) })])] },
+  ];
+  const before = program('2031-11-24', [{ ...upper, blocks: upper.blocks.slice(0, 3) }, ...days.slice(1)], { standing: [{ key: 'rules', title: 'Rules', text: 'Stop two reps short of failure on everything but the last set.' }] });
+  const version = program(TRAIN_MONDAY, days, {
+    weeklyMinimum: 3,
+    publishedAt: ms(new Date('2031-11-30T07:02:00').getTime()),
+    report: {
+      text: 'Invented report. Three sessions last week against a minimum of three, and the main lifts all moved a little. The pin press went up five pounds and held for every set, so it stays there for one more week before going up again. Keep the extras short when time is tight, because the main lift is what the week is built around. The logs looked steady, so nothing else changes. The new extras block is optional and can go first if the gym is busy, and the easy ride is there for any day with time left over.',
+    },
+    changes: [{ target: 'block:upper/extra', why: 'A short block to finish on when there is time.' }],
+    notes: [
+      { text: 'The gym closes early on Friday.', onlyWeek: day(TRAIN_MONDAY) },
+      { title: 'A longer note', text: 'Invented note that runs long on purpose. A rest day can move anywhere in the week, and two lighter days in a row are fine, as long as the week still reaches its minimum by Sunday. If a day has to go, drop the optional blocks first and keep the main lift.' },
+      { text: 'Bring chalk for the pin press.', day: dayKey('upper') },
+    ],
+    standing: [
+      { key: 'rules', title: 'Rules', text: 'Stop two reps short of failure on everything but the last set.\n\nAdd weight when every set reaches the top of its range.' },
+      { key: 'phases', title: 'How the year is laid out', text: 'Invented plan. '.repeat(40).trim() },
+      { key: 'sources', title: 'Sources', text: 'Invented sources for the plan above.' },
+    ],
+  });
+  const upperDone = session({ date: day(TRAIN_MONDAY), day: { key: dayKey('upper'), label: upper.label }, finishedAt: minutes(60), programId: version.id });
+  const lowerDone = session({ date: day('2031-12-03'), day: { key: dayKey('lower'), label: 'Lower body' }, finishedAt: minutes(60), programId: version.id });
+  const performances = [
+    performance({ date: LAST_WEEK, lift: 'single-arm-cable-press', sets: [sides(32.5, 12, 11), sides(32.5, 11, 10), sides(32.5, 10, 10)] }),
+    performance({ date: LAST_WEEK, lift: 'seal-row', sets: [kg(40, 12), kg(40, 12), kg(40, 12)], target: target(3, 8, 12) }),
+    performance({ date: LAST_WEEK, lift: 'pin-press', sets: [lb(185, 5), lb(185, 5), lb(185, 5), lb(185, 4)] }),
+    performance({ date: LAST_WEEK, lift: 'reverse-crunch', sets: [bw(15), bw(14)] }),
+    performance({ session: upperDone.id, date: TRAIN_MONDAY, slot: 'b1', lift: 'pin-press', sets: [lb(190, 5)] }),
+    performance({ session: lowerDone.id, date: '2031-12-03', slot: 'd1', lift: 'front-squat', sets: [lb(155, 8)] }),
+  ];
+  return [
+    ...performances.map((doc): Mutation => ({ op: 'put', kind: 'performance', doc })),
+    ...[upperDone, lowerDone].map((doc): Mutation => ({ op: 'put', kind: 'session', doc })),
+    ...[before, version].map((doc): Mutation => ({ op: 'put', kind: 'program', doc })),
+  ];
+}
+
 test('seeds a day worth photographing', async ({ page, request }) => {
-  await seed(request, [...reuseDocs(), ...habitDocs(), ...bodyDocs()]);
+  await seed(request, [...reuseDocs(), ...habitDocs(), ...bodyDocs(), ...trainDocs()]);
   await page.goto('/');
   await setGoal(page);
   await page.getByLabel('Goal weight').fill('170');
@@ -275,6 +349,83 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await choice.getByRole('radio', { name: 'Eat back workouts' }).click();
       await expect(page.getByTestId('policy-sentence')).toContainText('adds 100%');
       await page.screenshot({ path: join(dir, `goal-eat-back-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
+    });
+
+    test(`photographs the Train tab, its sheets and the empty state in ${colorScheme}`, async ({ page }) => {
+      await page.clock.setFixedTime(TRAIN_NOON);
+      await page.goto('/');
+      await tab(page, 'Train').click();
+      await expect(page.getByTestId('week-count')).toHaveText('2 of 4 done, minimum 3', { timeout: 15_000 });
+      await page.screenshot({ path: join(dir, `train-${colorScheme}.png`), animations: 'disabled' });
+
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.screenshot({ path: join(dir, `train-bottom-${colorScheme}.png`), animations: 'disabled' });
+      const lastRow = await page.getByRole('button', { name: 'Program', exact: true }).boundingBox();
+      const bar = await page.getByRole('navigation', { name: 'Sections' }).boundingBox();
+      expect((lastRow?.y ?? Infinity) + (lastRow?.height ?? 0), 'nothing sits under the tab bar').toBeLessThanOrEqual(bar?.y ?? 0);
+      // A full-page capture would paint the fixed tab bar mid-page.
+      await page.screenshot({ path: join(dir, `train-${colorScheme}-full.png`), fullPage: true, animations: 'disabled', style: '.tab-bar { display: none; }' });
+
+      await page.getByRole('button', { name: 'More', exact: true }).first().click();
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ path: join(dir, `train-report-open-${colorScheme}.png`), animations: 'disabled' });
+
+      await page.getByRole('button', { name: /What changed/ }).click();
+      const changes = page.getByRole('dialog', { name: 'What changed' });
+      await expect(changes.getByRole('listitem')).not.toHaveCount(0);
+      await page.screenshot({ path: join(dir, `train-changes-${colorScheme}.png`), animations: 'disabled' });
+      await changes.getByRole('button', { name: 'Cancel' }).click();
+
+      await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Upper body/ }).click();
+      const preview = page.getByRole('dialog', { name: 'Upper body strength and accessory work' });
+      await expect(preview.getByText('Last, Nov 25: 40 kg × 12/12/12')).toBeVisible();
+      await page.screenshot({ path: join(dir, `train-day-${colorScheme}.png`), animations: 'disabled' });
+      await preview.getByText('Cue', { exact: true }).first().click();
+      await preview.getByRole('region', { name: 'Easy ride, cardio' }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: join(dir, `train-day-bottom-${colorScheme}.png`), animations: 'disabled' });
+      await preview.getByRole('button', { name: 'Cancel' }).click();
+
+      await page.getByRole('button', { name: 'Program', exact: true }).click();
+      const standing = page.getByRole('dialog', { name: 'Program' });
+      await standing.getByText('How the year is laid out').click();
+      await page.screenshot({ path: join(dir, `train-program-${colorScheme}.png`), animations: 'disabled' });
+      await standing.getByRole('button', { name: 'Cancel' }).click();
+
+      await page.clock.setFixedTime(new Date('2020-01-08T12:00:00'));
+      await page.reload();
+      await tab(page, 'Train').click();
+      await expect(page.getByText('There is no program yet.')).toBeVisible();
+      await page.screenshot({ path: join(dir, `train-empty-${colorScheme}.png`), animations: 'disabled' });
+    });
+
+    test.describe('on a small iPhone', () => {
+      test.use({ viewport: { width: 320, height: 568 } });
+
+      test(`photographs the Train tab and a day in ${colorScheme}`, async ({ page }) => {
+        await page.clock.setFixedTime(TRAIN_NOON);
+        await page.goto('/');
+        const tabs = page.getByRole('navigation', { name: 'Sections' }).getByRole('button');
+        await expect(tabs).toHaveCount(5);
+        for (const button of await tabs.all()) {
+          const fits = await button.evaluate((el) => el.scrollWidth <= el.clientWidth);
+          expect(fits, await button.innerText()).toBe(true);
+        }
+        await tab(page, 'Train').click();
+        await expect(page.getByTestId('week-count')).toHaveText('2 of 4 done, minimum 3', { timeout: 15_000 });
+        await page.screenshot({ path: join(dir, `train-small-${colorScheme}.png`), animations: 'disabled' });
+        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+        await page.screenshot({ path: join(dir, `train-small-bottom-${colorScheme}.png`), animations: 'disabled' });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'the week does not scroll sideways').toBe(true);
+
+        await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Upper body/ }).click();
+        const preview = page.getByRole('dialog', { name: 'Upper body strength and accessory work' });
+        await expect(preview.getByText('Last, Nov 25: 40 kg × 12/12/12')).toBeVisible();
+        await page.screenshot({ path: join(dir, `train-small-day-${colorScheme}.png`), animations: 'disabled' });
+        const body = preview.locator('.sheet-body');
+        expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth), 'the sheet does not scroll sideways').toBe(true);
+        await body.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+        await page.screenshot({ path: join(dir, `train-small-day-bottom-${colorScheme}.png`), animations: 'disabled' });
+      });
     });
   });
 }
