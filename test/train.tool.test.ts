@@ -8,11 +8,15 @@ import { fileURLToPath } from 'node:url';
 import { serve, type ServerType } from '@hono/node-server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { ProgramDraft, type Program } from '../src/domain/program.js';
+import { snapshotOf } from '../src/domain/coach.js';
+import { TrainingNoteId } from '../src/domain/ids.js';
+import { ProgramDraft, Report, type Program } from '../src/domain/program.js';
+import { isRecord } from '../src/domain/strict.js';
+import { PublishAnswer } from '../src/protocol.js';
 import { buildApp } from '../src/server/routes.js';
 import { openStore, type DocStore } from '../src/server/store.js';
 import { newClientId, request } from './fixtures.js';
-import { day, liftsBlock, ms, noFoods, noonOf, program, slot } from './training.fixtures.js';
+import { T0, day, dayKey, lb, lift, liftsBlock, minutes, ms, noFoods, noonOf, performance, program, session, slot, slotId } from './training.fixtures.js';
 
 // Each unreachable case waits out the tool's one retry in a real child process.
 vi.setConfig({ testTimeout: 20_000 });
@@ -359,5 +363,86 @@ describe('every command with the server down', () => {
     const { exit, line } = await tool(args, closed);
     expect(exit).toBe(4);
     expect(line).toEqual({ status: 'unreachable', url: closed.FUEL_URL });
+  });
+});
+
+describe('scripts/coach-prompt.md', () => {
+  const PROMPT = readFileSync(new URL('../scripts/coach-prompt.md', import.meta.url), 'utf8');
+  const quoted = [...new Set([...PROMPT.matchAll(/`([^`\n]+)`/g)].flatMap((match) => match[1] ?? []))];
+
+  const plan = program('2030-03-04', [{ key: 'push', blocks: [liftsBlock('a', [slot('a1', 'bench-press', 3, { cue: 'Slow down.', swaps: [{ liftId: lift('pec-deck'), label: 'Pec deck' }] }), slot('a2', 'cable-row', 3)], { onlyWeek: day('2030-03-18') })] }], {
+    weeklyMinimum: 3,
+    report: { text: 'Invented report.' },
+    notes: [{ text: 'Invented note.', day: dayKey('push') }],
+    changes: [{ target: 'slot:push/a2', why: 'Invented reason.' }],
+  });
+
+  /** Every key and string a JSON value holds. */
+  function wordsIn(value: unknown): readonly string[] {
+    if (typeof value === 'string') return [value];
+    if (Array.isArray(value)) return value.flatMap(wordsIn);
+    return isRecord(value) ? Object.entries(value).flatMap(([key, inner]) => [key, ...wordsIn(inner)]) : [];
+  }
+
+  /** The read as the route serves it, holding a session in each phase and a note from each source. */
+  function fullSnapshot() {
+    const now = ms(T0 + 100 * 3_600_000);
+    const finished = session({ date: day('2030-03-05'), note: 'Invented.', finishedAt: minutes(60), skips: [{ slotId: slotId('a2'), note: 'Invented.' }] });
+    const docs = {
+      programRev: 1,
+      programs: [{ doc: plan, rev: 1 }],
+      sessions: [finished, session({ date: day('2030-03-06') }), session({ date: day('2030-03-07'), startedAt: ms(now - 60_000) }), session({ date: day('2030-03-08'), source: 'notion', startedAt: undefined })].map((doc) => ({ doc, rev: 2 })),
+      performances: [{ doc: performance({ session: finished.id, date: finished.date, slot: 'a1', lift: 'bench-press', note: 'Invented.', sets: [{ ...lb(100, 8, 0), note: 'Invented.' }] }), rev: 2 }],
+      trainingNotes: [{ id: TrainingNoteId.parse('1c2f7d8b-4a3e-4f6b-9cad-1e2f3a4b5c6d'), date: day('2030-03-09'), text: 'Invented.', at: now }],
+      weighIns: [],
+      entries: [],
+      workouts: [],
+    };
+    return snapshotOf(docs, { today: day('2030-03-10'), now, phoneLastSyncAt: null });
+  }
+
+  it('names only fields and values the tool really has, running the commands it gives', async () => {
+    const { env, file, store } = await realServer({ seeded: false });
+    store.writeProgram(plan, { now: ms(1) });
+    const read = await tool(['read'], env);
+    const { draft: draftFile, snapshot: snapshotFile } = z.looseObject({ draft: z.string(), snapshot: z.string() }).parse(read.line);
+    const { basedOnRev, ...draft } = z.looseObject({ basedOnRev: z.number() }).parse(JSON.parse(readFileSync(draftFile, 'utf8')));
+    const dryRun = await tool(['publish', draftFile, '--dry-run'], env);
+    const invalid = await tool(['publish', file('broken.json', { basedOnRev, ...draft, effectiveFrom: 'soon' }), '--dry-run'], env);
+    const published = await tool(['publish', draftFile], env);
+    const repeated = await tool(['publish', draftFile], env);
+    expect([dryRun.exit, invalid.exit, published.exit, repeated.exit]).toEqual([0, 2, 0, 0]);
+    expect(dryRun.line).toMatchObject({ phoneBehind: false });
+
+    const known = new Set([
+      ...wordsIn(JSON.parse(readFileSync(snapshotFile, 'utf8'))),
+      ...wordsIn(JSON.parse(JSON.stringify(fullSnapshot()))),
+      ...wordsIn(read.line),
+      ...wordsIn(dryRun.line),
+      ...wordsIn(invalid.line),
+      ...wordsIn(published.line),
+      ...wordsIn(repeated.line),
+      ...PublishAnswer.options.map((answer) => answer.shape.status.value),
+    ]);
+    /** Run above or below, or the tool's line with the server down, which has its own test. */
+    const LITERAL = ['node scripts/train.mjs', 'node scripts/train.mjs read', 'node scripts/train.mjs publish <draft.json>', 'node scripts/train.mjs publish <draft.json> --dry-run', 'snapshot.json', 'draft.json', 'phoneBehind: true', '{ "text": "..." }', 'slot:push/a2', 'cue:push/a1', 'prescription:push/a1', 'unreachable'];
+    expect(quoted.filter((word) => !known.has(word) && !LITERAL.includes(word))).toEqual([]);
+    expect(Report.parse(JSON.parse('{ "text": "..." }'))).toEqual({ text: '...' });
+  });
+
+  it('gives the targets a dry run really prints, with a reason where one is refused without it', async () => {
+    const { env, file, store } = await realServer({ seeded: false });
+    store.writeProgram(plan, { now: ms(1) });
+    const read = await tool(['read'], env);
+    const { draft: draftFile } = z.looseObject({ draft: z.string() }).parse(read.line);
+    const { basedOnRev, ...saved } = z.looseObject({ basedOnRev: z.number() }).parse(JSON.parse(readFileSync(draftFile, 'utf8')));
+    const edited = ProgramDraft.parse(saved);
+    const a1 = slot('a1', 'bench-press', 4, { cue: 'Slower.', swaps: [{ liftId: lift('pec-deck'), label: 'Pec deck' }] });
+    const days = edited.days.map((one) => ({ ...one, blocks: [liftsBlock('a', [a1], { onlyWeek: day('2030-03-18') })] }));
+    const changes = [{ target: 'slot:push/a2', why: 'Invented.' }, { target: 'prescription:push/a1', why: 'Invented.' }];
+    const { line } = await tool(['publish', file('edited.json', { basedOnRev, ...edited, days, changes }), '--dry-run'], env);
+    const { diff } = z.looseObject({ diff: z.array(z.looseObject({ target: z.string(), why: z.string().nullable() })) }).parse(line);
+    expect(diff.map((item) => [item.target, item.why])).toEqual([['prescription:push/a1', 'Invented.'], ['cue:push/a1', null], ['slot:push/a2', 'Invented.']]);
+    for (const { target } of diff) expect(PROMPT).toContain(`\`${target}\``);
   });
 });
