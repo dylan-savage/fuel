@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { budgetOn, goalId, KG_PER_LB, PROFILE_ID, type Goal, type Profile } from '../src/domain/goals.js';
 import { Performance } from '../src/domain/lifts.js';
-import { NotionHistory, datesFromCutover, detailsOf, importDocs, reconcile, summaryOf, type ImportDocs } from '../src/domain/notionImport.js';
+import { NotionHistory, datesFromCutover, detailsOf, importDocs, reconcile, summaryOf, targetShift, weighInPlan, type ImportDocs } from '../src/domain/notionImport.js';
 import { sessionsDone, skipsOf, totalsOf, workingSets } from '../src/domain/progress.js';
 import { Session } from '../src/domain/session.js';
+import { at, entry, newEntryId } from './fixtures.js';
 import { day } from './training.fixtures.js';
 
 const MONDAY = '2030-03-04';
@@ -282,6 +284,66 @@ describe('datesFromCutover', () => {
     expect(datesFromCutover(docs, day('2030-03-05'))).toEqual([]);
     expect(datesFromCutover(docs, day(MONDAY))).toEqual([MONDAY]);
     expect(datesFromCutover(docs, day('2030-03-01'))).toEqual([MONDAY]);
+  });
+});
+
+describe('weighInPlan', () => {
+  const readings = [
+    { entry: 'Sat Mar 2', date: '2030-03-02', lb: 180 },
+    { entry: 'Wed Mar 6', date: '2030-03-06', lb: 184 },
+  ];
+  const withReadings = () => history({ bodyWeight: readings });
+  const inFuel = (date: string) => ({ id: `w:${date}`, date: day(date), kg: 83, loggedAt: at(5) });
+
+  it('splits at fuel\'s first weigh-in, keeping that date with the newer ones', () => {
+    const plan = weighInPlan(withReadings(), [inFuel('2030-03-09'), inFuel('2030-03-06')]);
+    expect(plan.firstInFuel).toBe('2030-03-06');
+    expect(plan.older.map((w) => w.date)).toEqual(['2030-03-02']);
+    expect(plan.newer.map((w) => w.date)).toEqual(['2030-03-06']);
+  });
+
+  it('counts every one as older when fuel has none, because nothing has seeded the trend', () => {
+    const plan = weighInPlan(withReadings(), []);
+    expect(plan.firstInFuel).toBeNull();
+    expect(plan.newer).toEqual([]);
+    expect(plan.older.map((w) => w.date)).toEqual(['2030-03-02', '2030-03-06']);
+  });
+
+  it('builds the same bytes every run, in kg at the exact factor', () => {
+    const doc = weighInPlan(withReadings(), []).older[0];
+    expect(doc).toEqual({ id: 'w:2030-03-02', date: '2030-03-02', kg: 180 * KG_PER_LB, loggedAt: Date.parse('2030-03-02T12:00:00Z') });
+    expect(JSON.stringify(weighInPlan(withReadings(), []))).toBe(JSON.stringify(weighInPlan(withReadings(), [])));
+  });
+});
+
+describe('targetShift', () => {
+  const profile: Profile = { id: PROFILE_ID, sex: 'male', birthDate: day('1990-01-01'), heightCm: 180, weightKg: 80 };
+  const goal: Goal = { id: goalId(day('2030-03-01')), effectiveFrom: day('2030-03-01'), policy: { kind: 'activity-level', level: 'moderate' }, kgPerWeek: 0, macros: { kind: 'percent', protein: 30, carbs: 40, fat: 30 } };
+  const onDates = (...dates: readonly string[]) => dates.map((date) => entry(newEntryId(), 300, date));
+  const reading = (date: string, kg: number) => ({ id: `w:${date}`, date: day(date), kg, loggedAt: at(5) });
+  const facts = { goals: [goal], profile, workouts: [], before: [] };
+
+  it('compares the real budget on each diary day, once, oldest first', () => {
+    const after = [reading('2030-03-02', 82)];
+    const shift = targetShift({ ...facts, entries: onDates('2030-03-03', '2030-03-01', '2030-03-03'), after });
+    const on = (weighIns: typeof after, date: string) => budgetOn({ goals: [goal], profile, workouts: [], weighIns, date: day(date) })?.kcal;
+    expect(shift.days).toEqual([
+      { date: '2030-03-01', before: on([], '2030-03-01'), after: on(after, '2030-03-01'), change: 0 },
+      { date: '2030-03-03', before: on([], '2030-03-03'), after: on(after, '2030-03-03'), change: 31 },
+    ]);
+    expect(shift.largest?.date).toBe('2030-03-03');
+  });
+
+  it('takes the largest change in either direction', () => {
+    const shift = targetShift({ ...facts, entries: onDates('2030-03-03', '2030-03-05'), after: [reading('2030-03-02', 79), reading('2030-03-04', 60)] });
+    expect(shift.largest?.date).toBe('2030-03-05');
+    expect(shift.largest?.change).toBeLessThan(0);
+  });
+
+  it('leaves out a diary day before the goal, and has no largest with nothing to compare', () => {
+    expect(targetShift({ ...facts, entries: onDates('2030-02-28'), after: [reading('2030-02-27', 82)] })).toEqual({ days: [], largest: null });
+    expect(targetShift({ ...facts, profile: undefined, entries: onDates('2030-03-03'), after: [reading('2030-03-02', 82)] })).toEqual({ days: [], largest: null });
+    expect(targetShift({ ...facts, entries: [], after: [reading('2030-03-02', 82)] })).toEqual({ days: [], largest: null });
   });
 });
 

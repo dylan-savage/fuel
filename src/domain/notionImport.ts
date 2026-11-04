@@ -9,6 +9,10 @@
  * beside that file holds the steps and the rules for reading a page.
  */
 import { z } from 'zod';
+import { WeighIn, weighInId } from './body.js';
+import type { Workout } from './burn.js';
+import type { Entry } from './diary.js';
+import { KG_PER_LB, budgetOn, type Goal, type Profile } from './goals.js';
 import { LocalDate, SessionId, addDays } from './ids.js';
 import { LiftId, Performance, SlotId, Target, Unit, liftIdOf, performanceId } from './lifts.js';
 import { BlockId, DayKey } from './program.js';
@@ -326,6 +330,62 @@ export function importDocs(history: NotionHistory, uuidFrom: (seed: string) => s
 /** The dates of sessions the phone owns, which would double what it logs. */
 export function datesFromCutover(docs: ImportDocs, cutover: LocalDate): readonly LocalDate[] {
   return docs.sessions.filter((session) => session.date >= cutover).map((session) => session.date);
+}
+
+export interface WeighInPlan {
+  /** Null when fuel has none, so nothing has seeded the trend and every target reads the profile's weight. */
+  readonly firstInFuel: LocalDate | null;
+  /** On or after fuel's first, so the trend's start and every target before it stay put. */
+  readonly newer: readonly WeighIn[];
+  /** Before fuel's first, or all of them when it has none, because any of these would reseed the trend and move past targets. */
+  readonly older: readonly WeighIn[];
+}
+
+/** Notion recorded no time. Noon UTC on the date keeps the document the same bytes on every run. */
+function weighInOf({ date, lb }: NotionHistory['bodyWeight'][number]): WeighIn {
+  return WeighIn.parse({ id: weighInId(date), date, kg: lb * KG_PER_LB, loggedAt: Date.parse(`${date}T12:00:00Z`) });
+}
+
+export function weighInPlan(history: NotionHistory, inFuel: readonly WeighIn[]): WeighInPlan {
+  const firstInFuel = inFuel.map((weighIn) => weighIn.date).toSorted((a, b) => a.localeCompare(b))[0] ?? null;
+  const docs = history.bodyWeight.map(weighInOf);
+  return { firstInFuel, newer: docs.filter((weighIn) => firstInFuel !== null && weighIn.date >= firstInFuel), older: docs.filter((weighIn) => firstInFuel === null || weighIn.date < firstInFuel) };
+}
+
+export interface DayShift {
+  readonly date: LocalDate;
+  readonly before: number;
+  readonly after: number;
+  /** after less before, in kcal. */
+  readonly change: number;
+}
+
+export interface TargetShift {
+  /** Every diary day with a goal, oldest first. */
+  readonly days: readonly DayShift[];
+  /** The largest change in either direction. Null when no diary day has a target to move. */
+  readonly largest: DayShift | null;
+}
+
+/** Through the real budget functions, so this is the number the Diary would show. A day with an entry or a workout is a diary day. */
+export function targetShift(input: {
+  readonly goals: readonly Goal[];
+  readonly profile: Profile | undefined;
+  readonly entries: readonly Entry[];
+  readonly workouts: readonly Workout[];
+  readonly before: readonly WeighIn[];
+  readonly after: readonly WeighIn[];
+}): TargetShift {
+  const { goals, profile, entries, workouts } = input;
+  const dates = [...new Set([...entries, ...workouts].map((doc) => doc.date))].toSorted((a, b) => a.localeCompare(b));
+  const days = dates.flatMap((date): readonly DayShift[] => {
+    const that = { goals, profile, date, workouts: workouts.filter((workout) => workout.date === date) };
+    const before = budgetOn({ ...that, weighIns: input.before })?.kcal;
+    const after = budgetOn({ ...that, weighIns: input.after })?.kcal;
+    return before === undefined || after === undefined ? [] : [{ date, before, after, change: after - before }];
+  });
+  const largest = days.reduce<DayShift | null>((most, day) => (most === null || Math.abs(day.change) > Math.abs(most.change) ? day : most), null);
+  return { days, largest };
 }
 
 export interface ImportCounts {
