@@ -58,6 +58,16 @@ function useSettleLapsed() {
   }, [intents, toast]);
 }
 
+/**
+ * Only a navigation makes the browser look for a new worker, and iOS wakes a suspended app
+ * without one, so a deployed build would wait for a force-quit. Offline, the check just fails.
+ */
+function checkForUpdateOnWake(_url: string, registration: ServiceWorkerRegistration | undefined) {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void registration?.update().catch(() => undefined);
+  });
+}
+
 export function App({ startOn }: { readonly startOn: Tab }) {
   const today = useToday();
   const [tab, setTab] = useState<Tab>(startOn);
@@ -70,7 +80,7 @@ export function App({ startOn }: { readonly startOn: Tab }) {
   const {
     needRefresh: [needRefresh],
     updateServiceWorker,
-  } = useRegisterSW();
+  } = useRegisterSW({ onRegisteredSW: checkForUpdateOnWake });
 
   // An app left open overnight follows the calendar if it was showing today.
   const shownToday = useRef(today);
