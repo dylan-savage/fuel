@@ -26,14 +26,14 @@ async function contactSheets(browser, from, to, prefix) {
   for (let i = 0; i < files.length; i += 10) {
     const cells = files.slice(i, i + 10).map((f) => {
       const src = `data:image/png;base64,${readFileSync(join(from, f)).toString('base64')}`;
-      return `<figure><figcaption>${f}</figcaption><img src="${src}"></figure>`;
+      return `<figure><figcaption>${f}</figcaption><img decoding="sync" src="${src}"></figure>`;
     });
     await sheet.setContent(`<!doctype html><style>
       body{margin:8px;background:#666;font:13px -apple-system,sans-serif;color:#fff;display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
       figure{margin:0}figcaption{padding:2px 0}img{width:100%;display:block}
     </style>${cells.join('')}`);
     await sheet.waitForLoadState('load');
-    // WebKit decodes a large image late, and an undecoded one photographs as nothing.
+    // WebKit decodes a large image late, and an undecoded one photographs as nothing, so decode every cell before the photograph.
     await sheet.evaluate(() => Promise.all([...document.images].map((image) => image.decode())));
     await sheet.screenshot({ path: join(to, `${prefix}-${i / 10 + 1}.png`), fullPage: true });
   }
@@ -120,7 +120,12 @@ const button = (name) => page.getByRole('button', { name }).first();
 const train = page.locator('.train');
 
 await tab('Train');
-await page.getByTestId('week-count').waitFor({ timeout: 20_000 });
+const week = page.getByTestId('week-count');
+const openSession = page.getByRole('region', { name: 'Session' });
+await week.or(openSession).waitFor({ timeout: 20_000 });
+// A session open in the real data stands in front of the week, so it is finished here, on the copy.
+if (await openSession.isVisible()) await page.getByRole('button', { name: 'Finish', exact: true }).click({ timeout: 4000 });
+await week.waitFor({ timeout: 20_000 });
 
 await shot('train-week');
 await shot('train-week-bottom', () => page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)));
