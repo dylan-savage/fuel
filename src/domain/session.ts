@@ -7,8 +7,7 @@ import { BlockId, DayKey, stepsOf, type Block, type CardioBlock, type ChecklistB
 
 /**
  * A session is thin: which day, which pinned version, when, plus the taps that have no sets to
- * live on. Sets live on performances. Position and rest are derived, so a reload or a lock has
- * no state to lose.
+ * live on. Sets live on performances, so a reload or a lock has no state to lose.
  */
 export const Session = z.looseObject({
   id: SessionId,
@@ -211,42 +210,8 @@ export function setsProgress(day: PlannedDay, { session, performances }: Pick<Se
   );
 }
 
-export interface RestClock {
-  readonly endsAt: Millis;
-  readonly seconds: number;
-}
-
-/** The newest timed set, with the performance holding it. Imported sets have no time and never reach it. */
-function newestSet(performances: readonly Performance[]): { readonly performance: Performance; readonly set: SetLog; readonly at: Millis } | null {
-  let newest: { readonly performance: Performance; readonly set: SetLog; readonly at: Millis } | null = null;
-  for (const performance of performances) {
-    for (const set of performance.sets) {
-      if (set.at !== undefined && (newest === null || set.at >= newest.at)) newest = { performance, set, at: set.at };
-    }
-  }
-  return newest;
-}
-
 function liftsBlocks(day: PlannedDay): readonly LiftsBlock[] {
   return day.blocks.filter((block) => block.kind === 'lifts');
-}
-
-/**
- * Clock arithmetic from the newest set's tap, so a lock or a reload cannot stop it. Null when
- * that set finished no round: a warm-up, or a superset with a slot still to do. It asks whether
- * the round is complete rather than which slot came last, so logging out of order and skipping
- * the last slot both still rest.
- */
-export function restClock(day: PlannedDay, logs: SessionLogs): RestClock | null {
-  const newest = newestSet(logs.performances);
-  if (newest === null || newest.set.warmup === true) return null;
-  const { slotId } = newest.performance;
-  const block = liftsBlocks(day).find((b) => b.slots.some((slot) => slot.id === slotId));
-  if (slotId === undefined || block?.restSeconds === undefined) return null;
-  const round = roundsLogged(logs.performances, slotId);
-  const skipped = skippedSlots(logs.session);
-  const complete = block.slots.every((slot) => slot.target.sets < round || skipped.has(slot.id) || roundsLogged(logs.performances, slot.id) >= round);
-  return complete ? { endsAt: Millis.parse(newest.at + block.restSeconds * 1000), seconds: block.restSeconds } : null;
 }
 
 /** Set inputs before a tap. A number may be blank, which a prefill cannot always fill. */

@@ -95,7 +95,7 @@ export const SetLog = z.looseObject({
   warmup: z.literal(true).optional(),
   /** An answer to the slot's setPrompt. */
   note: z.string().max(280).optional(),
-  /** The tap. The rest timer reads it. Absent on imported sets, which never recorded one. */
+  /** The tap. A workout runs from the first of these to the last. Absent on imported sets, which never recorded one. */
   at: Millis.optional(),
 });
 export type SetLog = z.infer<typeof SetLog>;

@@ -146,7 +146,7 @@ test('logs offline through a tab switch, a reload and a page kill mid-set, then 
   await expect(page.getByLabel('Load', { exact: true })).toHaveValue('40');
   await expect(page.getByLabel('Reps', { exact: true })).toHaveValue('12');
 
-  // A warm-up does not count as a round, starts no rest and fills no dot.
+  // A warm-up does not count as a round and fills no dot.
   await page.getByLabel('Load', { exact: true }).fill('20');
   await page.getByRole('button', { name: 'Warm-up', exact: true }).click();
   await logSet(page);
@@ -154,21 +154,15 @@ test('logs offline through a tab switch, a reload and a page kill mid-set, then 
   await expectCard(page, 'Cable fly', 'Set 1 of 3');
   await expect(page.getByRole('button', { name: 'Warm-up', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByLabel('Load', { exact: true }), 'the working weight comes back after a warm-up').toHaveValue('40');
-  await expect(page.getByRole('timer')).toBeHidden();
   await expectDots(page, /^Cable fly/, /0 of 3 logged/);
 
   // A1, A2, rest, A1, A2, rest.
   await logExpecting(page, 'Cable fly', 'Set 1 of 3');
-  await expect(page.getByRole('timer'), 'no rest inside a round').toBeHidden();
   await logExpecting(page, 'Meadows row', 'Set 1 of 3');
-  await expect(page.getByRole('timer')).toHaveText(/^Rest 1:1\d$/);
-  await expect(card(page).locator('.focus-next'), 'the rest says what follows it').toHaveText(/^Next:\s*Cable fly$/);
   await expectCard(page, 'Cable fly', 'Set 2 of 3');
   await expectDots(page, /^Cable fly/, /1 of 3 logged/);
   await expectDots(page, /^Meadows row/, /1 of 3 logged/);
 
-  await page.clock.fastForward(90_000);
-  await expect(page.getByRole('timer'), 'past zero it counts up').toHaveText(/^Rest \+0:1\d$/);
 
   await tab(page, 'Diary').click();
   await expect(page.getByRole('region', { name: 'Breakfast' })).toBeVisible();
@@ -186,7 +180,6 @@ test('logs offline through a tab switch, a reload and a page kill mid-set, then 
   await expectCard(page, 'Cable fly', 'Set 2 of 3');
   expect(await sawDiary(page), 'a reload during a session never shows the Diary').toBe(false);
   await expect(page.getByLabel('Load', { exact: true }), 'typed digits survive a reload').toHaveValue('42.5');
-  await expect(page.getByRole('timer'), 'the rest clock reads right after a reload').toHaveText(/^Rest \+0:\d\d$/);
   await logSet(page);
 
   await expectCard(page, 'Meadows row', 'Set 2 of 3');
@@ -386,12 +379,11 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip,
   await logSet(page);
   await logExpecting(page, 'Pallof press', 'Set 2 of 2');
 
-  // The 2-set slot drops out of the third round, and the round still rests.
+  // The 2-set slot drops out of the third round.
   await expectCard(page, 'Goblet squat', 'Set 3 of 3');
   await expect(page.getByLabel('Load', { exact: true })).toHaveValue('23');
   await expect(unit(page)).toHaveText('kg');
   await logSet(page);
-  await expect(page.getByRole('timer')).toHaveText(/^Rest (1:00|0:5\d)$/);
 
   // A band load is a label.
   await expectCard(page, 'Band row', 'Set 1 of 2');
@@ -546,7 +538,6 @@ test('a version published mid-session changes nothing on the card, and a new ses
 
   await expectCard(page, 'Trap bar deadlift', 'Set 3 of 3');
   await expect(card(page)).toContainText('8–12 reps');
-  await expect(page.getByRole('timer'), 'the pinned 90 seconds of rest, not the new 180').toHaveText(/^Rest 1:[0-3]\d$/);
   await expect(page.getByRole('heading', { name: 'Pull day', exact: true })).toBeVisible();
   await page.reload();
   await expectCard(page, 'Trap bar deadlift', 'Set 3 of 3');

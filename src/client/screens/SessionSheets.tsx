@@ -232,7 +232,7 @@ export function CueSheet({ cue, block, notes, onClose }: { readonly cue: string 
   );
 }
 
-/** A logged set, from its value on the focus screen or its row in the plan. Its tap stays, so the rest clock and the minutes hold. */
+/** A logged set, from its value on the focus screen or its row in the plan. Its tap stays, so the minutes hold. */
 export function EditSetSheet({ logged, slot, onClose }: { readonly logged: LoggedSet; readonly slot: Slot; readonly onClose: () => void }) {
   const intents = useIntents();
   const toast = useToast();

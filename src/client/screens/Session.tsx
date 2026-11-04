@@ -1,18 +1,18 @@
 /**
  * A session in progress, one exercise in focus. The screen holds no where-am-I state: what it shows
- * comes from the stored sets through cardFor, and rest from restClock, so a reload or a lock has
- * nothing to restore but typed digits, which wait in trainDraft.
+ * comes from the stored sets through cardFor, so a reload or a lock has nothing to restore but
+ * typed digits, which wait in trainDraft.
  */
 import { useEffect, useState } from 'preact/hooks';
 import type { LocalDate, Millis } from '../../domain/ids.js';
 import type { Performance } from '../../domain/lifts.js';
 import type { LiftsBlock, Slot, Step } from '../../domain/program.js';
-import { cardFor, cueFor, liftInSlot, performanceIdOf, restClock, setsProgress, slotLog, type LiftChoice, type LoggedSet, type Session, type SessionLogs, type SetsProgress } from '../../domain/session.js';
+import { cardFor, cueFor, liftInSlot, performanceIdOf, setsProgress, slotLog, type LiftChoice, type LoggedSet, type Session, type SessionLogs, type SetsProgress } from '../../domain/session.js';
 import { now } from '../clock.js';
 import type { Finished } from '../intents.js';
 import { afterLog, entryOf, typedFor, useTrainDraft, withSwap, withoutFocus, type SetForm } from '../trainDraft.js';
 import { lastTimesView, sessionLiftIds, sessionPlanView, useIntents, useLive, type SessionPlan } from '../views.js';
-import { CardAction, CardActions, FocusTitle, SetCard } from './SetCard.js';
+import { CardAction, CardActions, SetCard } from './SetCard.js';
 import { CueSheet, EditSetSheet, NoteSheet, PlanSheet, SkipSheet, SwapSheet } from './SessionSheets.js';
 import { barFill, useNow, useToast } from './ui.js';
 import { Waiting } from './Waiting.js';
@@ -144,7 +144,6 @@ function Running({ logs, plan, today }: { readonly logs: SessionLogs; readonly p
   const card = cardFor(plan.plan, logs, draft.focus);
   const currentId = card.kind === 'set' ? card.step.slot.id : card.kind === 'done' ? null : card.block.id;
   const liftOf = (step: Step) => draft.swaps?.[step.slot.id] ?? liftInSlot(step.slot, performances);
-  const rest = restClock(plan.plan, logs);
   const closeSheet = () => setSheet(null);
 
   const logSet = (step: Step, lift: LiftChoice, form: SetForm) => {
@@ -176,7 +175,6 @@ function Running({ logs, plan, today }: { readonly logs: SessionLogs; readonly p
             book={plan.book}
             performances={performances}
             typed={typedFor(draft, step, lift)}
-            rest={rest}
             logged={slotLog(step.slot, logs).sets}
             onForm={(form) => setDraft({ ...draft, set: { slotId: step.slot.id, liftId: lift.liftId, round: step.round, form } })}
             onLog={(form) => logSet(step, lift, form)}
@@ -197,7 +195,7 @@ function Running({ logs, plan, today }: { readonly logs: SessionLogs; readonly p
         return (
           <section class="set-card" aria-label="Checklist">
             <div class="focus">
-              <FocusTitle rest={rest} title={card.block.title ?? 'Checklist'} />
+              <h2>{card.block.title ?? 'Checklist'}</h2>
               <ul class="card-items">
                 {card.block.items.map((item) => (
                   <li key={item}>{item}</li>
@@ -225,7 +223,7 @@ function Running({ logs, plan, today }: { readonly logs: SessionLogs; readonly p
         return (
           <section class="set-card" aria-label="Cardio">
             <div class="focus">
-              <FocusTitle rest={rest} title={card.block.title ?? 'Cardio'} />
+              <h2>{card.block.title ?? 'Cardio'}</h2>
               {card.block.note !== undefined && <p class="focus-line">{card.block.note}</p>}
               <p class="focus-line">Any workout today counts</p>
             </div>

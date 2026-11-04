@@ -18,7 +18,6 @@ import {
   liftInSlot,
   nextUp,
   prefillSet,
-  restClock,
   sessionPhase,
   sessionWorkoutDraft,
   sessionWorkoutId,
@@ -132,53 +131,6 @@ describe('nextUp', () => {
     expect(where(nextUp(withOptional, finished))).toBe('done:abs');
     const allDone = logsOf([...finished.performances, performance({ slot: 'c1', lift: 'crunch', sets: [bw(20), bw(20)] })]);
     expect(where(nextUp(withOptional, allDone))).toBe('done:');
-  });
-});
-
-describe('restClock', () => {
-  const plan = planOf(superset);
-  const rest = (performances: readonly Performance[], extra: Partial<SessionLogs> = {}) => restClock(plan, logsOf(performances, extra));
-
-  it('rests from the tap after every straight set', () => {
-    const straight = planOf(liftsBlock('s', [slot('a1', 'bench-press', 3)], { restSeconds: 120 }));
-    expect(restClock(straight, logsOf([a1(lb(100, 8, 10))]))).toEqual({ endsAt: ms(minutes(10) + 120_000), seconds: 120 });
-  });
-
-  it('waits for the round in a superset', () => {
-    expect(rest([a1(lb(100, 8, 1))])).toBeNull();
-    expect(rest([a1(lb(100, 8, 1)), a2(lb(120, 10, 2))])).toEqual({ endsAt: ms(minutes(2) + 90_000), seconds: 90 });
-    expect(rest([a1(lb(100, 8, 1), lb(100, 8, 5)), a2(lb(120, 10, 2))])).toBeNull();
-  });
-
-  it('rests after the last round, which the 2-set slot has left', () => {
-    const third = [a1(lb(100, 8, 1), lb(100, 8, 5), lb(100, 8, 9)), a2(lb(120, 10, 2), lb(120, 10, 6))];
-    expect(rest(third)?.endsAt).toBe(ms(minutes(9) + 90_000));
-  });
-
-  it('rests when logging out of order finishes the round', () => {
-    expect(rest([a2(lb(120, 10, 1)), a1(lb(100, 8, 2))])?.endsAt).toBe(ms(minutes(2) + 90_000));
-  });
-
-  it('rests when the last slot of the round is skipped', () => {
-    const skipA2 = { session: session({ skips: [{ slotId: slotId('a2') }] }) };
-    expect(rest([a1(lb(100, 8, 1))], skipA2)?.endsAt).toBe(ms(minutes(1) + 90_000));
-  });
-
-  it('runs through a swap, which keeps the slot', () => {
-    expect(rest([a1(lb(100, 8, 1)), swappedA2(lb(50, 10, 2))])?.endsAt).toBe(ms(minutes(2) + 90_000));
-  });
-
-  it('starts nothing for a warm-up, even right after a finished round', () => {
-    expect(rest([a1(warm(lb(45, 10, 1)))])).toBeNull();
-    expect(rest([a1(lb(100, 8, 1), warm(lb(60, 5, 3))), a2(lb(120, 10, 2))])).toBeNull();
-  });
-
-  it('has nothing to say with no timed set, no rest, or a set off the plan', () => {
-    expect(rest([])).toBeNull();
-    expect(rest([a1(lb(100, 8)), a2(lb(120, 10))])).toBeNull();
-    const noRest = planOf(liftsBlock('s', [slot('a1', 'bench-press', 3)]));
-    expect(restClock(noRest, logsOf([a1(lb(100, 8, 1))]))).toBeNull();
-    expect(rest([performance({ lift: 'crunch', sets: [bw(20, 1)] })])).toBeNull();
   });
 });
 

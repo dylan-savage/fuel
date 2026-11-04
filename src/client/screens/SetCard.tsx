@@ -5,11 +5,9 @@ import type { LocalDate } from '../../domain/ids.js';
 import { lastLineOf, lastTimeOf, lastSwapAt, typedLine } from '../../domain/progress.js';
 import type { LiftBook, Performance, Target, Unit } from '../../domain/lifts.js';
 import type { Slot, Step } from '../../domain/program.js';
-import { isExtra, prefillSet, setLogOf, sideOrder, steppedLoad, steppedReps, type LiftChoice, type LoggedSet, type RestClock, type Side } from '../../domain/session.js';
-import { now } from '../clock.js';
+import { isExtra, prefillSet, setLogOf, sideOrder, steppedLoad, steppedReps, type LiftChoice, type LoggedSet, type Side } from '../../domain/session.js';
 import { entryOf, formOf, type SetForm } from '../trainDraft.js';
-import { editable, parseNumber, repsTargetText, restText, shortDate } from './format.js';
-import { useNow } from './ui.js';
+import { editable, parseNumber, repsTargetText, shortDate } from './format.js';
 
 const OTHER_UNIT: Readonly<Record<Unit, Unit>> = { lb: 'kg', kg: 'lb' };
 
@@ -184,30 +182,6 @@ export function CardAction({ label, disabled = false, onClick }: { readonly labe
   );
 }
 
-function RestTimer({ clock }: { readonly clock: RestClock }) {
-  useNow(1000);
-  const at = now();
-  return (
-    <p class={at > clock.endsAt ? 'rest-timer over' : 'rest-timer'} role="timer">
-      {restText(clock.endsAt, at)}
-    </p>
-  );
-}
-
-/** The biggest thing on screen. A rest takes the name's place, and the name steps down to say what follows it. */
-export function FocusTitle({ rest, title }: { readonly rest: RestClock | null; readonly title: string }) {
-  if (rest === null) return <h2>{title}</h2>;
-  return (
-    <>
-      <RestTimer clock={rest} />
-      <div class="focus-next">
-        <span>Next:</span>
-        <h2>{title}</h2>
-      </div>
-    </>
-  );
-}
-
 /** A logged set in words, for the plan's row and a screen reader. */
 export function setRowText({ performance, set }: LoggedSet, slot: Slot): string {
   const lift = performance.liftId === slot.liftId ? '' : `${performance.label}, `;
@@ -250,7 +224,6 @@ export function SetCard({
   book,
   performances,
   typed,
-  rest,
   logged,
   onForm,
   onLog,
@@ -269,7 +242,6 @@ export function SetCard({
   readonly performances: readonly Performance[];
   /** What he has typed for this very set, if anything. */
   readonly typed: SetForm | undefined;
-  readonly rest: RestClock | null;
   /** This slot's sets so far. */
   readonly logged: readonly LoggedSet[];
   readonly onForm: (form: SetForm) => void;
@@ -297,7 +269,7 @@ export function SetCard({
   return (
     <section class="set-card" aria-label="Set">
       <div class="focus">
-        <FocusTitle rest={rest} title={lift.label} />
+        <h2>{lift.label}</h2>
         <p class="focus-line">
           <span class="focus-round" data-testid="round">
             {isExtra(step) ? 'Extra set' : `Set ${round} of ${slot.target.sets}`}

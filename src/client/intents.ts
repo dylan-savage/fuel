@@ -152,8 +152,7 @@ export interface Intents {
    */
   startSession(key: DayKey, today: LocalDate): Promise<Undo | null>;
   /**
-   * Stores a set at its tap, stamped with the time the rest clock reads. Null while the entry is
-   * incomplete. A set on a slot he skipped takes the skip back in the same commit.
+   * Stores a set at its tap. Null while the entry is incomplete. A set on a slot he skipped takes the skip back in the same commit.
    */
   logSet(place: SetPlace, entry: SetEntry): Promise<Undo | null>;
   /** Changes one logged set, keeping its tap, or removes it when `entry` is null. Removing the last removes the performance. */

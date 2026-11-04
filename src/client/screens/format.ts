@@ -231,13 +231,6 @@ export function planSections(parts: readonly DayPart[]): readonly PlanSection[] 
   return sections;
 }
 
-/** "Rest 0:48", then past zero, counting up, "Rest +0:12". */
-export function restText(endsAt: number, now: number): string {
-  const left = endsAt - now;
-  const seconds = left > 0 ? Math.ceil(left / 1000) : Math.floor(-left / 1000);
-  return `Rest ${left > 0 || seconds === 0 ? '' : '+'}${Math.floor(seconds / 60)}:${pad2(seconds % 60)}`;
-}
-
 /** The start of a long text, cut at a word. Null when the whole text fits. */
 export function clipped(text: string, limit: number): string | null {
   if (text.length <= limit) return null;

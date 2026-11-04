@@ -425,7 +425,6 @@ async function photographSession(page: Page, name: (shot: string) => string) {
   await tab(page, 'Train').click();
   await expect(page.getByRole('region', { name: 'Session' })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('round')).toHaveText('Set 2 of 3');
-  await expect(page.getByRole('timer')).toHaveText('Rest 0:48');
   await expectClearLayout(page);
   await shoot('rest');
 
