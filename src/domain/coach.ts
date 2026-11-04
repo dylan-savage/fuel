@@ -509,7 +509,7 @@ export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; rea
     const { session } = read;
     const pinned = programs.find((version) => version.id === session.programId);
     const plan = pinned === undefined || session.day === undefined ? undefined : plannedDay(pinned, session.day.key, session.date);
-    const phase = sessionPhase(session, now);
+    const phase = sessionPhase(read, now);
     const skips = skipsOf({ session, performances: read.performances, plan, phase });
     const finishedAt = finishOf(read, now);
     const others = docs.workouts.filter((workout) => workout.date === session.date);

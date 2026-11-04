@@ -3,7 +3,7 @@ import { makeWorkout, type Workout } from '../src/domain/burn.js';
 import { WorkoutId } from '../src/domain/ids.js';
 import { liftBook, type Performance, type SetLog } from '../src/domain/lifts.js';
 import { plannedDay, type Block, type PlannedDay } from '../src/domain/program.js';
-import { TrainingNote, cardioDoneOn, finishOf, nextUp, prefillSet, restClock, sessionPhase, sessionWorkoutDraft, sessionWorkoutId, type Next, type SessionLogs } from '../src/domain/session.js';
+import { TrainingNote, cardioDoneOn, finishOf, nextUp, prefillSet, restClock, sessionPhase, sessionWorkoutDraft, sessionWorkoutId, type Next, type Session, type SessionLogs } from '../src/domain/session.js';
 import { T0, band, blockId, bw, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, slotId, target, warm } from './training.fixtures.js';
 
 const noCatalog = liftBook([]);
@@ -236,12 +236,29 @@ describe('prefillSet', () => {
 describe('sessionPhase and finishOf', () => {
   const hour = 3_600_000;
 
-  it('stays open for six hours from the start, then lapses', () => {
+  const phaseOf = (doc: Session, now: number, performances: readonly Performance[] = []) => sessionPhase({ session: doc, performances }, ms(now));
+
+  it('with no set, stays open for six hours from the start, then lapses', () => {
     const open = session({ startedAt: ms(T0) });
-    expect(sessionPhase(open, ms(T0 + 6 * hour - 1))).toBe('open');
-    expect(sessionPhase(open, ms(T0 + 6 * hour))).toBe('lapsed');
-    expect(sessionPhase(session({ startedAt: ms(T0), finishedAt: ms(T0 + hour) }), ms(T0))).toBe('finished');
-    expect(sessionPhase(session({ source: 'notion' }), ms(T0))).toBe('imported');
+    expect(phaseOf(open, T0 + 6 * hour - 1)).toBe('open');
+    expect(phaseOf(open, T0 + 6 * hour)).toBe('lapsed');
+    expect(phaseOf(session({ startedAt: ms(T0), finishedAt: ms(T0 + hour) }), T0)).toBe('finished');
+    expect(phaseOf(session({ source: 'notion' }), T0)).toBe('imported');
+  });
+
+  it('stays open for six hours from the last set, however long ago it started', () => {
+    const long = session({ startedAt: ms(T0) });
+    const late = [a1(lb(100, 8, 5 * 60))];
+    expect(phaseOf(long, T0 + 6 * hour, late)).toBe('open');
+    expect(phaseOf(long, T0 + 11 * hour - 1, late)).toBe('open');
+    expect(phaseOf(long, T0 + 11 * hour, late)).toBe('lapsed');
+  });
+
+  it('agrees with finishOf on a long session, so the coach and the phone read it alike', () => {
+    const long = session({ startedAt: ms(T0) });
+    const late = [a1(lb(100, 8, 5 * 60))];
+    expect(finishOf({ session: long, performances: late }, ms(T0 + 7 * hour))).toBeNull();
+    expect(finishOf({ session: long, performances: late }, ms(T0 + 11 * hour))).toBe(minutes(5 * 60));
   });
 
   it('finishes a forgotten session at its last set, warm-ups included', () => {

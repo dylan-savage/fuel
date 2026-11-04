@@ -36,17 +36,17 @@ export const TrainingNote = z.looseObject({
 });
 export type TrainingNote = z.infer<typeof TrainingNote>;
 
-/** How long a session stays open after its start before it counts as forgotten. */
+/** How long a session stays open after its last set, or its start before any set, until it counts as forgotten. */
 export const OPEN_HOURS = 6;
 const HOUR_MS = 3_600_000;
 
 export type SessionPhase = 'open' | 'finished' | 'lapsed' | 'imported';
 
-/** From the document and the clock, so phone and coach agree with no stored flag. */
-export function sessionPhase(session: Session, now: Millis): SessionPhase {
+/** From the documents and the clock, so phone and coach agree with no stored flag. */
+export function sessionPhase({ session, performances }: Pick<SessionLogs, 'session' | 'performances'>, now: Millis): SessionPhase {
   if (session.source === 'notion') return 'imported';
   if (session.finishedAt !== undefined) return 'finished';
-  return (session.startedAt ?? 0) + OPEN_HOURS * HOUR_MS > now ? 'open' : 'lapsed';
+  return Math.max(session.startedAt ?? 0, ...setTimes(performances)) + OPEN_HOURS * HOUR_MS > now ? 'open' : 'lapsed';
 }
 
 export interface SessionLogs {
@@ -211,7 +211,7 @@ function setTimes(performances: readonly Performance[]): readonly Millis[] {
  */
 export function finishOf(logs: Pick<SessionLogs, 'session' | 'performances'>, now: Millis): Millis | null {
   if (logs.session.finishedAt !== undefined) return logs.session.finishedAt;
-  if (sessionPhase(logs.session, now) !== 'lapsed') return null;
+  if (sessionPhase(logs, now) !== 'lapsed') return null;
   const times = setTimes(logs.performances);
   return times.length === 0 ? null : Millis.parse(Math.max(...times));
 }
