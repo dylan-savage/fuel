@@ -14,10 +14,10 @@ const week = useLive((r) => weekView(r, today), [today]);
 await intents.startSession(week.suggested);                         // pins today's program version
 
 // The set card. Position and rest come from stored sets, so a reload loses nothing.
-const next = nextUp(planned, logs);
-const rest = restClock(planned, logs);
-const lasts = useLive((r) => lastTimesView(r, liftIds, session.date), [liftIds.join(), session.date]);
-const undo = await intents.logSet({ session, slot, lift }, set);    // one tap, one commit, one undo
+const card = cardFor(plan, logs, draft.focus);                      // a tap on the plan, else nextUp
+const rest = restClock(plan, logs);
+const rows = useLive((r) => lastTimesView(r, liftIds, session.date), [liftIds.join(), session.date]);
+const undo = await intents.logSet({ session, slot, lift }, entry);  // one tap, one commit, one undo
 ```
 
 ```
@@ -82,9 +82,20 @@ A tap on Train paints the day list by 48 ms (range 47 to 50, 25 runs after a tab
 | Log set | One commit, stored before the screen moves, with an undo toast |
 | Superset order | `stepsOf` walks A1, A2, rest, A1, A2, rest. Warm-ups do not count as rounds. A slot with fewer sets drops out of the last round |
 | Prefill | Load from the previous set of this lift today, else last time at this position. After a swap, the swapped lift's own history, never the old lift's weight |
-| Tab switch or reload | Same card. Only typed digits wait in localStorage |
+| Tab switch, reload or killed page | Same card. Only typed digits, a swap with no set yet and a tap on the plan wait in one localStorage value |
 | Locked phone | The rest timer reads right on return because it is clock arithmetic. iOS gives no alert while locked (guess until tried on the phone) |
-| Never tapped Finish | After 6 hours the session finishes at its last set's time |
+| Never tapped Finish | Six hours after its last set, or its start with none, the session is forgotten. Launch or a return to the app finishes it at its last set's time, with its workout |
+| Finish with nothing done | No set, tick, skip, note or cardio means a mistaken Start, so the session is removed with an undo, and the day stays undone |
+
+### The session
+
+Top to bottom: the day and elapsed minutes with Finish, the plan scrolling with the current slot tinted, the rest pill, and the card fixed above the tab bar. A tap on any slot sets a focus and `cardFor` reads it, so an extra set and an optional block have no path of their own. A focus on an optional block stays there until its gaps are filled, because `nextUp` never walks in. A note can sit on an exercise only once it has a set, since a performance is the proof of one, so before that it goes on the session. A required cardio block he passes over goes in `session.checked`, which moves the card on and tells the coach nothing it did not already read from the diary.
+
+The tab bar stays during a session. Screenshots at 402 by 681 points leave the plan several rows with it, and at 320 by 568 the tallest card, a long name with per-side reps, clipped the current slot with or without it. So the card tightens below 620 points of height and the plan keeps room for a two-line slot, which holds with the bar in place. Keeping it means the Diary and water stay one tap away between sets, and a tab switch is a real path that loses nothing.
+
+iOS does not resize the layout for its keyboard, so the session reads the visual viewport, shrinks to fit above the keyboard and drops the plan and the action row, leaving the field and Log set. Playwright shows no keyboard, so this is checked against a keyboard reported the way iOS reports one (inferred). It has not been tried on the phone.
+
+A tap on Log set shows the next step in the DOM by 9 ms (range 4 to 14) and paints it by 30 ms (25 to 47), over 48 taps across two sessions, with 810 sessions, 6,525 performances and 28 versions on the phone. Every tap's next step was checked against `stepsOf`, and every set reached the server. The rest of the time is the two frames the check waits for, inferred from that split and not profiled. Measured on 2026-11-03 in desktop WebKit under Playwright against a production build. It has not been measured on the iPhone.
 
 ### Charts
 
