@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { Performance } from '../src/domain/lifts.js';
-import { NotionHistory, detailsOf, importDocs, reconcile, summaryOf, type ImportDocs } from '../src/domain/notionImport.js';
+import { NotionHistory, datesFromCutover, detailsOf, importDocs, reconcile, summaryOf, type ImportDocs } from '../src/domain/notionImport.js';
 import { sessionsDone, skipsOf, totalsOf, workingSets } from '../src/domain/progress.js';
 import { Session } from '../src/domain/session.js';
+import { day } from './training.fixtures.js';
 
 const MONDAY = '2030-03-04';
 const ROW = `${MONDAY} Mon, Push bench-press`;
@@ -28,6 +29,7 @@ function progressRow(extra: object = {}) {
 function history(extra: object = {}): NotionHistory {
   return NotionHistory.parse({
     capturedAt: '2030-03-10',
+    cutover: '2030-04-01',
     dateAssumption: 'Monday plus the planned weekday.',
     names: { 'Bench press': 'bench-press', 'Incline press': 'incline-press', 'Close-grip bench': 'bench-press', 'Step up': 'step-up' },
     weeks: [{ monday: MONDAY, days: [pushDay([bench([lb(100, 10)])])] }],
@@ -242,6 +244,44 @@ describe('importDocs', () => {
     const [session] = sessions;
     if (session === undefined) throw new Error('no session');
     expect(skipsOf({ session, performances, plan: undefined, phase: 'imported' })).toEqual([{ slotId: 'step-up', label: 'step-up', note: 'No box free.' }]);
+  });
+});
+
+describe('a cardio-only day', () => {
+  const swimDay = pushDay([], { label: 'Fri, Legs', key: 'legs', weekday: 5, date: '2030-03-08', cardioOnly: 'The week row says Friday was a swim.' });
+  const week = [{ monday: MONDAY, days: [pushDay([bench([lb(100, 10)])]), swimDay] }];
+  const counted = { weeks: week, weekRows: [{ week: 'Week of Mar 4', monday: MONDAY, current: false, sessionsDone: 2, notes: 'Friday was a swim.' }] };
+
+  it('is a session with no performances, carrying the note, so its week row reconciles with no waiver', () => {
+    const h = history(counted);
+    expect(reconcile(h)).toMatchObject({ findings: [], clean: true });
+    const { sessions, performances } = importDocs(h, uuidFrom);
+    const [, swim] = sessions;
+    expect(swim).toMatchObject({ date: '2030-03-08', day: { key: 'legs', label: 'Fri, Legs' }, source: 'notion', note: 'The week row says Friday was a swim.' });
+    expect(performances.filter((p) => p.sessionId === swim?.id)).toEqual([]);
+    expect(sessionsDone(sessions, performances)).toHaveLength(2);
+  });
+
+  it('stands out as a mismatch without the flag, so a row counting a day with nothing behind it is still caught', () => {
+    const plain = { ...swimDay, cardioOnly: undefined };
+    expect(findingsOf(history({ ...counted, weeks: [{ monday: MONDAY, days: [pushDay([bench([lb(100, 10)])]), plain] }] }))).toEqual([[MONDAY, 'sessions-done', '2', '1']]);
+  });
+
+  it.each([
+    ['logged sets', { exercises: [bench([lb(100, 10)])] }],
+    ['a skip', { skipped: [{ planned: 'Step up' }] }],
+    ['another note', { note: 'Which note wins?' }],
+  ])('refuses one holding %s', (_what, extra) => {
+    expect(() => history({ weeks: [{ monday: MONDAY, days: [{ ...swimDay, ...extra }] }] })).toThrow(/cardio only/);
+  });
+});
+
+describe('datesFromCutover', () => {
+  it('names a session dated on or after the cutover, and none before', () => {
+    const docs = importDocs(history(), uuidFrom);
+    expect(datesFromCutover(docs, day('2030-03-05'))).toEqual([]);
+    expect(datesFromCutover(docs, day(MONDAY))).toEqual([MONDAY]);
+    expect(datesFromCutover(docs, day('2030-03-01'))).toEqual([MONDAY]);
   });
 });
 

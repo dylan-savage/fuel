@@ -1,6 +1,7 @@
 /**
- * The one-time Notion import. Dated for deletion: the cutover unit removes this file, its route
- * and scripts/reconcile-history.mjs, because nothing else uses them.
+ * The one-time Notion import. Dated for deletion: the cutover unit removes this file,
+ * src/server/import.ts, DocStore.importKind, ImportAnswer, scripts/import-history.mjs and
+ * scripts/reconcile-history.mjs, because nothing else uses them.
  *
  * Input is .private/training/import/notion-history.json, which git ignores. A Claude session with
  * the Notion tools produces it from two reads: day pages into `weeks`, and the Progress, All Weeks
@@ -63,6 +64,8 @@ const NotionDay = z.strictObject({
   exercises: z.array(NotionExercise),
   /** Required exercises the page planned with nothing logged. */
   skipped: z.array(z.strictObject({ planned: Text, note: Text.optional() })),
+  /** The week row's words for a day with nothing typed that it still counts. It is the only record, so it becomes the session's note. */
+  cardioOnly: Text.optional(),
 });
 
 const ProgressRow = z.strictObject({
@@ -97,6 +100,8 @@ function namesIn(history: { readonly weeks: readonly { readonly days: readonly z
 export const NotionHistory = z
   .strictObject({
     capturedAt: LocalDate,
+    /** The phone owns sessions from this date on, so the import refuses any dated here or later. */
+    cutover: LocalDate,
     /** Stated once, because every session's date rests on it. */
     dateAssumption: Text,
     /** Every name in any source to its lift, so a name that reaches Progress as another is visible. */
@@ -115,6 +120,7 @@ export const NotionHistory = z
       for (const day of week.days) {
         const expected = addDays(week.monday, day.weekday - 1);
         if (day.date !== expected) ctx.addIssue({ code: 'custom', path: ['weeks'], message: `${day.label} of ${week.monday} is dated ${day.date}, expected ${expected}` });
+        if (day.cardioOnly !== undefined && (day.exercises.length > 0 || day.skipped.length > 0 || day.note !== undefined)) ctx.addIssue({ code: 'custom', path: ['weeks'], message: `${day.label} of ${week.monday} is cardio only, so it holds nothing but that note` });
         const slots = [...day.exercises.map((e) => history.names[e.planned ?? e.done]), ...day.skipped.map((skip) => history.names[skip.planned])];
         for (const slot of new Set(slots)) {
           if (slot !== undefined && slots.indexOf(slot) !== slots.lastIndexOf(slot)) ctx.addIssue({ code: 'custom', path: ['weeks'], message: `${day.label} of ${week.monday} plans ${slot} twice, so a document would overwrite another` });
@@ -211,13 +217,13 @@ function sideBySide(field: WaiverField, notion: ReadonlyMap<string, number>, com
   });
 }
 
-function loggedDays(week: NotionHistory['weeks'][number]): readonly NotionHistory['weeks'][number]['days'][number][] {
-  return week.days.filter((day) => day.exercises.length > 0);
+/** A day with any logged set is a session, which is the weekly routine's own rule for Sessions done, and so is a cardio-only day its week row counts. */
+function sessionDays(week: NotionHistory['weeks'][number]): readonly NotionHistory['weeks'][number]['days'][number][] {
+  return week.days.filter((day) => day.exercises.length > 0 || day.cardioOnly !== undefined);
 }
 
-/** A day with any logged set is a session, which is the weekly routine's own rule for Sessions done. */
 function sessionDisagreements(history: NotionHistory): readonly Disagreement[] {
-  return sideBySide('sessions-done', new Map(history.weekRows.map((row) => [row.monday, row.sessionsDone])), new Map(history.weeks.map((week) => [week.monday, loggedDays(week).length])));
+  return sideBySide('sessions-done', new Map(history.weekRows.map((row) => [row.monday, row.sessionsDone])), new Map(history.weeks.map((week) => [week.monday, sessionDays(week).length])));
 }
 
 function bodyWeightDisagreements(history: NotionHistory): readonly Disagreement[] {
@@ -274,8 +280,8 @@ function optional(key: string, value: unknown): Readonly<Record<string, unknown>
  * The documents the import would write, each built through its domain schema. A session id is
  * derived from date and day and a performance id from the session, so a re-run lands on the same
  * documents. `uuidFrom` is injected because the domain has no crypto. A page with nothing logged
- * is no session, and no workout is written: Notion recorded no minutes, and burn would move past
- * targets under eat-back.
+ * is no session unless it is cardio only, and no workout is written: Notion recorded no minutes,
+ * and burn would move past targets under eat-back.
  *
  * The slot id is the planned lift, since imports have no program to point at, and it is what a
  * skip shows the coach.
@@ -283,7 +289,7 @@ function optional(key: string, value: unknown): Readonly<Record<string, unknown>
 export function importDocs(history: NotionHistory, uuidFrom: (seed: string) => string): ImportDocs {
   const lift = (name: string): LiftId => liftOf(history.names, name);
   const slot = (name: string): SlotId => SlotId.parse(lift(name));
-  const days = history.weeks.flatMap(loggedDays);
+  const days = history.weeks.flatMap(sessionDays);
   const built = days.map((day) => {
     const sessionId = SessionId.parse(uuidFrom(`${day.date}:${day.key}`));
     const session = Session.parse({
@@ -291,7 +297,7 @@ export function importDocs(history: NotionHistory, uuidFrom: (seed: string) => s
       date: day.date,
       day: { key: day.key, label: day.label },
       source: 'notion',
-      ...optional('note', day.note),
+      ...optional('note', day.cardioOnly ?? day.note),
       ...optional('checked', day.checked),
       ...optional('skips', day.skipped.length === 0 ? undefined : day.skipped.map((skip) => ({ slotId: slot(skip.planned), ...optional('note', skip.note) }))),
     });
@@ -315,6 +321,11 @@ export function importDocs(history: NotionHistory, uuidFrom: (seed: string) => s
     return { session, performances };
   });
   return { sessions: built.map((b) => b.session), performances: built.flatMap((b) => b.performances) };
+}
+
+/** The dates of sessions the phone owns, which would double what it logs. */
+export function datesFromCutover(docs: ImportDocs, cutover: LocalDate): readonly LocalDate[] {
+  return docs.sessions.filter((session) => session.date >= cutover).map((session) => session.date);
 }
 
 export interface ImportCounts {
@@ -388,7 +399,7 @@ ${listOr(waiverLines(history), 'None.')}
 /** The rest of the report, for reading a row against its source. */
 export function detailsOf(history: NotionHistory, result: Reconciliation): string {
   const rows = new Map(history.progress.map((row) => [rowKey(row.monday, row.day, liftOf(history.names, row.exercise)), row]));
-  const dated = history.weeks.flatMap(loggedDays).map((day) => `- ${day.date} ${day.label}: page last edited ${day.pageEditedAt}`);
+  const dated = history.weeks.flatMap(sessionDays).map((day) => `- ${day.date} ${day.label}: page last edited ${day.pageEditedAt}`);
   return `
 ## Every finding
 
