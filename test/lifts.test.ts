@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { LocalDate, addDays, isMonday, mondayOf } from '../src/domain/ids.js';
+import { LocalDate, addDays, isMonday, mondayOf, weekdayOf } from '../src/domain/ids.js';
 import { Performance, liftBook, liftIdOf, performanceId, type Lift } from '../src/domain/lifts.js';
 import { day, lb, lift, newSessionId, performance, slotId } from './training.fixtures.js';
 
@@ -25,6 +25,14 @@ describe('mondayOf', () => {
         expect(addDays(monday, 6) >= date).toBe(true);
       }),
     );
+  });
+});
+
+describe('weekdayOf', () => {
+  it('counts from Monday as 1 through Sunday as 7', () => {
+    expect(weekdayOf(day('2030-03-04'))).toBe(1);
+    expect(weekdayOf(day('2030-03-06'))).toBe(3);
+    expect(weekdayOf(day('2030-03-10'))).toBe(7);
   });
 });
 

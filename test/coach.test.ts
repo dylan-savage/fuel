@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkPublish, parseProgramDraft, programDiff, sameContent, snapshotOf, targetMondayOf, type DiffItem, type PublishVerdict, type TrainDocs } from '../src/domain/coach.js';
+import { checkPublish, coachWeek, parseProgramDraft, programDiff, sameContent, snapshotOf, targetMondayOf, type DiffItem, type PublishVerdict, type TrainDocs } from '../src/domain/coach.js';
 import { makeWorkout, metDraft } from '../src/domain/burn.js';
 import type { Entry } from '../src/domain/diary.js';
 import { TrainingNoteId, WorkoutId } from '../src/domain/ids.js';
@@ -191,6 +191,38 @@ describe('parseProgramDraft', () => {
   it('refuses something that is not a draft at all', () => {
     expect(parseProgramDraft(null).ok).toBe(false);
     expect(parseProgramDraft([]).ok).toBe(false);
+  });
+});
+
+describe('coachWeek', () => {
+  const reported = (text: string, at: number) => ({ report: { text }, publishedAt: ms(at) });
+  const week = program('2030-03-11', DAYS, { ...reported('A good week.', T0), standing: [], changes: [{ target: 'standing:rules', why: 'Said elsewhere now.' }] });
+
+  it('is quiet with no version this week, whatever came before', () => {
+    expect(coachWeek(base, [])).toEqual({ kind: 'quiet' });
+    expect(coachWeek(null, [])).toEqual({ kind: 'quiet' });
+  });
+
+  it('shows the report and the publish time, with what changed and why', () => {
+    const shown = coachWeek(base, [week]);
+    expect(shown).toMatchObject({ kind: 'checked-in', at: T0, report: { text: 'A good week.' } });
+    expect(shown.kind === 'checked-in' ? shown.changes.map((c) => [c.target, c.why]) : []).toEqual([['standing:rules', 'Said elsewhere now.']]);
+  });
+
+  it('shows no changes for a first version', () => {
+    expect(coachWeek(null, [week])).toMatchObject({ kind: 'checked-in', changes: [] });
+  });
+
+  it('keeps the week\'s report and its changes when a version follows it mid-week with no report', () => {
+    const fix = program('2030-03-13', DAYS.slice(0, 1), { publishedAt: ms(T0 + 1000), changes: [{ target: 'day:legs', why: 'Moved to a later week.' }] });
+    const shown = coachWeek(base, [week, fix]);
+    expect(shown).toMatchObject({ kind: 'checked-in', at: T0, report: { text: 'A good week.' } });
+    expect(shown.kind === 'checked-in' ? shown.changes.map((c) => c.why) : []).toEqual(['Said elsewhere now.', 'Moved to a later week.']);
+  });
+
+  it('names the newest version\'s time when no version this week brought a report', () => {
+    const later = program('2030-03-11', DAYS, { publishedAt: ms(T0 + 5) });
+    expect(coachWeek(base, [later])).toMatchObject({ kind: 'checked-in', at: T0 + 5, report: null });
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Program, dayNotesFor, notesFor, plannedDay, programOn, stepsOf, type Block, type LiftsBlock } from '../src/domain/program.js';
+import { Program, dayNotesFor, dayParts, notesFor, plannedDay, programOn, stepsOf, type Block, type LiftsBlock, type PlannedDay } from '../src/domain/program.js';
 import { checklist, day, dayKey, liftsBlock, program, slot } from './training.fixtures.js';
 
 const PUSH = dayKey('push');
@@ -51,6 +51,27 @@ describe('plannedDay', () => {
     const oneOff = program('2030-03-04', [{ key: 'push', blocks: [checklist('warm', { onlyWeek: day('2030-03-11') })] }]);
     expect(plannedDay(oneOff, PUSH, day('2030-03-11'))?.blocks).toHaveLength(1);
     expect(plannedDay(oneOff, PUSH, day('2030-03-18'))).toBeUndefined();
+  });
+});
+
+describe('dayParts', () => {
+  const planOf = (...blocks: Block[]): PlannedDay => ({ key: PUSH, label: 'Push', minutes: undefined, blocks });
+
+  it('puts optional blocks last and keeps the rest in the order planned', () => {
+    const parts = dayParts(planOf(checklist('warm'), liftsBlock('extra', [slot('e1', 'crunch', 2)], { optional: true }), liftsBlock('main', [slot('a1', 'bench-press', 3)])));
+    expect(parts.map((part) => part.block.id)).toEqual(['warm', 'main', 'extra']);
+  });
+
+  it('letters the supersets in reading order and counts rounds to the largest set count', () => {
+    const parts = dayParts(
+      planOf(
+        liftsBlock('straight', [slot('a1', 'bench-press', 4)]),
+        liftsBlock('first', [slot('b1', 'cable-row', 3), slot('b2', 'face-pull', 2)]),
+        checklist('warm'),
+        liftsBlock('second', [slot('c1', 'squat', 2), slot('c2', 'crunch', 2)]),
+      ),
+    );
+    expect(parts.map((part) => part.superset)).toEqual([null, { letter: 'A', rounds: 3 }, null, { letter: 'B', rounds: 2 }]);
   });
 });
 

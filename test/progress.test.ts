@@ -8,6 +8,7 @@ import {
   addWeightNext,
   boardRow,
   epley,
+  lastLineOf,
   lastSwapAt,
   lastTimeOf,
   lbOf,
@@ -20,9 +21,11 @@ import {
   swapsOf,
   totalsOf,
   typedLine,
+  weekProgress,
   type LiftRead,
 } from '../src/domain/progress.js';
-import { band, bw, day, dayKey, kg, lb, lift, liftsBlock, minutes, performance, program, session, sides, slot, slotId, target, warm } from './training.fixtures.js';
+import type { Session } from '../src/domain/session.js';
+import { band, bw, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, performance, program, session, sides, slot, slotId, target, warm } from './training.fixtures.js';
 
 const noCatalog = liftBook([]);
 const read = (name: string, rows: readonly Performance[]): LiftRead => ({ lift: lift(name), rows, book: noCatalog });
@@ -406,6 +409,103 @@ describe('sessionsDone', () => {
     const warmedUp = session();
     const performances = [performance({ session: worked.id, lift: 'squat', sets: [lb(100, 5)] }), performance({ session: warmedUp.id, lift: 'squat', sets: [warm(lb(45, 5))] })];
     expect(sessionsDone([worked, finished, imported, empty, warmedUp], performances)).toEqual([worked, finished, imported]);
+  });
+});
+
+describe('weekProgress', () => {
+  const lifting = [liftsBlock('main', [slot('a1', 'bench-press', 3)])];
+  const version = program('2030-03-04', [
+    { key: 'thu', weekday: 4, blocks: lifting },
+    { key: 'mon', weekday: 1, blocks: lifting },
+    { key: 'any', blocks: lifting },
+    { key: 'wed', weekday: 3, blocks: [checklist('retest', { onlyWeek: day('2030-03-04') })] },
+  ]);
+  const week = (date: string, sessions: readonly Session[] = [], performances: readonly Performance[] = []) => weekProgress({ program: version, sessions, performances, today: day(date) });
+  const on = (key: string, date: string, extra: Partial<Session> = {}) => session({ date: day(date), day: { key: dayKey(key), label: key }, finishedAt: minutes(60), ...extra });
+
+  it('orders days by weekday with undated ones after, and drops a day holding only lapsed blocks', () => {
+    expect(week('2030-03-05').days.map((d) => d.plan.key)).toEqual(['mon', 'wed', 'thu', 'any']);
+    expect(week('2030-03-12').days.map((d) => d.plan.key)).toEqual(['mon', 'thu', 'any']);
+  });
+
+  it('marks a day with the date he trained it, not the planned weekday', () => {
+    const shown = week('2030-03-08', [on('thu', '2030-03-07'), on('mon', '2030-03-06')]);
+    expect(shown.days.map((d) => [d.plan.key, d.doneOn])).toEqual([
+      ['mon', '2030-03-06'],
+      ['wed', null],
+      ['thu', '2030-03-07'],
+      ['any', null],
+    ]);
+    expect(shown.done).toBe(2);
+    expect(shown.strip).toEqual([true, false, true, false]);
+  });
+
+  it('suggests today\'s weekday while it is undone, else the first undone day', () => {
+    expect(week('2030-03-07').suggested?.key).toBe('thu');
+    expect(week('2030-03-07', [on('thu', '2030-03-07')]).suggested?.key).toBe('mon');
+    expect(week('2030-03-05').suggested?.key).toBe('mon');
+    const everyDay = ['mon', 'wed', 'thu', 'any'].map((key) => on(key, '2030-03-05'));
+    expect(week('2030-03-05', everyDay).suggested).toBeNull();
+  });
+
+  it('counts an imported session with no pin toward its day', () => {
+    const shown = week('2030-03-08', [on('mon', '2030-03-04', { source: 'notion', finishedAt: undefined })]);
+    expect(shown.days[0]?.doneOn).toBe('2030-03-04');
+    expect(shown.done).toBe(1);
+  });
+
+  it('counts a cardio-only import naming no planned day, filling the strip so it agrees with the count', () => {
+    const swim = session({ date: day('2030-03-05'), day: { key: dayKey('swim'), label: 'Swim' }, source: 'notion', note: 'Invented swim.' });
+    const shown = week('2030-03-08', [swim, on('thu', '2030-03-07')]);
+    expect(shown.done).toBe(2);
+    expect(shown.days.filter((d) => d.doneOn !== null).map((d) => d.plan.key)).toEqual(['thu']);
+    expect(shown.strip).toEqual([true, false, true, false]);
+  });
+
+  it('counts a session off plan with no day at all', () => {
+    const off = session({ day: undefined, date: day('2030-03-05') });
+    const shown = week('2030-03-08', [off], [performance({ session: off.id, date: '2030-03-05', lift: 'squat', sets: [lb(100, 5)] })]);
+    expect(shown.done).toBe(1);
+    expect(shown.strip).toEqual([true, false, false, false]);
+  });
+
+  it('never fills past the plan when he does more than it holds', () => {
+    const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((key) => on(key, '2030-03-05'));
+    const shown = week('2030-03-12', many);
+    expect(shown.done).toBe(6);
+    expect(shown.strip).toEqual([true, true, true]);
+  });
+
+  it('leaves out a session opened and left empty', () => {
+    expect(week('2030-03-05', [on('mon', '2030-03-05', { finishedAt: undefined })]).days[0]?.doneOn).toBeNull();
+  });
+});
+
+describe('lastLineOf', () => {
+  const book = liftBook([{ id: lift('bench-press'), name: 'Bench press', aliases: [lift('flat-bench')] }]);
+  const read = (rows: readonly Performance[]) => lastLineOf({ lift: lift('bench-press'), book, rows, before: day('2030-03-11') });
+
+  it('writes the working sets as typed, with the date', () => {
+    expect(read([performance({ date: '2030-03-04', lift: 'bench-press', sets: [warm(kg(20, 10)), kg(62.5, 8), kg(62.5, 8), kg(62.5, 6)] })])).toEqual({ date: '2030-03-04', line: '62.5 kg × 8/8/6', addWeight: false });
+  });
+
+  it('writes a per-side set as both sides', () => {
+    expect(read([performance({ date: '2030-03-04', lift: 'bench-press', sets: [sides(30, 10, 9), sides(30, 9, 8)] })])?.line).toBe('30 lb × 10+9/9+8');
+  });
+
+  it('finds a lift logged under its alias', () => {
+    expect(read([performance({ date: '2030-03-04', lift: 'flat-bench', sets: [lb(100, 8)] })])?.line).toBe('100 lb × 8');
+  });
+
+  it('flags add-weight from the performance\'s own target', () => {
+    const top = [lb(100, 10), lb(100, 10)];
+    expect(read([performance({ date: '2030-03-04', lift: 'bench-press', sets: top, target: target(2, 8, 10) })])?.addWeight).toBe(true);
+    expect(read([performance({ date: '2030-03-04', lift: 'bench-press', sets: top, target: target(3, 8, 10) })])?.addWeight).toBe(false);
+  });
+
+  it('is null before the lift was done, and when last time held only warm-ups', () => {
+    expect(read([])).toBeNull();
+    expect(read([performance({ date: '2030-03-04', lift: 'bench-press', sets: [warm(lb(45, 10))] })])).toBeNull();
   });
 });
 

@@ -64,10 +64,15 @@ export type ProgramId = z.infer<typeof ProgramId>;
 export const PerformanceId = z.string().startsWith('pf:').brand<'PerformanceId'>();
 export type PerformanceId = z.infer<typeof PerformanceId>;
 
+/** 1 is Monday and 7 is Sunday, as a plan's Day.weekday counts. */
+export function weekdayOf(date: LocalDate): number {
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return weekday === 0 ? 7 : weekday;
+}
+
 /** The Monday of the calendar week holding `date`. A week is this value and nothing else. */
 export function mondayOf(date: LocalDate): LocalDate {
-  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-  return addDays(date, weekday === 0 ? -6 : 1 - weekday);
+  return addDays(date, 1 - weekdayOf(date));
 }
 
 export function isMonday(date: LocalDate): boolean {

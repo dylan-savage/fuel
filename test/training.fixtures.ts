@@ -49,13 +49,13 @@ export function checklist(id: string, extra: Partial<ChecklistBlock> = {}): Chec
   return { kind: 'checklist', id: blockId(id), items: ['Arm circles', 'Hip openers'], ...extra };
 }
 
-export function program(effectiveFrom: string, days: readonly { readonly key: string; readonly blocks: readonly Block[] }[], extra: Partial<Program> = {}): Program {
+export function program(effectiveFrom: string, days: readonly { readonly key: string; readonly blocks: readonly Block[]; readonly label?: string; readonly weekday?: number; readonly minutes?: number }[], extra: Partial<Program> = {}): Program {
   const date = day(effectiveFrom);
   const lifts = [...new Set(days.flatMap((d) => d.blocks).flatMap((b) => (b.kind === 'lifts' ? b.slots.flatMap((s) => [s.liftId, ...(s.swaps ?? []).map((o) => o.liftId)]) : [])))];
   return {
     id: programId(date),
     effectiveFrom: date,
-    days: days.map((d) => ({ key: dayKey(d.key), label: `Day ${d.key}`, blocks: [...d.blocks] })),
+    days: days.map((d) => ({ label: `Day ${d.key}`, ...d, key: dayKey(d.key), blocks: [...d.blocks] })),
     lifts: lifts.map((id) => ({ id, name: id, aliases: [] })),
     notes: [],
     standing: [],

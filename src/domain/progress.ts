@@ -1,7 +1,7 @@
 import { KG_PER_LB } from './goals.js';
-import { addDays, mondayOf, type LocalDate, type SessionId } from './ids.js';
+import { addDays, mondayOf, weekdayOf, type LocalDate, type SessionId } from './ids.js';
 import type { LiftBook, LiftId, Load, Performance, SetLog, SetReps, SlotId } from './lifts.js';
-import type { PlannedDay } from './program.js';
+import { plannedDay, type DayKey, type PlannedDay, type Program } from './program.js';
 import type { Session, SessionPhase } from './session.js';
 
 /** The only unit conversion. Null for bodyweight and bands: they have no pounds, and zero would be a lie on a chart. */
@@ -81,17 +81,17 @@ function repsText(reps: SetReps): string {
 }
 
 /** "50 lb x 10/9/8", "30/45/50 lb x 11/10/9", "8 kg/20 lb x 12/10", "BW x 11", "green x 12": the sets as he logged them. */
-export function typedLine(sets: readonly SetLog[]): string {
+export function typedLine(sets: readonly SetLog[], times = 'x'): string {
   const loads = sets.map((set) => loadText(set.load));
   const reps = sets.map((set) => repsText(set.reps)).join('/');
   const units = new Set(sets.map((set) => (set.load.kind === 'weight' ? set.load.unit : null)));
   const [unit] = units;
-  if (new Set(loads).size === 1) return `${loads[0] ?? ''} x ${reps}`;
+  if (new Set(loads).size === 1) return `${loads[0] ?? ''} ${times} ${reps}`;
   if (units.size === 1 && unit !== null && unit !== undefined) {
     const amounts = sets.map((set) => (set.load.kind === 'weight' ? set.load.amount : '')).join('/');
-    return `${amounts} ${unit} x ${reps}`;
+    return `${amounts} ${unit} ${times} ${reps}`;
   }
-  return `${loads.join('/')} x ${reps}`;
+  return `${loads.join('/')} ${times} ${reps}`;
 }
 
 export interface RepsToGo {
@@ -184,6 +184,21 @@ function newest(rows: readonly Performance[]): Performance | undefined {
 export function lastTimeOf({ lift, rows, book, before }: LiftRead & { readonly before: LocalDate }): Performance | undefined {
   const members = new Set(book.members(lift));
   return newest(rows.filter((row) => row.date < before && members.has(row.liftId)));
+}
+
+/** What an exercise shows of its last time. */
+export interface LastLine {
+  readonly date: LocalDate;
+  /** The working sets as typed, such as "62.5 kg × 8/8/6". */
+  readonly line: string;
+  readonly addWeight: boolean;
+}
+
+/** Null before he has done the lift, and when last time holds only warm-ups, which say nothing about the working weight. */
+export function lastLineOf(read: LiftRead & { readonly before: LocalDate }): LastLine | null {
+  const last = lastTimeOf(read);
+  const working = last === undefined ? [] : workingSets(last.sets);
+  return last === undefined || working.length === 0 ? null : { date: last.date, line: typedLine(working, '×'), addWeight: addWeightNext(last) };
 }
 
 /** "Last time here you did X". */
@@ -314,6 +329,46 @@ export function boardRow(read: LiftRead & { readonly today: LocalDate }): BoardR
 export function sessionsDone(sessions: readonly Session[], performances: readonly Performance[]): readonly Session[] {
   const worked = new Set<SessionId>(performances.filter((p) => workingSets(p.sets).length > 0).map((p) => p.sessionId));
   return sessions.filter((session) => session.finishedAt !== undefined || session.source === 'notion' || worked.has(session.id));
+}
+
+/** One day of a week's plan, with whether he has trained it. */
+export interface WeekDay {
+  readonly plan: PlannedDay;
+  readonly weekday: number | undefined;
+  /** When he trained it, which need not be the planned weekday. Matched by day key, so a version published mid-week keeps it. */
+  readonly doneOn: LocalDate | null;
+}
+
+export interface WeekProgress {
+  /** Ordered by weekday. A day with no weekday follows, in the plan's order. */
+  readonly days: readonly WeekDay[];
+  /** Sessions done, as showUp and the coach count them, including any that name no planned day. */
+  readonly done: number;
+  /** One per planned day. A session naming no planned day fills the first empty one, so the strip agrees with `done`. */
+  readonly strip: readonly boolean[];
+  /** The first undone day, or today's weekday if that is undone. */
+  readonly suggested: PlannedDay | null;
+}
+
+/** `sessions` and `performances` are that week's. */
+export function weekProgress(input: { readonly program: Program; readonly sessions: readonly Session[]; readonly performances: readonly Performance[]; readonly today: LocalDate }): WeekProgress {
+  const { program, today } = input;
+  const done = sessionsDone(input.sessions, input.performances);
+  const doneOn = new Map<DayKey, LocalDate>();
+  for (const session of done.toSorted((a, b) => a.date.localeCompare(b.date))) {
+    if (session.day !== undefined && !doneOn.has(session.day.key)) doneOn.set(session.day.key, session.date);
+  }
+  const days = program.days
+    .toSorted((a, b) => (a.weekday ?? 8) - (b.weekday ?? 8))
+    .flatMap((day): readonly WeekDay[] => {
+      const plan = plannedDay(program, day.key, today);
+      return plan === undefined ? [] : [{ plan, weekday: day.weekday, doneOn: doneOn.get(day.key) ?? null }];
+    });
+  let spare = done.length - days.filter((day) => day.doneOn !== null).length;
+  const strip = days.map((day) => day.doneOn !== null || spare-- > 0);
+  const undone = days.filter((day) => day.doneOn === null);
+  const suggested = undone.find((day) => day.weekday === weekdayOf(today)) ?? undone[0];
+  return { days, done: done.length, strip, suggested: suggested?.plan ?? null };
 }
 
 export interface Skip {

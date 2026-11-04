@@ -4,7 +4,7 @@ import type { Workout } from './burn.js';
 import { summarizeDay, type Entry } from './diary.js';
 import { addDays, isMonday, mondayOf, type LocalDate, type Millis, type ProgramId, type SessionId } from './ids.js';
 import { liftBook, type LiftId, type Performance } from './lifts.js';
-import { Program, ProgramDraft, plannedDay, programId, programOn, type Block, type Day, type Slot, type StandingText } from './program.js';
+import { Program, ProgramDraft, plannedDay, programId, programOn, type Block, type Day, type Report, type Slot, type StandingText } from './program.js';
 import { addWeightNext, skipsOf, sessionsDone, swapsOf, totalsOf, typedLine, workingSets, type Skip, type Swap } from './progress.js';
 import { finishOf, sessionPhase, sessionWorkoutDraft, type Session, type SessionPhase, type TrainingNote } from './session.js';
 import { isRecord, unknownFields } from './strict.js';
@@ -143,6 +143,34 @@ export function programDiff(before: Program | null, after: ProgramDraft): readon
     needsReason: NEEDS_REASON[change.kind],
     why: after.changes.find((c) => c.target === change.target)?.why ?? null,
   }));
+}
+
+/** The coach's week on the phone, derived from which versions took effect in it, never stored. */
+export type CoachWeek =
+  | { readonly kind: 'quiet' }
+  | {
+      readonly kind: 'checked-in';
+      readonly at: Millis;
+      readonly report: Report | null;
+      /** Every version of the week against the one before it, each with its own reasons. Nothing for a first version. */
+      readonly changes: readonly DiffItem[];
+    };
+
+/**
+ * `thisWeek` holds the versions that took effect this week so far, oldest first, and `before` the
+ * one they followed. A draft starts with no report, so a mid-week fix would otherwise blank the
+ * report Monday's version brought.
+ */
+export function coachWeek(before: Program | null, thisWeek: readonly Program[]): CoachWeek {
+  const latest = thisWeek.at(-1);
+  if (latest === undefined) return { kind: 'quiet' };
+  const reporting = thisWeek.findLast((version) => version.report !== undefined) ?? latest;
+  return {
+    kind: 'checked-in',
+    at: reporting.publishedAt,
+    report: reporting.report ?? null,
+    changes: thisWeek.flatMap((version, i) => programDiff(thisWeek[i - 1] ?? before, version)),
+  };
 }
 
 function canonical(value: unknown): string {

@@ -175,15 +175,36 @@ export interface Step {
   readonly endsRound: boolean;
 }
 
+/** A block runs to its largest set count. */
+function roundsOf(block: LiftsBlock): number {
+  return Math.max(...block.slots.map((slot) => slot.target.sets));
+}
+
 /**
  * A1, A2, rest, A1, A2, rest. Rounds run to the largest set count and a slot leaves once its
  * sets are used, so a 2-set slot in a 3-round superset needs no special case. Straight sets
  * are the one-slot case.
  */
 export function stepsOf(block: LiftsBlock): readonly Step[] {
-  const rounds = Math.max(...block.slots.map((slot) => slot.target.sets));
-  return Array.from({ length: rounds }, (_, i) => i + 1).flatMap((round) => {
+  return Array.from({ length: roundsOf(block) }, (_, i) => i + 1).flatMap((round) => {
     const inRound = block.slots.filter((slot) => slot.target.sets >= round);
     return inRound.map((slot, i) => ({ block, slot, round, endsRound: i === inRound.length - 1 }));
+  });
+}
+
+/** One block as a day reads. */
+export interface DayPart {
+  readonly block: Block;
+  /** Set on a lifts block of more than one slot. `letter` counts the supersets the day reads through. */
+  readonly superset: { readonly letter: string; readonly rounds: number } | null;
+}
+
+/** A day in the order it reads, optional blocks last, since nextUp never walks into them. */
+export function dayParts(day: PlannedDay): readonly DayPart[] {
+  const ordered = day.blocks.toSorted((a, b) => Number(a.optional === true) - Number(b.optional === true));
+  const supersets = ordered.filter((block) => block.kind === 'lifts' && block.slots.length > 1);
+  return ordered.map((block) => {
+    const at = supersets.indexOf(block);
+    return { block, superset: block.kind === 'lifts' && at >= 0 ? { letter: String.fromCharCode(65 + at), rounds: roundsOf(block) } : null };
   });
 }
