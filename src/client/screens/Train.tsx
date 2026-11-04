@@ -1,11 +1,11 @@
 import { useState } from 'preact/hooks';
-import type { CoachWeek, DiffItem, DiffKind } from '../../domain/coach.js';
+import type { CoachWeek } from '../../domain/coach.js';
 import { mondayOf, type LocalDate } from '../../domain/ids.js';
 import type { SlotId } from '../../domain/lifts.js';
 import type { DayKey, StandingText } from '../../domain/program.js';
 import { TrainingNote } from '../../domain/session.js';
 import { useIntents, useLive, weekView, type WeekView } from '../views.js';
-import { clipped, count, pastMoment, shortDate, weekdayName } from './format.js';
+import { changeWords, clipped, count, pastMoment, shortDate, weekdayName } from './format.js';
 import { ProgressSheet } from './Progress.js';
 import { TrainDay } from './TrainDay.js';
 import { ExpandRow, NoteField, Row, Sheet, TitleBar, useKeyboardAvoidance, useToast } from './ui.js';
@@ -13,31 +13,6 @@ import { WeighInSheet } from './Weight.js';
 
 /** Long enough to fill the row's one line on any phone, short enough not to read a whole report to a screen reader. */
 const COACH_LINE_LIMIT = 120;
-
-const withoutLift = (text: string | null) => text?.slice(text.indexOf(' ') + 1);
-
-/** A prescription names the lift first, which only says anything when the lift itself changed. */
-function prescriptionChange({ label, before, after }: DiffItem): string {
-  const sameLift = before?.split(' ')[0] === after?.split(' ')[0];
-  return `${label} went from ${sameLift ? withoutLift(before) : before} to ${sameLift ? withoutLift(after) : after}`;
-}
-
-const CHANGE_WORDS: Readonly<Record<DiffKind, (item: DiffItem) => string>> = {
-  'day-removed': ({ label }) => `${label} is gone`,
-  'block-removed': ({ label }) => `${label} is gone`,
-  'slot-removed': ({ label }) => `${label} is gone`,
-  'cue-removed': ({ label }) => `The cue on ${label} is gone`,
-  'standing-removed': ({ label }) => `${label} left the program`,
-  'prescription-changed': prescriptionChange,
-  'day-added': ({ label }) => `${label} is new`,
-  'block-added': ({ label }) => `${label} is new`,
-  'slot-added': ({ label }) => `${label} is new`,
-  'slot-renamed': ({ label, after }) => `${label} is now called ${after}`,
-  'cue-added': ({ label }) => `${label} has a new cue`,
-  'cue-edited': ({ label }) => `The cue on ${label} changed`,
-  'standing-added': ({ label }) => `${label} joined the program`,
-  'standing-edited': ({ label }) => `${label} changed in the program`,
-};
 
 /** The Coach row's one line: the report if there is one, else how much changed. */
 function coachLine(coach: CoachWeek): string | undefined {
@@ -72,7 +47,7 @@ function CoachSheet({ week, today, onClose }: { readonly week: WeekView; readonl
           <ul class="list" aria-label="Changes">
             {changes.map((item, i) => (
               <li class="row-text" key={i}>
-                <p>{CHANGE_WORDS[item.kind](item)}</p>
+                <p>{changeWords(item)}</p>
                 {item.why !== null && <p class="detail">{item.why}</p>}
               </li>
             ))}

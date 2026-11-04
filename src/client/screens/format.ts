@@ -1,3 +1,4 @@
+import type { DiffItem, DiffKind } from '../../domain/coach.js';
 import type { Meal } from '../../domain/diary.js';
 import { nutrientsFor, type FoodSnapshot, type Quantity, type Serving } from '../../domain/food.js';
 import { KG_PER_LB } from '../../domain/goals.js';
@@ -243,3 +244,31 @@ export function clipped(text: string, limit: number): string | null {
   const word = start.search(/\s\S*$/);
   return `${word > 0 ? start.slice(0, word) : start}…`;
 }
+
+const withoutLift = (text: string | null) => text?.slice(text.indexOf(' ') + 1);
+
+/** A prescription names the lift first, which only says anything when the lift itself changed. */
+function prescriptionChange({ label, before, after }: DiffItem): string {
+  const sameLift = before?.split(' ')[0] === after?.split(' ')[0];
+  return `${label} went from ${sameLift ? withoutLift(before) : before} to ${sameLift ? withoutLift(after) : after}`;
+}
+
+const CHANGE_WORDS: Readonly<Record<DiffKind, (item: DiffItem) => string>> = {
+  'day-removed': ({ label }) => `${label} is gone`,
+  'block-removed': ({ label }) => `${label} is gone`,
+  'slot-removed': ({ label }) => `${label} is gone`,
+  'cue-removed': ({ label }) => `The cue on ${label} is gone`,
+  'standing-removed': ({ label }) => `${label} left the program`,
+  'prescription-changed': prescriptionChange,
+  'day-added': ({ label }) => `${label} is new`,
+  'block-added': ({ label }) => `${label} is new`,
+  'slot-added': ({ label }) => `${label} is new`,
+  'slot-renamed': ({ label, after }) => `${label} is now called ${after}`,
+  'cue-added': ({ label }) => `${label} has a new cue`,
+  'cue-edited': ({ label }) => `The cue on ${label} changed`,
+  'standing-added': ({ label }) => `${label} joined the program`,
+  'standing-edited': ({ label }) => `${label} changed in the program`,
+};
+
+/** One row of What changed. */
+export const changeWords = (item: DiffItem): string => CHANGE_WORDS[item.kind](item);
