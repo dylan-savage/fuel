@@ -29,6 +29,6 @@ The simulation runs 150 random schedules per property. Set `FUEL_SIM_RUNS` to ru
 | `src/server/` | `store.ts` (the only SQL, including the lookup cache), `routes.ts`, `foods.ts` (which source answers, caching and merging), `off.ts` and `usda.ts` (the only code that reads their JSON), `ai.ts` (the only Anthropic SDK import, and the only code that reads the model's reply), `upstream.ts`, `backup.ts`, `main.ts`. |
 | `src/client/` | `replica.ts` (the only Dexie import), `sync.ts`, `intents.ts`, `views.ts`, `api.ts`, `scanner.ts`, `photo.ts` (shrinks a photo before upload), and the Preact screens. `screens/flow.tsx` is the one state machine for the sheets that end in a diary entry. |
 | `test/`, `e2e/` | Unit, integration, simulation and browser tests. `test/fixtures/` holds the recorded external responses and the AI fixture photos; `test/ai-replies.ts` holds the model replies. |
-| `scripts/` | `run.sh` and the launchd plist for the mini, plus the dev, icon, fixture-recording and AI smoke scripts. |
+| `scripts/` | `run.sh` and the launchd plist for the mini, plus the dev, icon, fixture-recording and AI smoke scripts, and the coach's tool and prompt. |
 
 When you add a document kind, add one line to `KINDS` in `src/domain/kinds.ts`. If the IndexedDB layout changes, the schema history test fails. Append the new `dexieStores()` output to `SCHEMA_HISTORY` to fix it.

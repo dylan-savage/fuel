@@ -183,10 +183,10 @@ Importing measured burn is out of scope until Dylan has a wearable he trusts (de
 src/domain/     pure; compiled with no DOM and no Node types
   ids.ts units.ts nutrients.ts food.ts diary.ts library.ts reuse.ts goals.ts body.ts burn.ts habits.ts quicklog.ts kinds.ts
 src/protocol.ts zod schemas for every HTTP body
-src/server/     main.ts routes.ts store.ts foods.ts off.ts usda.ts upstream.ts ai.ts backup.ts
+src/server/     main.ts routes.ts train.ts store.ts foods.ts off.ts usda.ts upstream.ts ai.ts backup.ts
 src/client/     main.tsx replica.ts sync.ts intents.ts views.ts api.ts scanner.ts photo.ts screens/
 test/           domain units, adapter fixtures, routes, sync simulation, schema history pin
-scripts/        run.sh, com.dylansavage.fuel.plist, restore.sh, ai-smoke.mjs
+scripts/        run.sh, com.dylansavage.fuel.plist, restore.sh, ai-smoke.mjs, train.mjs, coach-prompt.md
 ```
 
 Logging a recent food traces `screens/Diary.tsx` to `intents.ts` to `replica.ts`, with the math in `domain/diary.ts`. The server side is `routes.ts` to `store.ts`. Recipes, saved meals and the food-edit refresh live in `domain/reuse.ts`, water and fasts in `domain/habits.ts`, weigh-ins and the trend in `domain/body.ts`, workouts in `domain/burn.ts`, and AI drafts in `domain/quicklog.ts`.
