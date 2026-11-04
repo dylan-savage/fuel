@@ -116,9 +116,10 @@ function bodyDocs(): Mutation[] {
 const TRAIN_MONDAY = '2031-12-01';
 const TRAIN_NOON = new Date('2031-12-03T12:00:00');
 const LAST_WEEK = '2031-11-25';
-/** A week after every other spec's clock, so the open session here is not settled by any of them. */
-const SESSION_DAY = '2032-01-07';
-const SESSION_LAST_WEEK = '2031-12-30';
+/** After every other clock, Progress's here included, so the open session is not settled by any of them. */
+const SESSION_MONDAY = '2034-01-02';
+const SESSION_DAY = '2034-01-04';
+const SESSION_LAST_WEEK = '2033-12-27';
 const SESSION_NOW = new Date(`${SESSION_DAY}T18:30:00`);
 
 /**
@@ -259,7 +260,7 @@ function sessionDocs(): Mutation[] {
     swaps: [{ liftId: lift('landmine-press'), label: 'Landmine press' }, { liftId: lift('machine-press'), label: 'Machine press' }],
   });
   const row = slot('s2', 'seal-row', 3, { label: 'Seal row', target: target(3, 8, 12) });
-  const version = program('2032-01-05', [
+  const version = program(SESSION_MONDAY, [
     {
       key: 'full',
       label: 'Upper body strength and accessory work',
@@ -281,7 +282,7 @@ function sessionDocs(): Mutation[] {
   const performances = [
     performance({ date: SESSION_LAST_WEEK, lift: 'single-arm-cable-press', sets: [sides(32.5, 12, 11), sides(32.5, 11, 10), sides(32.5, 10, 10)] }),
     performance({ date: SESSION_LAST_WEEK, lift: 'seal-row', sets: [kg(40, 12), kg(40, 12), kg(40, 12)], target: target(3, 8, 12) }),
-    performance({ date: '2031-12-23', lift: 'pin-press', sets: [lb(185, 5), lb(185, 5), lb(185, 5), lb(185, 4)] }),
+    performance({ date: '2033-12-20', lift: 'pin-press', sets: [lb(185, 5), lb(185, 5), lb(185, 5), lb(185, 4)] }),
     performance({ date: SESSION_LAST_WEEK, lift: 'machine-press', planned: 'pin-press', label: 'Machine press', sets: [lb(140, 8), lb(140, 8)] }),
     performance({ date: SESSION_LAST_WEEK, lift: 'band-face-pull', sets: [band('green', 18), band('green', 16)] }),
     performance({ date: SESSION_LAST_WEEK, lift: 'reverse-crunch', sets: [bw(15), bw(14)] }),
