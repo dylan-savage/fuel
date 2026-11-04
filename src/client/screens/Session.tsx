@@ -31,13 +31,15 @@ export function useKeyboardAvoidance(): void {
     const viewport = window.visualViewport;
     if (viewport === null) return;
     const root = document.documentElement;
+    let wasUp = false;
     const update = () => {
       const covered = root.clientHeight - viewport.height - viewport.offsetTop;
       const up = covered > KEYBOARD_MIN_PX;
       root.classList.toggle('keyboard-up', up);
       root.style.setProperty('--keyboard', `${up ? covered : 0}px`);
       root.style.setProperty('--viewport-top', `${viewport.offsetTop}px`);
-      if (up) document.activeElement?.scrollIntoView({ block: 'nearest' });
+      if (up && !wasUp) document.activeElement?.scrollIntoView({ block: 'nearest' });
+      wasUp = up;
     };
     viewport.addEventListener('resize', update);
     viewport.addEventListener('scroll', update);

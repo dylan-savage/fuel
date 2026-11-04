@@ -1,6 +1,6 @@
 /** The card in the thumb's reach: what to do now, and most sets are one tap on Log set. */
 import type { ComponentChildren } from 'preact';
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { LocalDate } from '../../domain/ids.js';
 import { lastLineOf, lastTimeOf, lastSwapAt } from '../../domain/progress.js';
 import type { LiftBook, Performance, Target, Unit } from '../../domain/lifts.js';
@@ -17,6 +17,24 @@ const UNITS: readonly { readonly value: Unit; readonly label: string }[] = [
 
 /** How long Log set stays off after a tap, so a double tap on a wet hand cannot log the next set too. */
 const DOUBLE_TAP_MS = 350;
+
+/** On from the first render, because the tap that brought the card here may be the first of a double one. */
+function useCooldown(): readonly [boolean, () => void] {
+  const [cooling, setCooling] = useState(true);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cool = () => {
+    setCooling(true);
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCooling(false), DOUBLE_TAP_MS);
+  };
+  useEffect(() => {
+    cool();
+    return () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+    };
+  }, []);
+  return [cooling, cool];
+}
 
 function Stepper({
   label,
@@ -216,15 +234,12 @@ export function SetCard({
   const line = lastLineOf(read);
   const swapHint = lift.liftId === slot.liftId ? lastSwapAt({ ...read, lift: slot.liftId }) : undefined;
   const valid = setLogOf(entryOf(form)) !== null;
-  const [cooling, setCooling] = useState(false);
-  const coolingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [cooling, cool] = useCooldown();
 
   const log = () => {
     if (!valid) return;
     blurTyping();
-    setCooling(true);
-    if (coolingTimer.current !== null) clearTimeout(coolingTimer.current);
-    coolingTimer.current = setTimeout(() => setCooling(false), DOUBLE_TAP_MS);
+    cool();
     onLog(form);
   };
 
