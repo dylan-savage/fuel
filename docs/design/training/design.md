@@ -104,6 +104,8 @@ A T3 scheduled task on the mini, Sundays at 07:00 with a fresh thread per run, r
 
 One Claude session with the Notion tools writes `.private/training/import/notion-history.json` from two independent reads: day pages set by set, and Progress verbatim. `reconcile` recomputes every Progress total through the phone's own math and refuses to write while a mismatch stands without a stated waiver. Ids derive from date and day, so it re-runs, and a row Dylan has since edited is listed as a conflict and left alone. It writes no workouts. Weigh-ins older than fuel's first are skipped by default because they move past targets, and the dry run prints the largest shift. The route and the import code are deleted at cutover.
 
+`scripts/import-history.mjs` sends that file to `POST /api/train/import`, one transaction per kind, written by `import`. The file names its cutover, and a session dated on or after it refuses the whole file. With no weigh-ins in fuel, every Notion weigh-in counts as older, because nothing has seeded the trend yet. A document an earlier import wrote and this file no longer holds is listed, not deleted, and still counts until someone removes it. A cardio-only day becomes a session with no performances and the week row's words as its note.
+
 ### What ships first
 
 The phone reports its build on every sync. The first deploy makes the shell skip and flag what it cannot read, and re-pull under a new build. Publish and import refuse until the phone reports that build, which replaces a human remembering to tap the banner.
