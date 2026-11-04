@@ -1922,11 +1922,12 @@ main {
   font-weight: 600;
 }
 
+/* Sticky stops at the sheet body's padding, so it reaches past it or the plan shows beneath. */
 .day-start {
   position: sticky;
-  bottom: 0;
-  margin-top: 16px;
-  padding: 8px 0;
+  bottom: calc(-24px - env(safe-area-inset-bottom));
+  margin: 16px 0 calc(-24px - env(safe-area-inset-bottom));
+  padding: 8px 0 calc(24px + env(safe-area-inset-bottom));
   background: var(--bg);
 }
 
@@ -2279,6 +2280,11 @@ main {
   opacity: 0.45;
 }
 
+/* A guard against a double tap, not a state to read, so it does not flicker. */
+.log-set.cooling:disabled {
+  opacity: 1;
+}
+
 .set-actions {
   flex: none;
   display: grid;
@@ -2386,9 +2392,9 @@ body:has(.session) .toast {
 
 .keyboard-up .sheet-body .sheet-actions {
   position: sticky;
-  bottom: 0;
-  margin-top: 8px;
-  padding-top: 8px;
+  bottom: -8px;
+  margin: 8px 0 -8px;
+  padding: 8px 0;
   background: var(--bg);
 }
 

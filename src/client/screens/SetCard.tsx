@@ -266,7 +266,7 @@ export function SetCard({
         )}
         <SetInputs form={form} onChange={onForm} perSide={slot.target.perSide} prompt={slot.setPrompt} />
       </div>
-      <button type="button" class="primary log-set" disabled={!valid || cooling} onClick={log}>
+      <button type="button" class={valid && cooling ? 'primary log-set cooling' : 'primary log-set'} disabled={!valid || cooling} onClick={log}>
         Log set
       </button>
       {actions}
