@@ -13,13 +13,20 @@ import { kcalOf, openControlled, seed, setGoal, stored, tab } from './app.js';
 
 const shown = (n: number) => Math.round(Math.abs(n)).toLocaleString('en-US');
 
+const openWeight = async (page: Page) => {
+  await page.getByRole('button', { name: /^Weight/ }).click();
+  return page.getByRole('dialog', { name: 'Weight' });
+};
+
 async function weighIn(page: Page, daysAgo: number, pounds: string) {
-  await page.getByRole('region', { name: 'Weight' }).getByRole('button', { name: 'Weigh in', exact: true }).click();
+  const weight = await openWeight(page);
+  await weight.getByRole('button', { name: 'Weigh in', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: 'Weigh-in' });
   await sheet.getByLabel('Date').fill(addDays(localDate(), -daysAgo));
   await sheet.getByLabel('Weight').fill(pounds);
   await sheet.getByRole('button', { name: 'Save weigh-in' }).click();
   await expect(sheet).toBeHidden();
+  await weight.getByRole('button', { name: 'Done' }).click();
 }
 
 /** Clears the workouts other specs left, so today's burn is only what this spec logs. */
@@ -42,26 +49,26 @@ test('logs weigh-ins over several days and sees the trend, rate and projected go
   ] as const) {
     await weighIn(page, daysAgo, pounds);
   }
-  await page.getByRole('region', { name: 'Weight' }).getByRole('button', { name: /^Weight/ }).click();
-  const sheet = page.getByRole('dialog', { name: 'Weight' });
+  const sheet = await openWeight(page);
   await expect(sheet.getByTestId('trend-weight')).toHaveText('182.9 lb');
-  await expect(sheet.getByTestId('weekly-rate')).toHaveText('Not enough data for a rate yet');
+  await expect(sheet.getByTestId('weekly-rate')).toHaveText('No rate yet');
   await expect(sheet.getByTestId('projection')).toHaveText('Not enough data');
-  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await sheet.getByRole('button', { name: 'Done' }).click();
 
   for (let daysAgo = 10; daysAgo >= 0; daysAgo--) await weighIn(page, daysAgo, (183 - 0.2 * (13 - daysAgo)).toFixed(1));
-  await page.getByRole('region', { name: 'Weight' }).getByRole('button', { name: /^Weight/ }).click();
+  await openWeight(page);
   await expect(sheet.getByTestId('weekly-rate')).toHaveText(/^−\d\.\d lb a week$/);
   await expect(sheet.getByTestId('projection')).toHaveText(/^[A-Z][a-z]{2} \d{1,2}(, \d{4})?$/);
   await expect(sheet.getByRole('figure', { name: 'Weight over 30 days' })).toBeVisible();
   await expect(sheet.getByRole('list', { name: 'Weigh-ins' }).getByRole('listitem')).toHaveCount(14);
   await expect.poll(() => stored('weighIn').length, { timeout: 15_000 }).toBe(14);
-  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await sheet.getByRole('button', { name: 'Done' }).click();
 
   // From a past day, picking a later day still finds its reading, and a day with none starts blank.
   await page.getByRole('button', { name: 'Previous day' }).click();
-  await page.getByRole('region', { name: 'Weight' }).getByRole('button', { name: 'Weigh in', exact: true }).click();
+  await (await openWeight(page)).getByRole('button', { name: 'Weigh in', exact: true }).click();
   const entry = page.getByRole('dialog', { name: 'Weigh-in' });
+  await expect(entry.getByLabel('Date')).toHaveValue(addDays(localDate(), -1));
   await entry.getByLabel('Date').fill(localDate());
   await expect(entry.getByLabel('Weight')).toHaveValue((183 - 0.2 * 13).toFixed(1));
   await expect(entry.getByRole('button', { name: 'Delete weigh-in' })).toBeVisible();
@@ -76,7 +83,7 @@ test('logs a workout offline and still shows it after reconnecting', async ({ pa
   await seed(request, [...clearWorkouts(), weight]);
   await openControlled(page);
   // The burn needs a body weight, so the weigh-in must be on the phone before the network goes.
-  await expect(page.getByRole('region', { name: 'Weight' }).getByTestId('tile-trend')).toBeVisible();
+  await expect(page.getByTestId('day-trend')).toBeVisible();
   await context.setOffline(true);
   await page.reload();
 
@@ -113,16 +120,18 @@ test('eats back a workout and sees remaining calories rise by its burn', async (
   await page.getByRole('button', { name: 'Save goal' }).click();
 
   await tab(page, 'Diary').click();
-  await page.getByRole('region', { name: 'Workouts' }).getByRole('button', { name: 'Add workout' }).click();
+  const target = await kcalOf(page, 'kcal-target');
+  const workouts = page.getByRole('region', { name: 'Workouts' });
+  await workouts.getByRole('button', { name: 'Add workout' }).click();
   const logger = page.getByRole('dialog', { name: 'Add workout' });
-  await logger.getByRole('region', { name: 'Gym' }).getByRole('button', { name: /^Strength training ?3\.5 MET/ }).click();
+  await logger.getByRole('region', { name: 'Gym' }).getByRole('button', { name: /^Strength training(?!,)/ }).click();
   await logger.getByRole('button', { name: '60 min', exact: true }).click();
   const burn = await kcalOf(page, 'workout-kcal');
   await logger.getByRole('button', { name: 'Log workout' }).click();
-  await expect(page.getByText('Not added to your target.')).toBeVisible();
-  await expect(page.getByTestId('kcal-workouts')).toBeHidden();
+  await expect(workouts).toContainText(`${shown(burn)} kcal`);
+  // Under an activity level a logged workout is recorded and the target stays where it was.
+  await expect(page.getByTestId('kcal-target')).toHaveText(shown(target));
 
-  const target = await kcalOf(page, 'kcal-target');
   const eaten = await kcalOf(page, 'kcal-eaten');
   await expect(page.getByTestId('kcal-remaining')).toHaveText(shown(target - eaten));
 
@@ -133,8 +142,6 @@ test('eats back a workout and sees remaining calories rise by its burn', async (
   await expect(page.getByRole('status').filter({ hasText: 'Goal saved' })).toBeVisible();
 
   await tab(page, 'Diary').click();
-  await expect(page.getByTestId('kcal-workouts')).toHaveText(shown(burn));
-  await expect(page.getByTestId('kcal-target')).toHaveText(shown(target));
+  await expect(page.getByTestId('kcal-target')).toHaveText(shown(target + burn));
   await expect(page.getByTestId('kcal-remaining')).toHaveText(shown(target + burn - eaten));
-  await expect(page.getByText('Not added to your target.')).toBeHidden();
 });

@@ -604,7 +604,7 @@ for (const policy of ['activity-level', 'eat-back-workouts'] as const) {
 
     await page.getByRole('region', { name: 'Cardio' }).getByRole('button', { name: 'Log cardio' }).click();
     const logger = page.getByRole('dialog', { name: 'Add workout' });
-    await logger.getByRole('button', { name: /^Walking, 3 mph.*MET/ }).click();
+    await logger.getByRole('region', { name: 'Walking' }).getByRole('button', { name: /^Walking, 3 mph/ }).click();
     await logger.getByLabel('Duration').fill('20');
     await logger.getByRole('button', { name: 'Log workout' }).click();
     await expect(page.getByRole('region', { name: 'Done' })).toBeVisible();
@@ -621,7 +621,7 @@ for (const policy of ['activity-level', 'eat-back-workouts'] as const) {
     const workouts = page.getByRole('region', { name: 'Workouts' });
     await expect(workouts.getByRole('button', { name: /^Lift and ride/ })).toContainText('40 min');
     await expect(workouts.getByRole('button', { name: /^Walking, 3 mph/ })).toContainText('20 min');
-    await expect(workouts.getByRole('listitem'), 'two workouts and the add row').toHaveCount(3);
+    await expect(workouts.getByRole('listitem'), 'two workouts').toHaveCount(2);
 
     await expect.poll(() => stored('workout').filter((w) => w.date === DAY).length, { timeout: 15_000 }).toBe(2);
     const finished = stored('session').find((s) => s.date === DAY);
@@ -636,13 +636,9 @@ for (const policy of ['activity-level', 'eat-back-workouts'] as const) {
     const walkedKcal = walked.map((w) => w.kcal)[0];
     expect(liftedKcal).toBe(kcalOf(2.5, 40, lifted[0]?.kg ?? 0));
     expect(walkedKcal).toBe(kcalOf(2.8, 20, walked[0]?.kg ?? 0));
-    if (policy === 'activity-level') {
-      await expect(page.getByTestId('kcal-workouts'), 'the budget does not move').toHaveCount(0);
-      await expect(page.getByText('Not added to your target.')).toBeVisible();
-    } else {
-      await expect(page.getByTestId('kcal-workouts'), 'lifting and cardio, each once').toHaveText(String((liftedKcal ?? 0) + (walkedKcal ?? 0)));
-    }
-    expect(await page.getByTestId('kcal-target').textContent(), 'the goal itself never moves').toBe(baseTarget);
+    // The day's total is the goal, which never moves, plus what the policy lets workouts add.
+    const added = policy === 'activity-level' ? 0 : (liftedKcal ?? 0) + (walkedKcal ?? 0);
+    await expect(page.getByTestId('kcal-target'), 'an activity level adds nothing, and eating back adds lifting and cardio, each once').toHaveText((Number(baseTarget?.replace(/,/g, '')) + added).toLocaleString('en-US'));
   });
 }
 

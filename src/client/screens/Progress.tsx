@@ -143,7 +143,7 @@ function LiftSheet({ lift, today, onClose }: { readonly lift: OpenLift; readonly
       <div class="full-sheet">
         {view !== undefined && (
           <>
-            <div class="card lift-summary">
+            <div class="card">
               {view.toGo !== null && <ToGo toGo={view.toGo} />}
               {view.toGo !== null && <hr class="card-rule" />}
               <LiftChart key={range} series={view.ranges[range]} range={range} latest={view.latest} latestMode={view.latestMode} today={today} />

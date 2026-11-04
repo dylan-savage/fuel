@@ -176,7 +176,7 @@ main {
 
 .day-bar h1 {
   text-align: center;
-  font-size: 22px;
+  font-size: var(--text-title);
   font-weight: 700;
 }
 
@@ -527,49 +527,21 @@ main {
 .summary-top {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: baseline;
   gap: 12px;
 }
 
-.summary-label {
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  color: var(--muted);
-}
-
-.summary-big,
-.summary-main {
-  font-size: 17px;
-  color: var(--muted);
-}
-
-.summary-big strong,
-.summary-main strong {
-  font-size: 44px;
-  font-weight: 700;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-}
-
-.summary-big.over strong {
-  color: var(--red);
-}
-
-.summary-equation {
-  text-align: right;
-  color: var(--muted);
-  font-size: 15px;
+.summary-top .detail {
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
-.summary-equation span {
-  color: var(--text);
+.summary .bar {
+  margin-top: 10px;
 }
 
-.summary .row-button {
-  margin-top: 8px;
+.summary .text-button {
+  margin: 2px 0 -10px -4px;
 }
 
 .bar {
@@ -597,123 +569,173 @@ main {
   margin: 6px 0 0;
 }
 
+.bar.water > span {
+  background: var(--water);
+}
+
+.bar.fast > span {
+  background: var(--fast);
+}
+
 .macros {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 8px;
   margin: 12px 0 0;
 }
 
-.macro dt {
-  font-size: 13px;
+.macro dt,
+.stat-label {
   color: var(--muted);
+  font-size: var(--text-detail);
+}
+
+/* The macro colors stay, on a mark this small. */
+.macro dt::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--macro);
+}
+
+.macro.protein {
+  --macro: var(--protein);
+}
+
+.macro.carbs {
+  --macro: var(--carbs);
+}
+
+.macro.fat {
+  --macro: var(--fat);
 }
 
 .macro dd {
   margin: 0;
-  font-size: 15px;
+  color: var(--muted);
+  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.macro.protein .bar > span {
-  background: var(--protein);
-}
-
-.macro.carbs .bar > span {
-  background: var(--carbs);
-}
-
-.macro.fat .bar > span {
-  background: var(--fat);
-}
-
-.meal {
-  margin-top: 20px;
-}
-
-.meal-header {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 0 4px 4px;
-}
-
-.meal-header h2 {
-  flex: 1;
-  font-size: 20px;
+.macro dd strong {
+  color: var(--text);
+  font-size: var(--text-row);
   font-weight: 600;
 }
 
-.meal-kcal {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.meal-header .icon-button {
-  height: 36px;
-  margin-right: -8px;
-}
-
-/* Water and fasting */
-
-.habits {
+/* Water, fasting and weight: one quiet row of numbers. */
+.stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   margin-top: 12px;
+  border-radius: 12px;
+  background: var(--card);
 }
 
-.tile {
+.stat {
   display: grid;
-  align-content: space-between;
-  gap: 12px;
-  padding: 14px;
-  min-height: 128px;
+  gap: 1px;
+  min-height: 44px;
+  padding: 9px 4px 9px 16px;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.tile-main {
+.stat-value {
+  font-weight: 600;
+}
+
+/* A section of the day: heading, calories and a small plus, over its rows. */
+.day-section {
+  margin-top: 8px;
+}
+
+.day-section.quiet {
+  margin-top: 0;
+}
+
+.day-section.quiet + .day-section:not(.quiet) {
+  margin-top: 4px;
+}
+
+.day-section-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
+  min-height: 44px;
+  padding-left: 16px;
+}
+
+.day-section-head h2 {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--text-row);
+  font-weight: 600;
+}
+
+.day-section-head h2 button {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 11px 0;
+  font-weight: inherit;
   text-align: left;
 }
 
-.tile-text {
-  display: grid;
-  min-width: 0;
-}
-
-.tile-title {
-  font-size: 13px;
-  font-weight: 600;
+.day-section.quiet h2 {
   color: var(--muted);
+  font-weight: 400;
 }
 
-.tile-value {
-  font-size: 22px;
-  font-weight: 700;
+.day-section-total {
+  color: var(--muted);
+  font-size: var(--text-detail);
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
-.tile-value small {
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--muted);
+/* The plus lines up with the row ends beneath it. */
+.day-section-head .icon-button {
+  flex: none;
+  margin-right: 6px;
 }
 
-.tile-value.clock {
-  font-size: 19px;
-}
-
-.tile-detail {
-  font-size: 13px;
-  color: var(--muted);
-  white-space: nowrap;
+/* A food's name stays on one line, however long the label it came from. */
+.foods .row-name {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+/* A row with its own action at the far end. */
+.split-row {
+  display: flex;
+  align-items: center;
+}
+
+.split-row > .row {
+  flex: 1;
+  min-width: 0;
+  padding-right: 0;
+}
+
+.split-row > .remove {
+  flex: none;
+  color: var(--muted);
+}
+
+/* Sheets */
 
 .pills {
   display: flex;
@@ -722,157 +744,32 @@ main {
 
 .pill {
   flex: 1;
-  min-height: 36px;
-  padding: 0 8px;
-  border-radius: 999px;
+  min-height: 44px;
+  padding: 0 4px;
+  border-radius: 12px;
   background: var(--fill);
   color: var(--tint);
-  font-size: 15px;
+  font-size: var(--text-detail);
   font-weight: 600;
   white-space: nowrap;
 }
 
-.sheet-body > .pills {
-  margin-bottom: 16px;
-}
-
-.ring {
-  position: relative;
-  flex: none;
-}
-
-.ring > svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-
-.ring > svg circle {
-  fill: none;
-  stroke-width: var(--ring-width, 12);
-}
-
-.ring-track {
-  stroke: var(--bar);
-}
-
-.ring-fill {
-  stroke-linecap: round;
-}
-
-.ring.water {
-  color: var(--water);
-}
-
-.ring.water .ring-fill {
-  stroke: var(--water);
-}
-
-.ring.fast {
-  color: var(--fast);
-}
-
-.ring.fast .ring-fill {
-  stroke: var(--fast);
-}
-
-.ring.done {
-  color: var(--green);
-}
-
-.ring.done .ring-fill {
-  stroke: var(--green);
-}
-
-.ring-center {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  text-align: center;
-}
-
-.ring-center .icon {
-  width: 22px;
-  height: 22px;
-}
-
-.hero {
-  display: grid;
-  place-items: center;
-  margin: 4px 0 20px;
-}
-
-.hero .ring {
-  --ring-width: 8;
-}
-
-.hero-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.hero-value {
-  font-size: 34px;
-  font-weight: 700;
+.pill[aria-pressed='true'] {
+  background: var(--segment);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
   color: var(--text);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.15;
 }
 
-.hero-sub {
-  font-size: 15px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
+.sheet-body > :is(.card, .list, .group, .pills, .quantity-picker, .segmented, .hint, .sheet-actions) + :is(.card, .list, .group, .pills) {
+  margin-top: 12px;
 }
 
-.fast-times,
-.streak {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin: 0;
-  padding: 12px 16px;
-  background: var(--card);
-  border-radius: 12px;
-}
-
-.fast-times dt,
-.streak dt {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.fast-times dd,
-.streak dd {
-  margin: 0;
-  font-weight: 600;
-}
-
-.streak {
-  margin-bottom: 12px;
-}
-
-.primary.end {
-  background: var(--fast);
-}
-
-.entry-kcal.reached {
-  color: var(--green);
-}
-
-.drink {
-  display: grid;
-  flex: 1;
-  min-height: 52px;
-  align-content: center;
+.mark-good .icon {
+  display: block;
 }
 
 .remove {
-  margin-right: 12px;
+  margin-right: 2px;
 }
 
 /* Add */
@@ -1544,61 +1441,6 @@ main {
 
 /* Weight */
 
-/* An odd tile out, such as Weight beside Water and Fasting on today, takes the whole row. */
-.habits > .tile:last-child:nth-child(odd) {
-  grid-column: 1 / -1;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  min-height: 0;
-}
-
-.habits > .tile:last-child:nth-child(odd) .pills {
-  min-width: 108px;
-}
-
-.tile-icon {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--fill);
-  color: var(--tint);
-}
-
-.spark {
-  display: none;
-  flex: 1;
-  min-width: 0;
-  max-width: 120px;
-  height: 32px;
-  margin-left: auto;
-}
-
-.habits > .tile:last-child:nth-child(odd) .spark {
-  display: block;
-}
-
-.spark path {
-  fill: none;
-  stroke: var(--tint);
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-
-.weight-hero {
-  display: grid;
-  justify-items: center;
-  margin: 4px 0 12px;
-}
-
-.chart-card {
-  padding: 12px 12px 10px;
-}
-
 .weight-chart {
   margin: 0;
 }
@@ -1607,28 +1449,9 @@ main {
   display: block;
   width: 100%;
   height: auto;
+  margin-top: 8px;
   touch-action: pan-y;
   overflow: visible;
-}
-
-.chart-readout {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  margin: 0 4px 8px;
-  font-size: 15px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.chart-readout strong {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.chart-readout-date {
-  margin-left: auto;
-  font-size: 13px;
 }
 
 .chart-grid line {
@@ -1669,96 +1492,30 @@ main {
   opacity: 0.35;
 }
 
-.chart-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  margin: 6px 4px 0;
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.chart-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.key-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--scale-dot);
-}
-
-.key-line {
-  width: 16px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--tint);
-}
-
-.key-line.goal {
-  background: var(--goal-line);
-}
-
 .chart-empty {
-  text-align: center;
-  padding: 40px 16px;
+  padding: 8px 0;
 }
 
-.body-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin: 12px 0 0;
-  padding: 12px 16px;
+/* A range control at the foot of a chart's card: its tap target runs into the card's padding. */
+.card > .segmented.quiet {
+  margin: 4px 0 -12px;
 }
 
-.body-stats dt {
-  font-size: 13px;
-  color: var(--muted);
+.heading-with-unit {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
 }
 
-.body-stats dd {
-  margin: 0;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.text-button.inline {
-  padding: 0 16px;
+.heading-with-unit .detail {
+  font-weight: 400;
 }
 
 /* Workouts */
 
-/* A header with no menu button after its total, such as Workouts, keeps the total in line with the rows. */
-.meal-header > .meal-kcal:last-child {
-  padding-right: 16px;
-}
-
 .workout-name {
   flex: 1;
   min-width: 0;
-  font-weight: 500;
-}
-
-.pills.minutes {
-  margin-top: 12px;
-}
-
-.pill[aria-pressed='true'] {
-  background: var(--tint);
-  color: #fff;
-}
-
-.burn-preview {
-  margin-top: 16px;
-}
-
-.policy-sentence {
-  padding: 4px 16px 8px;
-  font-size: 15px;
 }
 
 /* Train */
@@ -2336,10 +2093,6 @@ body:has(.session):not(.sheet-open) .toast {
   display: contents;
 }
 
-.show-up svg {
-  margin-top: 8px;
-}
-
 .show-up-block {
   fill: var(--tint);
 }
@@ -2399,15 +2152,6 @@ body:has(.session):not(.sheet-open) .toast {
 
 .lift-readout {
   min-height: 2.6em;
-}
-
-.lift-chart .chart-empty {
-  padding: 8px 0;
-  text-align: left;
-}
-
-.lift-summary .segmented {
-  margin: 4px 0 -12px;
 }
 
 .card-rule {

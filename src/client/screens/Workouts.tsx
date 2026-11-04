@@ -1,10 +1,9 @@
 import { useState } from 'preact/hooks';
 import { ACTIVITY_GROUPS, MET_ACTIVITIES, MET_ACTIVITY_IDS, Workout, WorkoutDraft, metDraft, netKcal, type WorkoutSource } from '../../domain/burn.js';
-import type { BudgetPolicy } from '../../domain/goals.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { useIntents, useLive, workoutLoggerView } from '../views.js';
 import { amount, editable, kcal, lb, parseNumber } from './format.js';
-import { Icon, NumberField, Sheet, TextField, useToast } from './ui.js';
+import { DaySection, Icon, NumberField, Row, Sheet, TextField, useToast } from './ui.js';
 
 const MINUTES = [15, 30, 45, 60, 90] as const;
 
@@ -39,30 +38,24 @@ function Picker({
           <ul class="list" aria-label="Recent workouts">
             {recents.map((draft) => (
               <li key={`${draft.name}-${draft.minutes}`}>
-                <button type="button" class="entry-row" onClick={() => onPick(choiceOf(draft), draft)}>
-                  <span class="food-name">{draft.name}</span>
-                  <span class="food-detail">{minutesLabel(draft.minutes)}</span>
-                </button>
+                <Row name={draft.name} end={minutesLabel(draft.minutes)} onClick={() => onPick(choiceOf(draft), draft)} />
               </li>
             ))}
           </ul>
         </>
       )}
-      {ACTIVITY_GROUPS.map((group) => (
+      {ACTIVITY_GROUPS.map((group, i) => (
         <section key={group} aria-label={group}>
-          <h4 class="section-heading">{group}</h4>
+          <h4 class="section-heading heading-with-unit">
+            {group}
+            {i === 0 && kg !== undefined && <span class="detail">kcal per 30 min</span>}
+          </h4>
           <ul class="list">
             {MET_ACTIVITY_IDS.filter((id) => MET_ACTIVITIES[id].group === group).map((id) => {
               const { label, met } = MET_ACTIVITIES[id];
-              const perHalfHour = kg === undefined ? '' : ` · ${kcal(netKcal(metDraft(id, 30), kg))} kcal per 30 min`;
               return (
                 <li key={id}>
-                  <button type="button" class="entry-row" onClick={() => onPick({ kind: 'met', activity: id, name: label, met })}>
-                    <span class="food-name">{label}</span>
-                    <span class="food-detail">
-                      {amount(met)} MET{perHalfHour}
-                    </span>
-                  </button>
+                  <Row name={label} {...(kg === undefined ? {} : { end: kcal(netKcal(metDraft(id, 30), kg)) })} onClick={() => onPick({ kind: 'met', activity: id, name: label, met })} />
                 </li>
               );
             })}
@@ -134,6 +127,16 @@ export function WorkoutSheet({ date, editing, onClose }: { readonly date: LocalD
 
   return (
     <Sheet title={title} onClose={onClose}>
+      <div class="card">
+        <p class="hero-line">
+          <strong data-testid="workout-kcal">{burn === null ? '–' : kcal(burn)}</strong> kcal above resting
+        </p>
+        <p class="detail">
+          {kg === undefined
+            ? 'Weigh in to work out the burn'
+            : [`At ${lb(kg)} lb${editing === undefined ? '' : ' when logged'}`, ...(choice.kind === 'met' ? [`${amount(choice.met)} MET`] : [])].join(' · ')}
+        </p>
+      </div>
       <div class="group">
         {choice.kind === 'met' ? (
           <div class="field">
@@ -148,24 +151,15 @@ export function WorkoutSheet({ date, editing, onClose }: { readonly date: LocalD
         <NumberField label="Duration" unit="min" value={minutesText} onInput={setMinutesText} invalid={parseNumber(minutesText) === null || (parseNumber(minutesText) ?? 0) <= 0} />
         {choice.kind === 'custom' && <NumberField label="Calories burned" unit="kcal" value={kcalText} onInput={setKcalText} placeholder="400" />}
       </div>
-      <div class="pills minutes">
+      <div class="pills">
         {MINUTES.map((m) => (
           <button type="button" class="pill" key={m} aria-pressed={parseNumber(minutesText) === m} onClick={() => setMinutesText(String(m))}>
             {m} min
           </button>
         ))}
       </div>
-      {choice.kind === 'custom' && <p class="hint">Enter the burn as a machine or app reports it. Your resting burn for the time is taken off, since your target already counts it.</p>}
-      <div class="card burn-preview">
-        <p class="summary-label">Burned above resting</p>
-        <p class="summary-big">
-          <strong data-testid="workout-kcal">{burn === null ? '–' : kcal(burn)}</strong> kcal
-        </p>
-        <p class="target-detail">
-          {kg === undefined ? 'Weigh in or add your details on the Goal screen to work out the burn.' : `Worked out at ${lb(kg)} lb${editing === undefined ? '' : ', your weight when you logged it'}.`}
-        </p>
-      </div>
-      {burn !== null && !storable && <p class="hint warn">That is more than one workout can burn. Check the minutes.</p>}
+      {choice.kind === 'custom' && <p class="hint">As a machine or app reports it. Your resting burn comes off.</p>}
+      {burn !== null && !storable && <p class="hint warn">More than one workout can burn. Check the minutes.</p>}
       <div class="sheet-actions">
         <button type="button" class="primary" disabled={!storable} onClick={save}>
           {editing === undefined ? 'Log workout' : 'Save workout'}
@@ -187,37 +181,23 @@ export function WorkoutSheet({ date, editing, onClose }: { readonly date: LocalD
   );
 }
 
-/** The day's workouts in the diary, under the meals, with what they do to the target. */
-export function WorkoutsSection({ date, workouts, policy }: { readonly date: LocalDate; readonly workouts: readonly Workout[]; readonly policy: BudgetPolicy | undefined }) {
+/** The day's workouts in the diary, under the meals. */
+export function WorkoutsSection({ date, workouts }: { readonly date: LocalDate; readonly workouts: readonly Workout[] }) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Workout | null>(null);
   const burned = workouts.reduce((sum, w) => sum + w.kcal, 0);
 
   return (
-    <section class="meal" aria-label="Workouts">
-      <header class="meal-header">
-        <h2>Workouts</h2>
-        {workouts.length > 0 && <span class="meal-kcal">{kcal(burned)} kcal</span>}
-      </header>
-      <ul class="list">
+    <>
+      <DaySection name="Workouts" total={workouts.length === 0 ? null : kcal(burned)} addLabel="Add workout" onAdd={() => setAdding(true)}>
         {workouts.map((workout) => (
           <li key={workout.id}>
-            <button type="button" class="entry-row" onClick={() => setEditing(workout)}>
-              <span class="food-name">{workout.name}</span>
-              <span class="food-detail">{minutesLabel(workout.minutes)}</span>
-              <span class="entry-kcal">{kcal(workout.kcal)}</span>
-            </button>
+            <Row name={workout.name} detail={minutesLabel(workout.minutes)} end={kcal(workout.kcal)} onClick={() => setEditing(workout)} />
           </li>
         ))}
-        <li>
-          <button type="button" class="row-button" onClick={() => setAdding(true)}>
-            <Icon name="plus" /> Add workout
-          </button>
-        </li>
-      </ul>
-      {workouts.length > 0 && policy?.kind === 'activity-level' && <p class="hint">Not added to your target. Your activity level already counts your exercise.</p>}
+      </DaySection>
       {adding && <WorkoutSheet date={date} onClose={() => setAdding(false)} />}
       {editing !== null && <WorkoutSheet date={date} editing={editing} onClose={() => setEditing(null)} />}
-    </section>
+    </>
   );
 }

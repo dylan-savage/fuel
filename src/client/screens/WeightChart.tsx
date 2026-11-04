@@ -31,22 +31,70 @@ export function ticksLb(lo: number, hi: number, finest = 0.5): number[] {
 
 const toLb = (kg: number) => kg / KG_PER_LB;
 
+/** How far along the range the series name themselves, where a falling or rising line leaves the most room. */
+const LABEL_AT = 0.35;
+
+/** The trend's name and the dots' name, each on its own side of the two at the labelled reading. */
+function SeriesLabels({ at, trend, scale }: { readonly at: number; readonly trend: number; readonly scale: number }) {
+  const [above, below] = trend <= scale ? ['trend', 'scale'] : ['scale', 'trend'];
+  return (
+    <>
+      <text class="chart-label" x={at} y={Math.max(PLOT.top + 10, Math.min(trend, scale) - 9)} text-anchor="middle">
+        {above}
+      </text>
+      <text class="chart-label" x={at} y={Math.min(PLOT.bottom - 2, Math.max(trend, scale) + 18)} text-anchor="middle">
+        {below}
+      </text>
+    </>
+  );
+}
+
+/** The current trend over its chart, which names its own series. The headline is the scrub readout: a touch puts that day's numbers in its place, so nothing is said twice. */
 export function WeightChart({
   series,
   goalKg,
   days,
   today,
+  trendKg,
+  rate,
 }: {
   readonly series: readonly TrendPoint[];
   readonly goalKg: number | undefined;
   readonly days: RangeDays;
   readonly today: LocalDate;
+  readonly trendKg: number | undefined;
+  readonly rate: string;
 }) {
   const [active, setActive] = useState<number | null>(null);
   const start = addDays(today, -(days - 1));
   const points = series.filter((p) => p.date >= start);
+  const scrubbed = active === null ? undefined : points[active];
+  const shownKg = scrubbed?.trendKg ?? trendKg;
+  const head = (
+    <>
+      <p class="hero-line">
+        <strong data-testid="trend-weight">{shownKg === undefined ? '–' : `${lb(shownKg)} lb`}</strong>
+        {shownKg !== undefined && ' trend'}
+      </p>
+      {scrubbed === undefined ? (
+        <p class="detail" data-testid="weekly-rate">
+          {rate}
+        </p>
+      ) : (
+        <p class="detail" data-testid="chart-readout">
+          {dayTitle(scrubbed.date, today)}
+          {scrubbed.scaleKg !== null && ` · ${lb(scrubbed.scaleKg)} lb scale`}
+        </p>
+      )}
+    </>
+  );
   if (points.filter((p) => p.scaleKg !== null).length < 2) {
-    return <p class="empty chart-empty">Weigh in on a few more days to draw the chart.</p>;
+    return (
+      <figure class="weight-chart">
+        {head}
+        {trendKg !== undefined && <p class="detail chart-empty">A few more weigh-ins draw the chart</p>}
+      </figure>
+    );
   }
 
   const values = points.flatMap((p) => (p.scaleKg === null ? [toLb(p.trendKg)] : [toLb(p.trendKg), toLb(p.scaleKg)]));
@@ -62,8 +110,9 @@ export function WeightChart({
   const x = (i: number) => PLOT.left + (points.length === 1 ? 0 : (i / (points.length - 1)) * (PLOT.right - PLOT.left));
   const y = (pounds: number) => PLOT.top + ((topLb - pounds) / (topLb - bottomLb)) * (PLOT.bottom - PLOT.top);
   const trendPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(toLb(p.trendKg)).toFixed(1)}`).join('');
-  const shown = points[active ?? points.length - 1];
   const middle = points[Math.floor((points.length - 1) / 2)];
+  const labelIndex = points.findIndex((p, i) => i >= (points.length - 1) * LABEL_AT && p.scaleKg !== null);
+  const labelled = points[labelIndex];
 
   const scrub = (event: PointerEvent) => {
     const box = (event.currentTarget instanceof Element ? event.currentTarget : null)?.getBoundingClientRect();
@@ -75,18 +124,7 @@ export function WeightChart({
 
   return (
     <figure class="weight-chart" aria-label={`Weight over ${RANGES.find((r) => r.days === days)?.label ?? `${days} days`}`}>
-      {shown !== undefined && (
-        <p class="chart-readout" data-testid="chart-readout">
-          <strong>{lb(shown.trendKg)} lb</strong> trend
-          {shown.scaleKg !== null && (
-            <>
-              {' · '}
-              <strong>{lb(shown.scaleKg)} lb</strong> scale
-            </>
-          )}
-          <span class="chart-readout-date">{dayTitle(shown.date, today)}</span>
-        </p>
-      )}
+      {head}
       <svg
         viewBox={`0 0 ${W} ${H}`}
         role="img"
@@ -106,12 +144,16 @@ export function WeightChart({
         {showGoal && (
           <g class="chart-goal">
             <line x1={PLOT.left} x2={PLOT.right} y1={y(goalLb)} y2={y(goalLb)} />
+            <text class="chart-label" x={PLOT.right} y={y(goalLb) - 5} text-anchor="end">
+              Goal {goalLb.toLocaleString('en-US', { maximumFractionDigits: 1 })}
+            </text>
           </g>
         )}
         {points.map((p, i) =>
           p.scaleKg === null ? null : <circle key={p.date} class="chart-dot" cx={x(i)} cy={y(toLb(p.scaleKg))} r={DOT_R[days]} />,
         )}
         <path class="chart-trend" d={trendPath} />
+        {labelled !== undefined && labelled.scaleKg !== null && <SeriesLabels at={x(labelIndex)} trend={y(toLb(labelled.trendKg))} scale={y(toLb(labelled.scaleKg))} />}
         {active !== null && <line class="chart-cursor" x1={x(active)} x2={x(active)} y1={PLOT.top} y2={PLOT.bottom} />}
         <g class="chart-axis">
           <text x={PLOT.left} y={H - 6}>
@@ -127,34 +169,6 @@ export function WeightChart({
           </text>
         </g>
       </svg>
-      <figcaption class="chart-legend">
-        <span>
-          <i class="key-dot" /> Scale
-        </span>
-        <span>
-          <i class="key-line" /> Trend
-        </span>
-        {showGoal && (
-          <span>
-            <i class="key-line goal" /> Goal {goalLb.toLocaleString('en-US', { maximumFractionDigits: 1 })} lb
-          </span>
-        )}
-      </figcaption>
     </figure>
-  );
-}
-
-/** The last 30 days of trend as a small line, for the Today tile. */
-export function TrendSpark({ series }: { readonly series: readonly TrendPoint[] }) {
-  const points = series.slice(-30);
-  if (points.length < 2) return null;
-  const kg = points.map((p) => p.trendKg);
-  const lo = Math.min(...kg);
-  const span = Math.max(...kg) - lo || 1;
-  const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${((i / (points.length - 1)) * 96 + 2).toFixed(1)},${(30 - ((p.trendKg - lo) / span) * 26).toFixed(1)}`).join('');
-  return (
-    <svg class="spark" viewBox="0 0 100 32" aria-hidden="true">
-      <path d={d} />
-    </svg>
   );
 }

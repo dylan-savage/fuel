@@ -8,10 +8,11 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { localDate } from '../src/client/clock.js';
 import { weighInId } from '../src/domain/body.js';
 import { makeWorkout, metDraft } from '../src/domain/burn.js';
+import { makeEntry, type Meal } from '../src/domain/diary.js';
 import { snapshotOf, type Food, type Ingredient, type Serving } from '../src/domain/food.js';
 import { HOUR_MS, ML_PER_FL_OZ, type Fast, type FastEnd } from '../src/domain/habits.js';
 import { KG_PER_LB } from '../src/domain/goals.js';
-import { FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, WorkoutId, addDays } from '../src/domain/ids.js';
+import { EntryId, FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, WorkoutId, addDays, type LocalDate } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import type { Recipe, SavedMeal } from '../src/domain/reuse.js';
 import { band, bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, target, warm } from '../test/training.fixtures.js';
@@ -110,6 +111,28 @@ function bodyDocs(): Mutation[] {
     doc: makeWorkout(draft, { id: WorkoutId.parse(randomUUID()), date: today, kg, loggedAt: Millis.parse(Date.now() - (3 - i) * HOUR_MS) }),
   }));
   return [...cleared, ...weighIns, ...workouts];
+}
+
+/**
+ * A full day of invented food, with a long name and a brand or two, so the diary photographs as a
+ * real day reads, and a day after it over its target.
+ */
+function busyDocs(): Mutation[] {
+  const today = localDate();
+  const logged = (date: LocalDate, meal: Meal, name: string, nutrients: Food['nutrients'], amount: number, brand?: string): Mutation => ({
+    op: 'put',
+    kind: 'entry',
+    doc: makeEntry(grams({ ...libraryFood(name, nutrients), ...(brand === undefined ? {} : { brand }) }, amount), { date, meal }, EntryId.parse(randomUUID()), Millis.parse(Date.now())),
+  });
+  return [
+    logged(today, 'breakfast', 'Black coffee', { kcal: 2, protein: 0.1, carbs: 0, fat: 0 }, 350),
+    logged(today, 'breakfast', 'Sourdough toast with salted butter and a thick layer of raspberry preserves', { kcal: 310, protein: 7, carbs: 45, fat: 11 }, 80, 'Corner Bakery'),
+    logged(today, 'lunch', 'Clementine', { kcal: 47, protein: 0.9, carbs: 12, fat: 0.2 }, 150),
+    logged(today, 'dinner', 'Salmon fillet', { kcal: 208, protein: 20, carbs: 0, fat: 13 }, 170),
+    logged(today, 'dinner', 'Green beans', { kcal: 35, protein: 1.8, carbs: 7, fat: 0.2 }, 120),
+    logged(today, 'snacks', 'Peanut butter protein bar', { kcal: 410, protein: 30, carbs: 38, fat: 16 }, 60, 'Trailhead'),
+    logged(addDays(today, 1), 'dinner', 'Birthday dinner out', { kcal: 240, protein: 9, carbs: 22, fat: 12 }, 1500),
+  ];
 }
 
 /** A Wednesday far from any other spec's dates, so the week photographs the same on any run date. */
@@ -293,7 +316,7 @@ function sessionDocs(): Mutation[] {
 }
 
 test('seeds a day worth photographing', async ({ page, request }) => {
-  await seed(request, [...reuseDocs(), ...habitDocs(), ...bodyDocs(), ...trainDocs(), ...progressDocs(), ...sessionDocs()]);
+  await seed(request, [...reuseDocs(), ...habitDocs(), ...bodyDocs(), ...busyDocs(), ...trainDocs(), ...progressDocs(), ...sessionDocs()]);
   await page.goto('/');
   await setGoal(page);
   await page.getByLabel('Goal weight').fill('170');
@@ -553,20 +576,31 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.goto('/');
       await expect(page.getByRole('region', { name: 'Breakfast' }).getByText('Overnight oats')).toBeVisible({ timeout: 15_000 });
       await expect(page.getByRole('region', { name: 'Lunch' }).getByText('Chicken burrito bowl')).toBeVisible();
-      await expect(page.getByRole('region', { name: 'Fasting' }).getByTestId('fast-elapsed')).toHaveText(/^13:/);
+      await expect(page.getByTestId('fast-elapsed')).toHaveText(/^13 h/);
       await page.screenshot({ path: join(dir, `today-${colorScheme}.png`), animations: 'disabled' });
 
-      await page.getByRole('region', { name: 'Fasting' }).getByRole('button', { name: /^Fasting/ }).click();
+      await page.getByRole('button', { name: 'Next day' }).click();
+      await expect(page.getByRole('region', { name: 'Dinner' }).getByText('Birthday dinner out')).toBeVisible();
+      await page.screenshot({ path: join(dir, `tomorrow-over-${colorScheme}.png`), animations: 'disabled' });
+      await page.getByRole('button', { name: 'Previous day' }).click();
+      await page.getByRole('button', { name: 'Previous day' }).click();
+      await expect(page.getByRole('heading', { name: 'Yesterday' })).toBeVisible();
+      await page.screenshot({ path: join(dir, `yesterday-no-goal-${colorScheme}.png`), animations: 'disabled' });
+      await page.getByRole('button', { name: 'Next day' }).click();
+
+      await page.getByRole('button', { name: /^Fasting/ }).click();
       const timer = page.getByRole('dialog', { name: 'Fasting' });
       await expect(timer.getByRole('list', { name: 'Past fasts' }).getByRole('listitem')).toHaveCount(7);
       await page.screenshot({ path: join(dir, `fast-timer-${colorScheme}.png`), animations: 'disabled' });
-      await timer.getByRole('button', { name: 'Cancel' }).click();
+      await timer.locator('.sheet-body').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await page.screenshot({ path: join(dir, `fast-timer-bottom-${colorScheme}.png`), animations: 'disabled' });
+      await timer.getByRole('button', { name: 'Done' }).click();
 
-      await page.getByRole('region', { name: 'Water' }).getByRole('button', { name: /^Water/ }).click();
+      await page.getByRole('button', { name: /^Water/ }).click();
       const water = page.getByRole('dialog', { name: 'Water' });
       await expect(water.getByRole('list', { name: 'Drinks' }).getByRole('listitem')).toHaveCount(4);
       await page.screenshot({ path: join(dir, `water-sheet-${colorScheme}.png`), animations: 'disabled' });
-      await water.getByRole('button', { name: 'Cancel' }).click();
+      await water.getByRole('button', { name: 'Done' }).click();
 
       await tab(page, 'Add').click();
       await page.getByRole('list', { name: 'Recent foods' }).getByRole('button', { name: /^Overnight oats/ }).click();
@@ -633,23 +667,25 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
     test(`photographs weight, workouts and the budget choice in ${colorScheme}`, async ({ page }) => {
       await page.goto('/');
-      const tile = page.getByRole('region', { name: 'Weight' });
-      await expect(tile.getByTestId('tile-trend')).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId('day-trend')).toBeVisible({ timeout: 15_000 });
       await expect(page.getByRole('region', { name: 'Workouts' }).getByText('Strength training')).toBeVisible();
 
-      await tile.getByRole('button', { name: /^Weight/ }).click();
+      await page.getByRole('button', { name: /^Weight/ }).click();
       const weight = page.getByRole('dialog', { name: 'Weight' });
       await expect(weight.getByTestId('projection')).not.toHaveText('Not enough data');
       await page.screenshot({ path: join(dir, `weight-${colorScheme}.png`), animations: 'disabled' });
       await weight.getByRole('radio', { name: '90 days' }).click();
       await page.screenshot({ path: join(dir, `weight-90-days-${colorScheme}.png`), animations: 'disabled' });
-      await weight.getByRole('button', { name: 'Cancel' }).click();
+      await weight.locator('.sheet-body').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await page.screenshot({ path: join(dir, `weight-bottom-${colorScheme}.png`), animations: 'disabled' });
+      await weight.locator('.sheet-body').evaluate((el) => el.scrollTo(0, 0));
 
-      await tile.getByRole('button', { name: 'Weigh in', exact: true }).click();
+      await weight.getByRole('button', { name: 'Weigh in', exact: true }).click();
       const entry = page.getByRole('dialog', { name: 'Weigh-in' });
       await entry.getByLabel('Weight').fill('181.2');
       await page.screenshot({ path: join(dir, `weigh-in-${colorScheme}.png`), animations: 'disabled' });
       await entry.getByRole('button', { name: 'Cancel' }).click();
+      await weight.getByRole('button', { name: 'Done' }).click();
 
       const workouts = page.getByRole('region', { name: 'Workouts' });
       await workouts.getByRole('button', { name: 'Add workout' }).click();

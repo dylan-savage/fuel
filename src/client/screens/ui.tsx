@@ -43,26 +43,93 @@ function RowBody({ name, detail, end, chevron }: RowParts & { readonly chevron: 
 }
 
 /** The one row, for inside a `.list`: a name, at most one muted line and a value or chevron. A button once it has `onClick`, and plain text before that. */
-export function Row({ name, detail, end, chevron = false, onClick }: RowParts & { readonly chevron?: boolean; readonly onClick?: () => void }) {
+export function Row({
+  name,
+  detail,
+  end,
+  chevron = false,
+  disabled = false,
+  onClick,
+}: RowParts & { readonly chevron?: boolean; readonly disabled?: boolean; readonly onClick?: () => void }) {
   const body = <RowBody name={name} detail={detail} end={end} chevron={chevron} />;
   return onClick === undefined ? (
     <div class="row">{body}</div>
   ) : (
-    <button type="button" class="row" onClick={onClick}>
+    <button type="button" class="row" disabled={disabled} onClick={onClick}>
       {body}
     </button>
   );
 }
 
-/** A row that opens in place, for words on request. `clamp` holds the name to one line until it opens, for a name that is the whole text. */
-export function ExpandRow({ name, detail, end, clamp = false, children }: RowParts & { readonly clamp?: boolean; readonly children?: ComponentChildren }) {
+/** A row that opens in place, for words on request. `clamp` holds the name to one line until it opens, for a name that is the whole text. `open` is how it starts, and a tap has the last word after that. */
+export function ExpandRow({
+  name,
+  detail,
+  end,
+  clamp = false,
+  open = false,
+  children,
+}: RowParts & { readonly clamp?: boolean; readonly open?: boolean; readonly children?: ComponentChildren }) {
   return (
-    <details class={clamp ? 'expand clamp' : 'expand'}>
+    <details class={clamp ? 'expand clamp' : 'expand'} open={open}>
       <summary class="row">
         <RowBody name={name} detail={detail} end={end} chevron={!clamp} />
       </summary>
       {children !== undefined && <div class="expand-body">{children}</div>}
     </details>
+  );
+}
+
+/** One of a quiet row of numbers, opening the sheet that holds its actions. */
+export function Stat({ label, value, onClick }: { readonly label: string; readonly value: ComponentChildren; readonly onClick: () => void }) {
+  return (
+    <button type="button" class="stat" onClick={onClick}>
+      <span class="stat-label">{label}</span>
+      <span class="stat-value">{value}</span>
+    </button>
+  );
+}
+
+/** A section of the diary: a heading with its calories and a small plus, over its rows. With no calories yet it is one quiet line. A tap on the heading opens what else it can do. */
+export function DaySection({
+  name,
+  total,
+  addLabel,
+  onAdd,
+  onOpen,
+  children,
+}: {
+  readonly name: string;
+  readonly total: string | null;
+  readonly addLabel: string;
+  readonly onAdd: () => void;
+  readonly onOpen?: () => void;
+  readonly children?: ComponentChildren;
+}) {
+  const heading = (
+    <>
+      {name}
+      {total !== null && <span class="day-section-total">{total} kcal</span>}
+    </>
+  );
+  return (
+    <section class={total === null ? 'day-section quiet' : 'day-section'} aria-label={name}>
+      <header class="day-section-head">
+        <h2>
+          {onOpen === undefined ? (
+            heading
+          ) : (
+            <button type="button" aria-label={`${name} options`} onClick={onOpen}>
+              {heading}
+            </button>
+          )}
+        </h2>
+        <button type="button" class="icon-button" aria-label={addLabel} onClick={onAdd}>
+          <Icon name="plus" />
+        </button>
+      </header>
+      {total !== null && <ul class="list foods">{children}</ul>}
+    </section>
   );
 }
 
@@ -134,32 +201,6 @@ export function useNow(everyMs: number): Millis {
     return () => clearInterval(timer);
   }, [everyMs]);
   return at;
-}
-
-/** Progress as an Activity-style ring, filled clockwise from the top, with content in the middle. */
-export function Ring({
-  fraction,
-  tone,
-  size,
-  children,
-}: {
-  readonly fraction: number;
-  readonly tone: 'water' | 'fast' | 'done';
-  readonly size: number;
-  readonly children?: ComponentChildren;
-}) {
-  const radius = 44;
-  const circumference = 2 * Math.PI * radius;
-  const filled = Math.min(1, Math.max(0, fraction));
-  return (
-    <div class={`ring ${tone}`} style={{ width: `${size}px`, height: `${size}px` }}>
-      <svg viewBox="0 0 100 100" aria-hidden="true">
-        <circle class="ring-track" cx="50" cy="50" r={radius} />
-        {filled > 0 && <circle class="ring-fill" cx="50" cy="50" r={radius} stroke-dasharray={`${circumference * filled} ${circumference}`} />}
-      </svg>
-      <div class="ring-center">{children}</div>
-    </div>
-  );
 }
 
 export interface AlertAction {
@@ -362,11 +403,9 @@ const ICONS = {
   chevronRight: 'M9 5l7 7-7 7',
   plus: 'M12 6v12M6 12h12',
   close: 'M8 8l8 8M16 8l-8 8',
+  check: 'M5 12.5l4.5 4.5L19 7.5',
   more: 'M6 12h.01M12 12h.01M18 12h.01',
-  drop: 'M12 3.5c3.3 4.2 5.5 7.4 5.5 10.3a5.5 5.5 0 0 1-11 0c0-2.9 2.2-6.1 5.5-10.3Z',
   timer: 'M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM12 9v4l2.5 2M10 2.5h4',
-  scale: 'M7 4h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3ZM8.5 10a5 5 0 0 1 7 0M12 12.5l1.6-2.6',
-  flame: 'M12 21c3.6 0 6-2.4 6-5.8 0-3.4-2.6-5.6-4-9.2-.9 2.1-2 3.2-3.3 3.8.2-1.8-.3-3.5-1.4-5.3C8.3 7.6 6 10.4 6 15.2 6 18.6 8.4 21 12 21Z',
 } as const;
 
 export function Icon({ name }: { readonly name: keyof typeof ICONS }) {

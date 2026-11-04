@@ -1,9 +1,10 @@
 import type { Meal } from '../../domain/diary.js';
-import type { FoodSnapshot, Quantity, Serving } from '../../domain/food.js';
+import { nutrientsFor, type FoodSnapshot, type Quantity, type Serving } from '../../domain/food.js';
 import { KG_PER_LB } from '../../domain/goals.js';
 import { ML_PER_FL_OZ } from '../../domain/habits.js';
 import { addDays, type LocalDate } from '../../domain/ids.js';
 import type { Target } from '../../domain/lifts.js';
+import { MACROS, type Macro, type PartialNutrients } from '../../domain/nutrients.js';
 import type { ChecklistBlock, DayPart } from '../../domain/program.js';
 import type { FoodUnit } from '../../domain/units.js';
 import { localDate } from '../clock.js';
@@ -14,6 +15,8 @@ export const MEAL_LABEL: Readonly<Record<Meal, string>> = {
   dinner: 'Dinner',
   snacks: 'Snacks',
 };
+
+export const MACRO_LABEL: Readonly<Record<Macro, string>> = { protein: 'Protein', carbs: 'Carbs', fat: 'Fat' };
 
 export const UNIT_LABEL: Readonly<Record<FoodUnit, string>> = { g: 'g', ml: 'ml', portion: 'portion' };
 
@@ -63,6 +66,19 @@ export function quantityLabel(food: FoodSnapshot, q: Quantity): string {
     case 'serving':
       return q.count === 1 ? servingLabel(food.unit, q.serving) : `${amount(q.count)} × ${servingLabel(food.unit, q.serving)}`;
   }
+}
+
+/** A food in an amount as a row shows it: its name, its brand and amount, and its calories. */
+export function foodRowParts(food: FoodSnapshot, quantity: Quantity): { readonly name: string; readonly detail: string; readonly end: string } {
+  return { name: food.name, detail: [brandOf(food), quantityLabel(food, quantity)].filter(Boolean).join(' · '), end: kcal(nutrientsFor(food, quantity).kcal) };
+}
+
+/** "Protein 18 · Carbs 52 · Fat 11", with a dash for what the food does not say. */
+export function macrosLine(values: Pick<PartialNutrients, Macro> | null): string {
+  return MACROS.map((macro) => {
+    const value = values?.[macro];
+    return `${MACRO_LABEL[macro]} ${value === undefined ? '–' : amount(value)}`;
+  }).join(' · ');
 }
 
 const WEEKDAY = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });

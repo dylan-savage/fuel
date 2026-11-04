@@ -330,7 +330,7 @@ function GoalForm({
         </button>
       </div>
       {editingProfile && <ProfileSheet profile={profile} today={today} onClose={() => setEditingProfile(false)} />}
-      {showingWeight && <WeightSheet today={today} onClose={() => setShowingWeight(false)} onGoal={() => setShowingWeight(false)} />}
+      {showingWeight && <WeightSheet date={today} today={today} onClose={() => setShowingWeight(false)} onGoal={() => setShowingWeight(false)} />}
     </>
   );
 }

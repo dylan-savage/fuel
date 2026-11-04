@@ -4,30 +4,28 @@ import { KG_PER_LB } from '../../domain/goals.js';
 import { LocalDate } from '../../domain/ids.js';
 import { bodyView, useIntents, useLive, weighInsView, type BodyView } from '../views.js';
 import { dayPhrase, dayTitle, lb, lbField, lbPerWeek, parseNumber, shortDate } from './format.js';
-import { Icon, NumberField, Segmented, Sheet, useToast } from './ui.js';
-import { RANGES, TrendSpark, WeightChart, type RangeDays } from './WeightChart.js';
+import { ExpandRow, NumberField, Row, Segmented, Sheet, Stat, useToast } from './ui.js';
+import { RANGES, WeightChart, type RangeDays } from './WeightChart.js';
 
 /** Up to this many weigh-ins listed under the chart. */
 const HISTORY_ROWS = 60;
 
 function rateText(rate: WeeklyRate): string {
-  return rate.kind === 'rate' ? lbPerWeek(rate.kgPerWeek) : 'Not enough data for a rate yet';
+  return rate.kind === 'rate' ? lbPerWeek(rate.kgPerWeek) : 'No rate yet';
 }
 
-function projectionText(projection: Projection, today: LocalDate): { readonly value: string; readonly detail: string } {
+function projectionText(projection: Exclude<Projection, { kind: 'no-goal' }>, today: LocalDate): { readonly value: string; readonly detail: string } {
   switch (projection.kind) {
-    case 'no-goal':
-      return { value: '–', detail: 'Set a goal weight to see when you will reach it.' };
     case 'not-enough-data':
-      return { value: 'Not enough data', detail: 'The rate needs two weeks of trend and 7 weigh-ins in the last 14 days.' };
+      return { value: 'Not enough data', detail: 'Needs two weeks of trend and 7 weigh-ins in the last 14 days.' };
     case 'reached':
       return { value: 'Reached', detail: 'Your trend is at your goal weight.' };
     case 'steady':
-      return { value: 'Holding steady', detail: 'Your trend is barely moving, so there is no date to project.' };
+      return { value: 'Holding steady', detail: 'Your trend is barely moving.' };
     case 'away':
-      return { value: 'Moving away', detail: 'At this rate your trend is heading away from your goal.' };
+      return { value: 'Moving away', detail: 'Your trend is heading away from your goal.' };
     case 'on-course':
-      return { value: shortDate(projection.date, today), detail: 'When your trend reaches your goal at its current rate.' };
+      return { value: shortDate(projection.date, today), detail: 'When your trend reaches your goal at this rate.' };
   }
 }
 
@@ -52,12 +50,7 @@ export function WeighInSheet({ date, today, onClose }: { readonly date: LocalDat
   const pounds = parseNumber(text);
   const kg = pounds === null ? null : pounds * KG_PER_LB;
   const valid = day !== null && kg !== null && BodyKg.safeParse(kg).success;
-  const hint =
-    day === null
-      ? 'Pick a day up to today.'
-      : existing === undefined
-        ? 'One weigh-in a day. Your trend smooths out the daily swings.'
-        : `This replaces ${dayPhrase(day, today)}'s ${lb(existing.kg)} lb.`;
+  const hint = day === null ? 'Pick a day up to today.' : existing === undefined ? null : `Replaces ${dayPhrase(day, today)}'s ${lb(existing.kg)} lb.`;
 
   return (
     <Sheet title="Weigh-in" onClose={onClose}>
@@ -76,7 +69,7 @@ export function WeighInSheet({ date, today, onClose }: { readonly date: LocalDat
           autoFocus
         />
       </div>
-      <p class={day === null ? 'hint warn' : 'hint'}>{hint}</p>
+      {hint !== null && <p class={day === null ? 'hint warn' : 'hint'}>{hint}</p>}
       <div class="sheet-actions">
         <button
           type="button"
@@ -108,54 +101,72 @@ export function WeighInSheet({ date, today, onClose }: { readonly date: LocalDat
   );
 }
 
-/** The weight screen: trend, rate, goal projection, the chart and every weigh-in. */
-export function WeightSheet({ today, onClose, onGoal }: { readonly today: LocalDate; readonly onClose: () => void; readonly onGoal: () => void }) {
+/** The goal weight and when the trend reaches it. With no goal weight, the way to set one. */
+function GoalRows({ view, today, onGoal }: { readonly view: BodyView; readonly today: LocalDate; readonly onGoal: () => void }) {
+  const { goalKg, projection } = view;
+  if (goalKg === undefined || projection.kind === 'no-goal') {
+    return (
+      <ul class="list" aria-label="Goal">
+        <li>
+          <Row name="Set a goal weight" chevron onClick={onGoal} />
+        </li>
+      </ul>
+    );
+  }
+  const projected = projectionText(projection, today);
+  return (
+    <ul class="list" aria-label="Goal">
+      <li>
+        <Row name="Goal weight" end={`${lb(goalKg)} lb`} />
+      </li>
+      <li>
+        <ExpandRow name="Projected" end={<span data-testid="projection">{projected.value}</span>}>
+          <p>{projected.detail}</p>
+        </ExpandRow>
+      </li>
+    </ul>
+  );
+}
+
+/** The weight screen: trend, rate, the chart, goal projection and every weigh-in. A new weigh-in starts on `date`, or today from a day still to come. */
+export function WeightSheet({ date, today, onClose, onGoal }: { readonly date: LocalDate; readonly today: LocalDate; readonly onClose: () => void; readonly onGoal: () => void }) {
   const view = useLive((r) => bodyView(r, today), [today]);
   const [days, setDays] = useState<RangeDays>(30);
   const [entry, setEntry] = useState<LocalDate | null>(null);
 
   return (
-    <Sheet title="Weight" onClose={onClose}>
+    <Sheet title="Weight" onClose={onClose} closeLabel="Done">
       {view !== undefined && (
         <>
-          <div class="weight-hero">
-            <span class="hero-label">Trend weight</span>
-            <strong class="hero-value" data-testid="trend-weight">
-              {view.trendKg === undefined ? '–' : `${lb(view.trendKg)} lb`}
-            </strong>
-            <span class="hero-sub" data-testid="weekly-rate">
-              {view.trendKg === undefined ? 'Weigh in to start your trend' : rateText(view.rate)}
-            </span>
+          <div class="card">
+            <WeightChart series={view.series} goalKg={view.goalKg} days={days} today={today} trendKg={view.trendKg} rate={view.trendKg === undefined ? 'No weigh-ins yet' : rateText(view.rate)} />
+            {view.weighIns.length > 0 && (
+              <Segmented
+                quiet
+                label="Chart range"
+                options={RANGES.map((r) => ({ value: String(r.days), label: r.label }))}
+                value={String(days)}
+                onChange={(value) => setDays(RANGES.find((r) => String(r.days) === value)?.days ?? 30)}
+              />
+            )}
           </div>
-          <Segmented
-            label="Chart range"
-            options={RANGES.map((r) => ({ value: String(r.days), label: r.label }))}
-            value={String(days)}
-            onChange={(value) => setDays(RANGES.find((r) => String(r.days) === value)?.days ?? 30)}
-          />
-          <div class="card chart-card">
-            <WeightChart series={view.series} goalKg={view.goalKg} days={days} today={today} />
-          </div>
-          <Projected view={view} today={today} onGoal={onGoal} />
           <div class="sheet-actions">
-            <button type="button" class="primary" onClick={() => setEntry(today)}>
+            <button type="button" class="primary" onClick={() => setEntry(date <= today ? date : today)}>
               Weigh in
             </button>
           </div>
-          <h4 class="section-heading">Weigh-ins</h4>
-          {view.weighIns.length === 0 ? (
-            <p class="empty">No weigh-ins yet.</p>
-          ) : (
-            <ul class="list" aria-label="Weigh-ins">
-              {view.weighIns.slice(0, HISTORY_ROWS).map((w) => (
-                <li key={w.id}>
-                  <button type="button" class="entry-row" onClick={() => setEntry(w.date)}>
-                    <span class="food-name">{dayTitle(w.date, today)}</span>
-                    <span class="entry-kcal">{lb(w.kg)} lb</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+          <GoalRows view={view} today={today} onGoal={onGoal} />
+          {view.weighIns.length > 0 && (
+            <>
+              <h4 class="section-heading">Weigh-ins</h4>
+              <ul class="list" aria-label="Weigh-ins">
+                {view.weighIns.slice(0, HISTORY_ROWS).map((w) => (
+                  <li key={w.id}>
+                    <Row name={dayTitle(w.date, today)} end={`${lb(w.kg)} lb`} onClick={() => setEntry(w.date)} />
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
           {entry !== null && <WeighInSheet date={entry} today={today} onClose={() => setEntry(null)} />}
         </>
@@ -164,70 +175,28 @@ export function WeightSheet({ today, onClose, onGoal }: { readonly today: LocalD
   );
 }
 
-function Projected({ view, today, onGoal }: { readonly view: BodyView; readonly today: LocalDate; readonly onGoal: () => void }) {
-  const projection = projectionText(view.projection, today);
-  return (
-    <>
-      <dl class="body-stats card">
-        <div>
-          <dt>Goal weight</dt>
-          <dd>{view.goalKg === undefined ? '–' : `${lb(view.goalKg)} lb`}</dd>
-        </div>
-        <div>
-          <dt>Projected</dt>
-          <dd data-testid="projection">{projection.value}</dd>
-        </div>
-      </dl>
-      <p class="hint">{projection.detail}</p>
-      {view.goalKg === undefined && (
-        <button type="button" class="text-button inline" onClick={onGoal}>
-          Set a goal weight
-        </button>
-      )}
-    </>
-  );
-}
-
-/** The weight at a glance on the diary: the trend that day, its rate, and a one-tap weigh-in. */
-export function WeightTile({ date, today, onGoal }: { readonly date: LocalDate; readonly today: LocalDate; readonly onGoal: () => void }) {
+/** The day's trend weight as one number, opening the sheet that holds the weigh-in. */
+export function WeightStat({ date, today, onGoal }: { readonly date: LocalDate; readonly today: LocalDate; readonly onGoal: () => void }) {
   const view = useLive((r) => bodyView(r, date), [date]);
   const [open, setOpen] = useState(false);
-  const [weighing, setWeighing] = useState(false);
-  if (view === undefined) return <section class="card tile" aria-label="Weight" />;
-  const weighedIn = view.weighIns[0]?.date === date ? view.weighIns[0] : undefined;
-
   return (
-    <section class="card tile weight" aria-label="Weight">
-      <button type="button" class="tile-main" onClick={() => setOpen(true)}>
-        <span class="tile-icon">
-          <Icon name="scale" />
-        </span>
-        <span class="tile-text">
-          <span class="tile-title">Weight</span>
-          <span class="tile-value">
-            {view.trendKg === undefined ? (
-              <small>No weigh-ins</small>
-            ) : (
-              <>
-                <strong data-testid="tile-trend">{lb(view.trendKg)}</strong>
-                <small> lb</small>
-              </>
-            )}
-          </span>
-          <span class="tile-detail">{view.trendKg === undefined ? 'Start your trend' : weighedIn === undefined ? rateText(view.rate) : `Scale ${lb(weighedIn.kg)} lb`}</span>
-        </span>
-        <TrendSpark series={view.series} />
-      </button>
-      {date <= today && (
-        <div class="pills">
-          <button type="button" class="pill" onClick={() => setWeighing(true)}>
-            Weigh in
-          </button>
-        </div>
-      )}
-      {weighing && <WeighInSheet date={date} today={today} onClose={() => setWeighing(false)} />}
+    <>
+      <Stat
+        label="Weight"
+        value={
+          view?.trendKg === undefined ? (
+            '–'
+          ) : (
+            <>
+              <span data-testid="day-trend">{lb(view.trendKg)}</span> lb
+            </>
+          )
+        }
+        onClick={() => setOpen(true)}
+      />
       {open && (
         <WeightSheet
+          date={date}
           today={today}
           onClose={() => setOpen(false)}
           onGoal={() => {
@@ -236,6 +205,6 @@ export function WeightTile({ date, today, onGoal }: { readonly date: LocalDate; 
           }}
         />
       )}
-    </section>
+    </>
   );
 }
