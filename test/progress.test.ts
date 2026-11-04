@@ -135,6 +135,7 @@ describe('repsToGo', () => {
       topLb: 100,
       load: { kind: 'weight', amount: 100, unit: 'lb' },
       top: 10,
+      prescribed: 3,
       sets: [
         { reps: 10, missing: 0 },
         { reps: 9, missing: 1 },
