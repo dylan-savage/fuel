@@ -493,7 +493,7 @@ async function photographProgress(page: Page, suffix: string) {
   await fits(progress, 'progress');
   const blocks = await progress.locator('.show-up svg').boundingBox();
   await page.mouse.move((blocks?.x ?? 0) + (blocks?.width ?? 0) * 0.45, (blocks?.y ?? 0) + 20);
-  await expect(progress.getByTestId('show-up-readout')).toHaveText(/^Week of .*: \d sessions?$/);
+  await expect(progress.getByTestId('show-up-count')).toHaveText(/^\d sessions? (week of .*|this week)$/);
   await shot('progress-scrub');
   await page.mouse.move(0, 0);
 
@@ -524,7 +524,6 @@ async function photographProgress(page: Page, suffix: string) {
   await closeLift(await openLift(/^Sled leg press/, 'Sled leg press', 'lift-heavy'));
   await closeLift(await openLift(/^Dragon flag/, 'Dragon flag', 'lift-reps'));
   await closeLift(await openLift(/^Yates row/, 'Yates row', 'lift-one'));
-  await closeLift(await openLift(/^Nordic curl/, 'Nordic curl', 'lift-none'));
 
   await progress.getByRole('button', { name: 'All lifts' }).click();
   const all = page.getByRole('dialog', { name: 'All lifts' });

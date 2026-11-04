@@ -114,7 +114,7 @@ function summary(values: readonly number[]) {
 const marks = (taps: readonly Tap[]) => ({ painted: summary(taps.map((t) => t.paintedMs)), content: summary(taps.map((t) => t.contentMs)), sheet: summary(taps.map((t) => t.sheetMs)) });
 
 const PROGRESS_SHEET = '[role="dialog"][aria-label="Progress"]';
-const PROGRESS_CONTENT = `${PROGRESS_SHEET} [data-testid="board"] .board-row`;
+const PROGRESS_CONTENT = `${PROGRESS_SHEET} [data-testid="board"] .row`;
 const LIFT_SHEET = `[role="dialog"][aria-label="${LONGEST_LIFT}"]`;
 const LIFT_CONTENT = `${LIFT_SHEET} [data-testid="lift-chart"]`;
 const LIST_SHEET = '[role="dialog"][aria-label="All lifts"]';

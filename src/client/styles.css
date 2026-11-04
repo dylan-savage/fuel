@@ -2427,41 +2427,6 @@ body:has(.session):not(.sheet-open) .toast {
   display: contents;
 }
 
-.group-title.question {
-  margin: 20px 4px 8px;
-  font-size: 15px;
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.full-sheet > .group-title.question:first-child {
-  margin-top: 0;
-}
-
-.progress-head {
-  font-size: 19px;
-  line-height: 1.25;
-}
-
-.progress-head strong {
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.progress-sub {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 15px;
-  overflow-wrap: anywhere;
-}
-
-/* A chart card pads less so its plot runs wider, and its text insets back, as .chart-readout does. */
-.chart-card .progress-head,
-.chart-card .progress-sub {
-  margin-inline: 4px;
-}
-
 .show-up svg {
   margin-top: 8px;
 }
@@ -2487,81 +2452,15 @@ body:has(.session):not(.sheet-open) .toast {
   stroke-dasharray: 0.1 4;
 }
 
-.board {
-  padding: 12px 16px 4px;
-}
-
-.board-rows {
-  list-style: none;
-  margin: 4px 0 0;
-  padding: 0;
-}
-
-.board-rows > li + li {
-  border-top: 0.5px solid var(--separator);
-}
-
-.board-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px 72px;
-  align-items: center;
-  column-gap: 12px;
-  width: 100%;
-  min-height: 60px;
-  padding: 8px 0;
-  text-align: left;
-}
-
-.board-name {
-  overflow-wrap: anywhere;
-}
-
-.board-name small,
-.board-value small {
-  display: block;
-  color: var(--muted);
-  font-size: 14px;
-}
-
-.board-spark {
-  display: block;
-  width: 72px;
-  height: 30px;
-}
-
-.board-spark path {
-  fill: none;
-  stroke: var(--tint);
-  stroke-width: 2;
-  stroke-linecap: round;
+/* A chart names its own series where they run. The halo keeps the name legible across them. */
+.chart-label {
+  fill: var(--muted);
+  stroke: var(--card);
+  stroke-width: 3;
   stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
+  paint-order: stroke;
+  font-size: var(--text-detail);
 }
-
-.board-value {
-  grid-column: 3;
-  text-align: right;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.board-value.none {
-  grid-column: 2 / 4;
-}
-
-.board-value strong {
-  font-weight: 600;
-}
-
-.all-lifts-row,
-.all-lifts {
-  margin-top: 12px;
-}
-
-.all-lifts .entry-kcal {
-  grid-row: auto;
-}
-
 
 .chart-swap {
   stroke: var(--muted);
@@ -2570,7 +2469,7 @@ body:has(.session):not(.sheet-open) .toast {
 
 .chart-swap-label {
   fill: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-detail);
 }
 
 .chart-best circle {
@@ -2585,12 +2484,27 @@ body:has(.session):not(.sheet-open) .toast {
   stroke-width: 3;
   stroke-linejoin: round;
   paint-order: stroke;
-  font-size: 12px;
+  font-size: var(--text-detail);
   font-weight: 600;
 }
 
 .lift-readout {
   min-height: 2.6em;
+}
+
+.lift-chart .chart-empty {
+  padding: 8px 0;
+  text-align: left;
+}
+
+.lift-summary .segmented {
+  margin: 4px 0 -12px;
+}
+
+.card-rule {
+  margin: 14px 0;
+  border: 0;
+  border-top: 0.5px solid var(--separator);
 }
 
 .to-go-ready {
@@ -2608,42 +2522,37 @@ body:has(.session):not(.sheet-open) .toast {
 
 .to-go-sets {
   display: grid;
-  gap: 10px;
+  gap: 6px;
   list-style: none;
-  margin: 12px 0 0;
+  margin: 10px 0 0;
   padding: 0;
 }
 
 .to-go-sets > li {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 10px;
-  font-size: 15px;
-}
-
-.to-go-name {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
+  font-size: var(--text-detail);
 }
 
 .to-go-track {
   display: block;
-  height: 10px;
+  height: 8px;
   overflow: hidden;
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--bar);
 }
 
 .to-go-fill {
   display: block;
   height: 100%;
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--tint);
 }
 
 .to-go-count {
-  min-width: 60px;
+  min-width: 52px;
   text-align: right;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -2654,82 +2563,19 @@ body:has(.session):not(.sheet-open) .toast {
   font-weight: 600;
 }
 
-.add-weight-rule {
-  margin: 14px 0;
-  border: 0;
-  border-top: 0.5px solid var(--separator);
+.recent-more {
+  display: block;
+  margin: 4px auto 0;
 }
 
-.recent-title {
-  margin-bottom: 4px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.recent-rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.recent-rows > li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: 10px;
-  padding: 5px 0;
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
-}
-
-.recent-date {
-  min-width: 50px;
-  color: var(--muted);
-}
-
-.recent-load {
-  min-width: 52px;
-  font-weight: 500;
-}
-
-.recent-reps {
-  color: var(--muted);
-}
-
-.recent-added {
-  margin-left: auto;
-  color: var(--goal-line);
-  font-weight: 500;
-}
-
-/* The charts scale down with the card on a small iPhone, so their text starts larger to land at a readable size. */
+/* The charts scale down with the card on a small iPhone, so their text starts larger to land at 13. */
 @media (max-width: 360px) {
-  .board-row {
-    grid-template-columns: minmax(0, 1fr) 52px 70px;
-    column-gap: 8px;
-  }
-
-  .board-spark {
-    width: 52px;
-  }
-
   .show-up .chart-axis text,
-  .lift-card .chart-axis text,
-  .lift-card .chart-grid text,
-  .chart-swap-label {
-    font-size: 13px;
-  }
-
+  .lift-chart .chart-axis text,
+  .lift-chart .chart-grid text,
+  .chart-swap-label,
+  .chart-label,
   .chart-best text {
-    font-size: 14px;
-  }
-
-  .recent-rows > li {
-    column-gap: 8px;
-  }
-
-  .recent-date,
-  .recent-load {
-    min-width: 44px;
+    font-size: var(--text-row);
   }
 }
