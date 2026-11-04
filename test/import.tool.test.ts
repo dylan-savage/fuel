@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer, type RequestListener, type Server as HttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,6 +52,7 @@ beforeEach(() => {
 afterEach(async () => {
   vi.restoreAllMocks();
   for (const cleanup of cleanups.splice(0)) await cleanup();
+  rmSync(scratch, { recursive: true, force: true });
 });
 
 function tool(args: readonly string[], env: Readonly<Record<string, string>>) {

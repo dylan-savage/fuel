@@ -196,6 +196,7 @@ const FROZEN_SAMPLES: { readonly [K in Kind]: unknown } = {
 
 const NOTION_HISTORY_SAMPLE = {
   capturedAt: '2030-03-10',
+  cutover: '2030-04-01',
   dateAssumption: 'Monday plus the planned weekday.',
   names: { 'Bench press': 'bench-press', 'Incline press': 'incline-press', 'Step up': 'step-up' },
   weeks: [

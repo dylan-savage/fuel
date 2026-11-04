@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -78,6 +78,7 @@ type PhoneWrite = { readonly op: 'put'; readonly kind: Kind; readonly docId: str
 const Row = z.object({ kind: z.string(), id: z.string(), rev: z.number(), body: z.string().nullable(), written_by: z.string(), written_at: z.number() });
 
 const stores: DocStore[] = [];
+const dirs: string[] = [];
 let stdout: ReturnType<typeof spyOnStdout>;
 const spyOnStdout = () => vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
@@ -87,11 +88,14 @@ beforeEach(() => {
 afterEach(() => {
   stdout.mockRestore();
   for (const s of stores.splice(0)) s.close();
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 /** A real store on a file, so a test can read the bytes under it, and an app whose clock sits after the file. */
 function setup(options: { readonly phone?: boolean } = {}) {
-  const path = join(mkdtempSync(join(tmpdir(), 'fuel-import-')), 'fuel.db');
+  const dir = mkdtempSync(join(tmpdir(), 'fuel-import-'));
+  dirs.push(dir);
+  const path = join(dir, 'fuel.db');
   const store = openStore(path);
   stores.push(store);
   const app = buildApp({ store, foods: noFoods, ai: null, staticDir: '.', now: () => noonOf('2030-03-20') });
