@@ -365,24 +365,32 @@ async function boxOf(page: Page, locator: ReturnType<Page['locator']>) {
   return box;
 }
 
-/** What the mockup promises: the current slot in the plan, clear of the card, and the card clear of the tab bar. */
+/** What the focus screen promises: Log set in the thumb's reach, every action on screen at 44 points or more, and nothing under the tab bar. */
 async function expectClearLayout(page: Page) {
   await expect(async () => {
-    const current = await boxOf(page, page.locator('[aria-current="step"]'));
-    const plan = await boxOf(page, page.locator('.session-plan'));
-    const card = await boxOf(page, page.locator('.set-card'));
+    const log = await boxOf(page, page.locator('.log-set'));
+    const controls = await boxOf(page, page.locator('.set-controls'));
+    const focus = await boxOf(page, page.locator('.focus'));
+    const heading = await boxOf(page, page.locator('.focus h2'));
     const bar = await boxOf(page, page.getByRole('navigation', { name: 'Sections' }));
-    expect(current.y, 'the current slot starts inside the plan').toBeGreaterThanOrEqual(plan.y);
-    expect(current.y + current.height, 'the current slot ends inside the plan').toBeLessThanOrEqual(plan.y + plan.height + 0.5);
-    expect(current.y + current.height, 'the card does not cover the current slot').toBeLessThanOrEqual(card.y + 0.5);
-    expect(card.y + card.height, 'nothing sits under the tab bar').toBeLessThanOrEqual(bar.y + 0.5);
+    const height = await page.evaluate(() => window.innerHeight);
+    expect(log.y + log.height / 2, 'Log set sits in the thumb’s reach').toBeGreaterThan(height * 0.6);
+    expect(controls.y + controls.height, 'nothing sits under the tab bar').toBeLessThanOrEqual(bar.y + 0.5);
+    expect(heading.y, 'the exercise starts inside its area').toBeGreaterThanOrEqual(focus.y - 0.5);
+    expect(heading.y + heading.height, 'and clears the controls').toBeLessThanOrEqual(controls.y + 0.5);
+    for (const action of await page.locator('.quiet-actions button').all()) {
+      const box = await boxOf(page, action);
+      expect(box.height, 'a quiet action is a full tap target').toBeGreaterThanOrEqual(44);
+      expect(box.x + box.width, 'and fits across the screen').toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
+    }
   }).toPass({ timeout: 2000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'the session does not scroll sideways').toBe(true);
 }
 
-/** One slot's card, jumped to from the plan. Jumps write nothing, so every photo starts from the same seeded session. */
+/** One slot on the focus screen, jumped to from the Plan sheet. Jumps write nothing, so every photo starts from the same seeded session. */
 async function jumpTo(page: Page, slotLabel: string | RegExp) {
-  await page.locator('.session-plan').getByRole('button', { name: slotLabel }).first().click();
+  await page.getByRole('button', { name: 'Plan', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Plan' }).getByRole('button', { name: slotLabel }).first().click();
 }
 
 async function photographSession(page: Page, name: (shot: string) => string) {
@@ -391,10 +399,16 @@ async function photographSession(page: Page, name: (shot: string) => string) {
   await page.goto('/');
   await tab(page, 'Train').click();
   await expect(page.getByRole('region', { name: 'Session' })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('round')).toHaveText('Round 2 of 3');
+  await expect(page.getByTestId('round')).toHaveText('Set 2 of 3');
   await expect(page.getByRole('timer')).toHaveText('Rest 0:48');
   await expectClearLayout(page);
-  await shoot('tall-card');
+  await shoot('rest');
+
+  await page.getByRole('button', { name: 'Plan', exact: true }).click();
+  const plan = page.getByRole('dialog', { name: 'Plan' });
+  await expect(plan.getByRole('button', { name: /^Seal row/ })).toBeVisible();
+  await shoot('plan');
+  await plan.getByRole('button', { name: 'Done' }).click();
 
   await jumpTo(page, /^Seal row/);
   await expect(page.getByLabel('Reps', { exact: true })).toHaveValue('12');
@@ -417,14 +431,13 @@ async function photographSession(page: Page, name: (shot: string) => string) {
   await lowerKeyboard(page);
   await note.getByRole('button', { name: 'Cancel' }).click();
 
-  await page.locator('.session-plan').getByRole('button', { name: /Seal row/ }).first().scrollIntoViewIfNeeded();
-  await page.locator('.plan-set').first().click();
+  await page.getByRole('group', { name: "Today's sets" }).getByRole('button').first().click();
   await expect(page.getByRole('dialog', { name: /^Edit/ })).toBeVisible();
   await shoot('edit-set');
   await page.getByRole('dialog', { name: /^Edit/ }).getByRole('button', { name: 'Cancel' }).click();
 
   await jumpTo(page, /^Pin press/);
-  await expect(page.getByText('Last time here you did Machine press.')).toBeVisible();
+  await expect(page.getByText('Last time: Machine press')).toBeVisible();
   await expectClearLayout(page);
   await shoot('swap-hint');
 
@@ -437,9 +450,9 @@ async function photographSession(page: Page, name: (shot: string) => string) {
   const logSet = await boxOf(page, page.getByRole('button', { name: 'Log set' }));
   expect(logSet.y + logSet.height, 'the keyboard does not hide Log set on a note field').toBeLessThanOrEqual(abovePromptKeys);
   const promptField = await boxOf(page, page.getByLabel('Distance, if you measured it'));
-  const cardBody = await boxOf(page, page.locator('.set-card-body'));
-  expect(promptField.y, 'nor the field being typed in').toBeGreaterThanOrEqual(cardBody.y);
-  expect(promptField.y + promptField.height, 'nor the field being typed in').toBeLessThanOrEqual(cardBody.y + cardBody.height + 1);
+  const inputs = await boxOf(page, page.locator('.set-inputs'));
+  expect(promptField.y, 'nor the field being typed in').toBeGreaterThanOrEqual(inputs.y);
+  expect(promptField.y + promptField.height, 'nor the field being typed in').toBeLessThanOrEqual(inputs.y + inputs.height + 1);
   await shoot('prompt-keyboard');
   await lowerKeyboard(page);
 

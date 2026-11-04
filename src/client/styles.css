@@ -1993,7 +1993,11 @@ main {
 
 .note-field .field-label {
   color: var(--muted);
-  font-size: 15px;
+  font-size: var(--text-detail);
+}
+
+.note-field .section-heading {
+  margin-bottom: 2px;
 }
 
 .note-field textarea {
@@ -2004,43 +2008,17 @@ main {
   background: var(--card);
   color: inherit;
   font: inherit;
-  font-size: 17px;
+  font-size: var(--text-row);
   outline: none;
   resize: none;
 }
 
-.day-startable {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-right: 12px;
+.note-field textarea::placeholder {
+  color: var(--muted);
 }
 
-.day-startable > .day-row {
-  flex: 1;
-  min-width: 0;
-  padding-right: 0;
-}
-
-.start-button {
-  flex: none;
-  min-width: 72px;
-  min-height: 44px;
-  padding: 0 16px;
-  border-radius: 12px;
-  background: var(--tint);
-  color: #fff;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-/* Sticky stops at the sheet body's padding, so it reaches past it or the plan shows beneath. */
-.day-start {
-  position: sticky;
-  bottom: calc(-24px - env(safe-area-inset-bottom));
-  margin: 16px 0 calc(-24px - env(safe-area-inset-bottom));
-  padding: 8px 0 calc(24px + env(safe-area-inset-bottom));
-  background: var(--bg);
+.note-field + .sheet-actions {
+  margin-top: 12px;
 }
 
 .session {
@@ -2057,11 +2035,17 @@ main {
 
 .session-bar {
   flex: none;
+  padding: 2px 12px 0 16px;
+}
+
+.session-bar-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px 4px 16px;
-  border-bottom: 0.5px solid var(--separator);
+}
+
+.session-bar .bar {
+  margin: 2px 4px 0 0;
 }
 
 .session-title {
@@ -2070,7 +2054,7 @@ main {
 }
 
 .session-title h1 {
-  font-size: 17px;
+  font-size: var(--text-row);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -2082,212 +2066,167 @@ main {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
 
 .session-title .badge {
   padding: 0 6px;
-  font-size: 11px;
 }
 
 .session-finish {
   flex: none;
-  padding: 0 8px;
   font-weight: 600;
 }
 
-.session-plan {
+.set-card {
   flex: 1 1 0;
-  /* Room for a two-line current slot, however tall the card wants to be. */
-  min-height: 72px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px 4px;
+}
+
+/* The exercise sits just above the controls, and the room left over stays at the top for the toast. Auto margin rather than flex-end, which would cut off the top of what overflows. */
+.focus {
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 8px 12px;
-}
-
-.session-plan .plan-block-head {
-  margin: 8px 4px 4px;
-}
-
-.session-plan .plan-block-head:first-child {
-  margin-top: 0;
-}
-
-.session-plan .list > li {
-  margin-left: 0;
-}
-
-.session-plan > .list + section,
-.session-plan > section + .list,
-.session-plan > .list + .list {
-  margin-top: 8px;
-}
-
-.plan-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 44px;
-  padding: 6px 12px;
-  text-align: left;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 12px;
 }
 
-.plan-row[aria-current='step'] {
-  background: rgba(10, 132, 255, 0.16);
-  box-shadow: inset 3px 0 0 var(--tint);
+.focus > :first-child {
+  margin-top: auto;
 }
 
-.plan-row-name,
-.set-card-head h2 {
+.focus h2 {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
+  font-size: var(--text-title);
+  font-weight: 700;
+  line-height: 1.15;
 }
 
-.plan-row-name {
-  flex: 1;
-  min-width: 0;
-  font-weight: 500;
-}
-
-.plan-set {
-  display: block;
-  width: 100%;
-  min-height: 36px;
-  padding: 4px 12px 4px 20px;
-  border-top: 0.5px solid var(--separator);
-  color: var(--muted);
-  font-size: 15px;
+.rest-timer {
+  font-size: var(--text-title);
+  font-weight: 700;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
-  text-align: left;
+}
+
+.rest-timer.over {
+  color: var(--muted);
+}
+
+.focus-next {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-weight: 600;
+}
+
+.focus-next h2 {
+  font-size: var(--text-row);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.focus-line {
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
 
-.dots {
-  flex: none;
+.focus-round {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.focus-swap {
   display: flex;
-  gap: 5px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.dots > span {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 1.5px var(--muted);
-}
-
-.dots > .filled {
-  background: var(--green);
-  box-shadow: none;
-}
-
-.rest-pill {
+.focus-swap .text-button {
   flex: none;
-  align-self: center;
-  margin: 6px 0;
-  padding: 3px 14px;
+}
+
+/* The tap target is the full 44 points, and only the value inside it is drawn. */
+.today-sets {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 6px;
+}
+
+.today-sets button {
+  display: flex;
+  align-items: center;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.today-sets span {
+  padding: 4px 10px;
   border-radius: 999px;
   background: var(--fill);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.rest-pill.over {
-  color: var(--tint);
+.card-items {
+  margin: 4px 0 0;
+  padding: 0 0 0 20px;
+  overflow-wrap: anywhere;
 }
 
-.set-card {
+.set-controls {
   flex: 0 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 10px 12px 0;
-  border-radius: 14px 14px 0 0;
-  background: var(--card);
-  box-shadow: 0 -0.5px 0 var(--separator);
+  gap: 8px;
 }
 
-.set-card-body {
+.set-inputs,
+.edit-set {
+  display: grid;
+  gap: 8px;
+}
+
+.set-inputs {
   flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
-.set-card-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.set-card-head h2 {
-  min-width: 0;
-  font-size: 17px;
-  font-weight: 600;
-}
-
-.set-card-round {
-  flex: none;
-  color: var(--muted);
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
-}
-
-.set-card-line {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 15px;
-  overflow-wrap: anywhere;
-}
-
-.set-card-line .text-button {
-  min-height: 32px;
-}
-
-.set-card-line .exercise-add {
-  white-space: nowrap;
-}
-
-.card-items {
-  margin: 6px 0 0;
-  padding: 0 0 0 18px;
-  font-size: 15px;
-  overflow-wrap: anywhere;
-}
-
 .set-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 138px;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.set-row-end {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 44px;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
-.set-row-end .segmented {
-  margin: 0;
-}
-
-.set-row-end .segmented button {
-  min-height: 40px;
+.set-row.loose {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .set-row-unit,
 .set-row-text {
   color: var(--muted);
-  font-size: 15px;
+}
+
+.set-row-unit {
+  text-align: center;
 }
 
 .set-row-unit.side {
@@ -2295,97 +2234,75 @@ main {
   font-weight: 600;
 }
 
-.set-row-link {
-  min-height: 44px;
+.unit-toggle {
   padding: 0;
-  font-size: 15px;
-  white-space: nowrap;
+  font-weight: 600;
 }
 
 .stepper {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  grid-template-columns: 56px minmax(0, 1fr) 56px;
   align-items: center;
 }
 
 .stepper button {
-  height: 44px;
-  border-radius: 10px;
-  background: var(--fill);
+  height: 48px;
+  border-radius: 12px;
+  background: var(--card);
   color: var(--tint);
-  font-size: 22px;
+  font-size: var(--text-hero);
   font-weight: 500;
 }
 
 .stepper input {
   width: 100%;
-  min-height: 44px;
+  min-height: 48px;
   padding: 0;
   border: none;
   background: transparent;
   outline: none;
-  font-size: 20px;
+  font-size: var(--text-hero);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
 
-.warm-toggle {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  background: var(--fill);
-  color: var(--muted);
-  font-weight: 700;
-}
-
 .warm-toggle[aria-pressed='true'] {
+  font-weight: 600;
+}
+
+.warm-toggle span {
+  display: block;
+  padding: 2px 8px;
+  margin-inline: -8px;
+  border-radius: 999px;
+}
+
+.warm-toggle[aria-pressed='true'] span {
   background: var(--orange);
-  color: #fff;
+  color: #000;
 }
 
-.band-input {
-  width: 100%;
-  min-height: 44px;
-  padding: 0 12px;
-  border: none;
-  border-radius: 10px;
-  background: var(--fill);
-  outline: none;
-}
-
-.load-kinds {
-  display: flex;
-  gap: 16px;
-  font-size: 15px;
-}
-
-.load-kinds .text-button {
-  min-height: 32px;
-  padding: 0;
-}
-
-.set-prompt {
-  display: grid;
-  gap: 2px;
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
+.band-input,
 .set-prompt input {
   width: 100%;
   min-height: 44px;
   padding: 0 12px;
   border: none;
   border-radius: 10px;
-  background: var(--fill);
+  background: var(--card);
   outline: none;
+}
+
+.set-prompt {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: var(--text-detail);
 }
 
 .log-set {
   flex: none;
-  margin-top: 8px;
 }
 
 .log-set:disabled {
@@ -2395,18 +2312,6 @@ main {
 /* A guard against a double tap, not a state to read, so it does not flicker. */
 .log-set.cooling:disabled {
   opacity: 1;
-}
-
-.set-actions {
-  flex: none;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  gap: 4px;
-}
-
-.set-actions .text-button {
-  font-size: 15px;
 }
 
 .swap-choice {
@@ -2432,40 +2337,42 @@ main {
   margin-top: 12px;
 }
 
-.edit-set .set-row:first-child {
-  margin-top: 0;
-}
-
-/* A short phone keeps the plan's current slot in view by tightening the card. */
+/* A short phone gives the exercise less height, and keeps every tap target. */
 @media (max-height: 620px) {
-  .set-card-head h2 {
-    -webkit-line-clamp: 1;
+  .focus h2,
+  .rest-timer {
+    font-size: var(--text-hero);
   }
 
-  .set-row {
-    margin-top: 4px;
+  .focus-next h2 {
+    font-size: var(--text-row);
+  }
+
+  .stepper button {
+    height: 44px;
+  }
+
+  .stepper input {
+    min-height: 44px;
   }
 
   .log-set {
     min-height: 44px;
-    margin-top: 6px;
   }
 
-  .set-actions .text-button {
-    min-height: 36px;
+  .set-controls,
+  .set-inputs {
+    gap: 6px;
   }
 
-  .rest-pill {
-    margin: 4px 0;
-  }
-
-  .session-plan {
-    padding: 6px 12px;
+  /* Over a keyboard there is no room for the exercise, and half of it reads worse than none. */
+  .keyboard-up .focus {
+    display: none;
   }
 }
 
-/* The toast rests on the tab bar, which would put it over Log set during a session. */
-body:has(.session) .toast {
+/* The toast rests on the tab bar, which would put it over Log set during a session. A sheet covers both, so over one it stays where it is, clear of the sheet's Done. */
+body:has(.session):not(.sheet-open) .toast {
   top: calc(env(safe-area-inset-top) + 56px);
   bottom: auto;
 }
@@ -2474,17 +2381,11 @@ body:has(.session) .toast {
   bottom: var(--keyboard);
 }
 
-.keyboard-up .session-plan,
-.keyboard-up .rest-pill,
-.keyboard-up .set-actions {
+.keyboard-up .set-controls > .quiet-actions {
   display: none;
 }
 
 .keyboard-up .set-card {
-  flex: 1 1 0;
-  min-height: 0;
-  max-height: none;
-  justify-content: space-between;
   padding-bottom: 8px;
 }
 
@@ -2510,8 +2411,10 @@ body:has(.session) .toast {
   background: var(--bg);
 }
 
+/* The margin keeps the box being typed in clear of the sticky Save when it scrolls into view. */
 .keyboard-up .sheet-body .note-field textarea {
   height: 3.2em;
+  scroll-margin-bottom: 72px;
 }
 
 /* Progress */

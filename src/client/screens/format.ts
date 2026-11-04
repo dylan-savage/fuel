@@ -214,24 +214,6 @@ export function planSections(parts: readonly DayPart[]): readonly PlanSection[] 
   return sections;
 }
 
-const phrase = (...words: readonly (string | undefined)[]) => words.filter((word) => word !== undefined).join(', ');
-
-/** "Superset A, 3 rounds, rest 75s", "Main lift, rest 150s", "Rest 60s", "Easy ride, cardio". Null for a lifts block with nothing to say. */
-export function blockHeading({ block, superset }: DayPart): string | null {
-  switch (block.kind) {
-    case 'lifts': {
-      const rest = block.restSeconds === undefined ? undefined : `rest ${block.restSeconds}s`;
-      if (superset !== null) return phrase(block.title ?? `Superset ${superset.letter}`, `${superset.rounds} rounds`, rest);
-      if (block.title === undefined) return rest === undefined ? null : `Rest ${block.restSeconds}s`;
-      return phrase(block.title, rest);
-    }
-    case 'checklist':
-      return block.title ?? 'Checklist';
-    case 'cardio':
-      return block.title === undefined ? 'Cardio' : phrase(block.title, 'cardio');
-  }
-}
-
 /** "Rest 0:48", then past zero, counting up, "Rest +0:12". */
 export function restText(endsAt: number, now: number): string {
   const left = endsAt - now;

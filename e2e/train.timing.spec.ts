@@ -232,7 +232,7 @@ test('reports the time from a tap on Log set to the card showing the next step, 
     for (const [i, _step] of steps.entries()) {
       const tap = await tapLogSet(page);
       const after = steps[i + 1];
-      expect(tap.next, 'the card moved to the step the plan names').toBe(after === undefined ? 'That is the plan done | ' : `${after.slot.label} | Round ${after.round} of 3`);
+      expect(tap.next, 'the card moved to the step the plan names').toBe(after === undefined ? 'Plan done | ' : `${after.slot.label} | Set ${after.round} of 3`);
       taps.push(tap);
     }
     await page.getByRole('button', { name: 'Finish', exact: true }).tap();

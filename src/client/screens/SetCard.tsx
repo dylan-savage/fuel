@@ -1,19 +1,17 @@
-/** The card in the thumb's reach: what to do now, and most sets are one tap on Log set. */
+/** One exercise in focus: what to do now up top, and in the thumb's reach, most sets being one tap on Log set. */
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { LocalDate } from '../../domain/ids.js';
-import { lastLineOf, lastTimeOf, lastSwapAt } from '../../domain/progress.js';
+import { lastLineOf, lastTimeOf, lastSwapAt, typedLine } from '../../domain/progress.js';
 import type { LiftBook, Performance, Target, Unit } from '../../domain/lifts.js';
-import { roundsOf, type Step } from '../../domain/program.js';
-import { isExtra, prefillSet, setLogOf, sideOrder, steppedLoad, steppedReps, type LiftChoice, type Side } from '../../domain/session.js';
+import type { Slot, Step } from '../../domain/program.js';
+import { isExtra, prefillSet, setLogOf, sideOrder, steppedLoad, steppedReps, type LiftChoice, type LoggedSet, type RestClock, type Side } from '../../domain/session.js';
+import { now } from '../clock.js';
 import { entryOf, formOf, type SetForm } from '../trainDraft.js';
-import { editable, parseNumber, repsTargetText, shortDate } from './format.js';
-import { Segmented } from './ui.js';
+import { editable, parseNumber, repsTargetText, restText, shortDate } from './format.js';
+import { useNow } from './ui.js';
 
-const UNITS: readonly { readonly value: Unit; readonly label: string }[] = [
-  { value: 'lb', label: 'lb' },
-  { value: 'kg', label: 'kg' },
-];
+const OTHER_UNIT: Readonly<Record<Unit, Unit>> = { lb: 'kg', kg: 'lb' };
 
 /** How long Log set stays off after a tap, so a double tap on a wet hand cannot log the next set too. */
 const DOUBLE_TAP_MS = 350;
@@ -63,10 +61,18 @@ function Stepper({
   );
 }
 
-function WarmUpToggle({ on, onToggle }: { readonly on: boolean; readonly onToggle: () => void }) {
+export function WarmUpToggle({ on, onToggle }: { readonly on: boolean; readonly onToggle: () => void }) {
   return (
-    <button type="button" class="warm-toggle" aria-label="Warm-up" aria-pressed={on} onClick={onToggle}>
-      W
+    <button type="button" class="text-button warm-toggle" aria-pressed={on} onClick={onToggle}>
+      <span>Warm-up</span>
+    </button>
+  );
+}
+
+function UnitToggle({ unit, onChange }: { readonly unit: Unit; readonly onChange: (unit: Unit) => void }) {
+  return (
+    <button type="button" class="text-button unit-toggle" aria-label={`Unit ${unit}, switch to ${OTHER_UNIT[unit]}`} onClick={() => onChange(OTHER_UNIT[unit])}>
+      {unit}
     </button>
   );
 }
@@ -98,9 +104,8 @@ function RepsRows({ reps, perSide, onChange }: { readonly reps: SetForm['reps'];
 
 function LoadRow({ form, onChange }: { readonly form: SetForm; readonly onChange: (form: SetForm) => void }) {
   const { load } = form;
-  const toggle = <WarmUpToggle on={form.warmup} onToggle={() => onChange({ ...form, warmup: !form.warmup })} />;
   const addWeight = (
-    <button type="button" class="text-button set-row-link" onClick={() => onChange({ ...form, load: { kind: 'weight', amount: '', unit: 'lb' } })}>
+    <button type="button" class="text-button" onClick={() => onChange({ ...form, load: { kind: 'weight', amount: '', unit: 'lb' } })}>
       Add weight
     </button>
   );
@@ -119,13 +124,10 @@ function LoadRow({ form, onChange }: { readonly form: SetForm; readonly onChange
                 onChange({ ...form, load: { ...load, amount: next === null ? '' : editable(next) } });
               }}
             />
-            <div class="set-row-end">
-              <Segmented label="Unit" options={UNITS} value={load.unit} onChange={(unit) => onChange({ ...form, load: { ...load, unit } })} />
-              {toggle}
-            </div>
+            <UnitToggle unit={load.unit} onChange={(unit) => onChange({ ...form, load: { ...load, unit } })} />
           </div>
           {load.amount === '' && (
-            <div class="load-kinds">
+            <div class="quiet-actions start">
               <button type="button" class="text-button" onClick={() => onChange({ ...form, load: { kind: 'bodyweight' } })}>
                 Bodyweight
               </button>
@@ -138,28 +140,22 @@ function LoadRow({ form, onChange }: { readonly form: SetForm; readonly onChange
       );
     case 'band':
       return (
-        <div class="set-row">
+        <div class="set-row loose">
           <input class="band-input" aria-label="Band" placeholder="Which band" autoComplete="off" value={load.label} onInput={(event) => onChange({ ...form, load: { kind: 'band', label: event.currentTarget.value } })} />
-          <div class="set-row-end">
-            {addWeight}
-            {toggle}
-          </div>
+          {addWeight}
         </div>
       );
     case 'bodyweight':
       return (
-        <div class="set-row">
+        <div class="set-row loose">
           <span class="set-row-text">Bodyweight</span>
-          <div class="set-row-end">
-            {addWeight}
-            {toggle}
-          </div>
+          {addWeight}
         </div>
       );
   }
 }
 
-/** The load and reps of one set, on the card and when editing a logged set. */
+/** The load and reps of one set, in the focus screen and when editing a logged set. */
 export function SetInputs({ form, onChange, perSide, prompt }: { readonly form: SetForm; readonly onChange: (form: SetForm) => void; readonly perSide: Target['perSide']; readonly prompt: string | undefined }) {
   return (
     <>
@@ -175,9 +171,9 @@ export function SetInputs({ form, onChange, perSide, prompt }: { readonly form: 
   );
 }
 
-/** Swap, Skip, Note, Cues. */
+/** Swap, Skip, Note, Cue, Warm-up. */
 export function CardActions({ children }: { readonly children: ComponentChildren }) {
-  return <div class="set-actions">{children}</div>;
+  return <div class="quiet-actions">{children}</div>;
 }
 
 export function CardAction({ label, disabled = false, onClick }: { readonly label: string; readonly disabled?: boolean; readonly onClick: () => void }) {
@@ -188,11 +184,59 @@ export function CardAction({ label, disabled = false, onClick }: { readonly labe
   );
 }
 
+function RestTimer({ clock }: { readonly clock: RestClock }) {
+  useNow(1000);
+  const at = now();
+  return (
+    <p class={at > clock.endsAt ? 'rest-timer over' : 'rest-timer'} role="timer">
+      {restText(clock.endsAt, at)}
+    </p>
+  );
+}
+
+/** The biggest thing on screen. A rest takes the name's place, and the name steps down to say what follows it. */
+export function FocusTitle({ rest, title }: { readonly rest: RestClock | null; readonly title: string }) {
+  if (rest === null) return <h2>{title}</h2>;
+  return (
+    <>
+      <RestTimer clock={rest} />
+      <div class="focus-next">
+        <span>Next:</span>
+        <h2>{title}</h2>
+      </div>
+    </>
+  );
+}
+
+/** A logged set in words, for the plan's row and a screen reader. */
+export function setRowText({ performance, set }: LoggedSet, slot: Slot): string {
+  const lift = performance.liftId === slot.liftId ? '' : `${performance.label}, `;
+  const note = set.note === undefined ? '' : `, ${set.note}`;
+  return `${set.warmup === true ? 'Warm-up, ' : ''}${lift}${typedLine([set], '×')}${note}`;
+}
+
+/** Today's sets of the lift in focus, a tap from editing. */
+function TodaySets({ sets, slot, onEdit }: { readonly sets: readonly LoggedSet[]; readonly slot: Slot; readonly onEdit: (row: LoggedSet) => void }) {
+  if (sets.length === 0) return null;
+  return (
+    <div class="today-sets" role="group" aria-label="Today's sets">
+      {sets.map((row) => (
+        <button type="button" key={`${row.performance.id}#${row.index}`} aria-label={`Edit ${setRowText(row, slot)}`} onClick={() => onEdit(row)}>
+          <span>
+            {row.set.warmup === true && 'W '}
+            {typedLine([row.set], '×')}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function blurTyping() {
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
 }
 
-/** Keeps a focused field clear of the keyboard's edge inside the card's own scroller. */
+/** Keeps a focused field clear of the keyboard's edge inside its own scroller. */
 const revealField = (event: FocusEvent) => {
   if (event.target instanceof HTMLElement) event.target.scrollIntoView({ block: 'nearest' });
 };
@@ -206,9 +250,12 @@ export function SetCard({
   book,
   performances,
   typed,
+  rest,
+  logged,
   onForm,
   onLog,
   onSwitch,
+  onEdit,
   actions,
 }: {
   readonly step: Step;
@@ -222,9 +269,13 @@ export function SetCard({
   readonly performances: readonly Performance[];
   /** What he has typed for this very set, if anything. */
   readonly typed: SetForm | undefined;
+  readonly rest: RestClock | null;
+  /** This slot's sets so far. */
+  readonly logged: readonly LoggedSet[];
   readonly onForm: (form: SetForm) => void;
   readonly onLog: (form: SetForm) => void;
   readonly onSwitch: (choice: LiftChoice) => void;
+  readonly onEdit: (row: LoggedSet) => void;
   readonly actions: ComponentChildren;
 }) {
   const { slot, round } = step;
@@ -245,31 +296,42 @@ export function SetCard({
 
   return (
     <section class="set-card" aria-label="Set">
-      <div class="set-card-body" onFocusIn={revealField}>
-        <header class="set-card-head">
-          <h2>{lift.label}</h2>
-          <span class="set-card-round" data-testid="round">
-            {isExtra(step) ? 'Extra set' : `Round ${round} of ${roundsOf(step.block)}`}
+      <div class="focus">
+        <FocusTitle rest={rest} title={lift.label} />
+        <p class="focus-line">
+          <span class="focus-round" data-testid="round">
+            {isExtra(step) ? 'Extra set' : `Set ${round} of ${slot.target.sets}`}
           </span>
-        </header>
-        <p class="set-card-line">
-          {repsTargetText(slot.target)}.{line !== null && ` Last, ${shortDate(line.date, today)}: ${line.line}`}
-          {line?.addWeight === true && <span class="exercise-add"> Add weight</span>}
+          {` · ${repsTargetText(slot.target)}`}
         </p>
+        {line !== null && (
+          <p class="focus-line">
+            {`Last ${line.line} · ${shortDate(line.date, today)}`}
+            {line.addWeight && <span class="mark-good"> Add weight</span>}
+          </p>
+        )}
         {swapHint !== undefined && (
-          <p class="set-card-line">
-            Last time here you did {swapHint.label}.{' '}
-            <button type="button" class="text-button inline" onClick={() => onSwitch({ liftId: swapHint.liftId, label: swapHint.label })}>
+          <p class="focus-line focus-swap">
+            Last time: {swapHint.label}
+            <button type="button" class="text-button" onClick={() => onSwitch({ liftId: swapHint.liftId, label: swapHint.label })}>
               Switch
             </button>
           </p>
         )}
-        <SetInputs form={form} onChange={onForm} perSide={slot.target.perSide} prompt={slot.setPrompt} />
+        <TodaySets sets={logged} slot={slot} onEdit={onEdit} />
       </div>
-      <button type="button" class={valid && cooling ? 'primary log-set cooling' : 'primary log-set'} disabled={!valid || cooling} onClick={log}>
-        Log set
-      </button>
-      {actions}
+      <div class="set-controls">
+        <div class="set-inputs" onFocusIn={revealField}>
+          <SetInputs form={form} onChange={onForm} perSide={slot.target.perSide} prompt={slot.setPrompt} />
+        </div>
+        <button type="button" class={valid && cooling ? 'primary log-set cooling' : 'primary log-set'} disabled={!valid || cooling} onClick={log}>
+          Log set
+        </button>
+        <CardActions>
+          {actions}
+          <WarmUpToggle on={form.warmup} onToggle={() => onForm({ ...form, warmup: !form.warmup })} />
+        </CardActions>
+      </div>
     </section>
   );
 }

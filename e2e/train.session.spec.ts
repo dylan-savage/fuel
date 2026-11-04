@@ -15,8 +15,31 @@ const at = (date: string, time = '18:00:00') => new Date(`${date}T${time}`);
 const MINUTE = 60_000;
 
 const card = (page: Page) => page.getByRole('region', { name: 'Set', exact: true });
-const plan = (page: Page) => page.locator('.session-plan');
+const plan = (page: Page) => page.getByRole('dialog', { name: 'Plan' });
 const planRow = (page: Page, name: RegExp) => plan(page).getByRole('button', { name });
+const unit = (page: Page) => page.getByRole('button', { name: /^Unit / });
+
+async function openPlan(page: Page) {
+  await page.getByRole('button', { name: 'Plan', exact: true }).click();
+  await expect(plan(page)).toBeVisible();
+}
+
+const closePlan = (page: Page) => plan(page).getByRole('button', { name: 'Done' }).click();
+
+/** The Plan sheet still jumps to any exercise, and closes on the way. */
+async function jumpTo(page: Page, name: RegExp) {
+  await openPlan(page);
+  await planRow(page, name).click();
+  await expect(plan(page)).toBeHidden();
+}
+
+/** A slot's dots, read from the Plan sheet. */
+async function expectDots(page: Page, name: RegExp, logged: RegExp) {
+  await openPlan(page);
+  await expect(planRow(page, name)).toHaveAccessibleName(logged);
+  await closePlan(page);
+}
+
 const logButton = (page: Page) => page.getByRole('button', { name: 'Log set' });
 const finishButton = (page: Page) => page.getByRole('button', { name: 'Finish', exact: true });
 const toast = (page: Page, text: string | RegExp) => page.getByRole('status').filter({ hasText: text });
@@ -117,8 +140,9 @@ test('logs offline through a tab switch, a reload and a page kill mid-set, then 
   await tab(page, 'Train').click();
   await startButton(page).click();
 
-  await expectCard(page, 'Cable fly', 'Round 1 of 3');
-  await expect(card(page)).toContainText('8–12 reps. Last, Dec 10: 40 lb × 12/11/10');
+  await expectCard(page, 'Cable fly', 'Set 1 of 3');
+  await expect(card(page)).toContainText('8–12 reps');
+  await expect(card(page)).toContainText('Last 40 lb × 12/11/10 · Dec 10');
   await expect(page.getByLabel('Load', { exact: true })).toHaveValue('40');
   await expect(page.getByLabel('Reps', { exact: true })).toHaveValue('12');
 
@@ -127,20 +151,21 @@ test('logs offline through a tab switch, a reload and a page kill mid-set, then 
   await page.getByRole('button', { name: 'Warm-up', exact: true }).click();
   await logSet(page);
   await expect(toast(page, 'Cable fly logged')).toBeVisible();
-  await expectCard(page, 'Cable fly', 'Round 1 of 3');
+  await expectCard(page, 'Cable fly', 'Set 1 of 3');
   await expect(page.getByRole('button', { name: 'Warm-up', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByLabel('Load', { exact: true }), 'the working weight comes back after a warm-up').toHaveValue('40');
   await expect(page.getByRole('timer')).toBeHidden();
-  await expect(planRow(page, /^Cable fly/)).toHaveAccessibleName(/0 of 3 logged/);
+  await expectDots(page, /^Cable fly/, /0 of 3 logged/);
 
   // A1, A2, rest, A1, A2, rest.
-  await logExpecting(page, 'Cable fly', 'Round 1 of 3');
+  await logExpecting(page, 'Cable fly', 'Set 1 of 3');
   await expect(page.getByRole('timer'), 'no rest inside a round').toBeHidden();
-  await logExpecting(page, 'Meadows row', 'Round 1 of 3');
+  await logExpecting(page, 'Meadows row', 'Set 1 of 3');
   await expect(page.getByRole('timer')).toHaveText(/^Rest 1:1\d$/);
-  await expectCard(page, 'Cable fly', 'Round 2 of 3');
-  await expect(planRow(page, /^Cable fly/)).toHaveAccessibleName(/1 of 3 logged/);
-  await expect(planRow(page, /^Meadows row/)).toHaveAccessibleName(/1 of 3 logged/);
+  await expect(card(page).locator('.focus-next'), 'the rest says what follows it').toHaveText(/^Next:\s*Cable fly$/);
+  await expectCard(page, 'Cable fly', 'Set 2 of 3');
+  await expectDots(page, /^Cable fly/, /1 of 3 logged/);
+  await expectDots(page, /^Meadows row/, /1 of 3 logged/);
 
   await page.clock.fastForward(90_000);
   await expect(page.getByRole('timer'), 'past zero it counts up').toHaveText(/^Rest \+0:1\d$/);
@@ -148,7 +173,7 @@ test('logs offline through a tab switch, a reload and a page kill mid-set, then 
   await tab(page, 'Diary').click();
   await expect(page.getByRole('region', { name: 'Breakfast' })).toBeVisible();
   await tab(page, 'Train').click();
-  await expectCard(page, 'Cable fly', 'Round 2 of 3');
+  await expectCard(page, 'Cable fly', 'Set 2 of 3');
 
   await page.getByLabel('Load', { exact: true }).fill('42.5');
   await page.getByRole('button', { name: 'More reps' }).click();
@@ -158,23 +183,23 @@ test('logs offline through a tab switch, a reload and a page kill mid-set, then 
   await expect(page.getByLabel('Reps', { exact: true })).toHaveValue('12');
 
   await page.reload();
-  await expectCard(page, 'Cable fly', 'Round 2 of 3');
+  await expectCard(page, 'Cable fly', 'Set 2 of 3');
   expect(await sawDiary(page), 'a reload during a session never shows the Diary').toBe(false);
   await expect(page.getByLabel('Load', { exact: true }), 'typed digits survive a reload').toHaveValue('42.5');
   await expect(page.getByRole('timer'), 'the rest clock reads right after a reload').toHaveText(/^Rest \+0:\d\d$/);
   await logSet(page);
 
-  await expectCard(page, 'Meadows row', 'Round 2 of 3');
+  await expectCard(page, 'Meadows row', 'Set 2 of 3');
   await page.getByLabel('Load', { exact: true }).fill('62.5');
   await page.close();
 
   const reopened = await context.newPage();
   await reopened.goto('/');
-  await expectCard(reopened, 'Meadows row', 'Round 2 of 3');
+  await expectCard(reopened, 'Meadows row', 'Set 2 of 3');
   expect(await sawDiary(reopened), 'nor does a relaunch').toBe(false);
   await expect(reopened.getByLabel('Load', { exact: true }), 'typed digits survive the page being killed').toHaveValue('62.5');
   await logSet(reopened);
-  await expectCard(reopened, 'Cable fly', 'Round 3 of 3');
+  await expectCard(reopened, 'Cable fly', 'Set 3 of 3');
   await expect(reopened.getByLabel('Load', { exact: true }), 'the next set takes the load of the last one today').toHaveValue('42.5');
   expect(reachesServer(DAY), 'nothing has reached the server yet').toEqual([]);
   await expect(reopened.getByText(/\d+ waiting/)).toBeVisible();
@@ -226,41 +251,41 @@ test('a swap mid-superset keeps the order, prefills from the new lift, and both 
   await startButton(page).click();
 
   // The first slot goes to a name typed on the spot, before any set, and stays there through its rounds.
-  await expectCard(page, 'Landmine press', 'Round 1 of 3');
+  await expectCard(page, 'Landmine press', 'Set 1 of 3');
   await page.getByRole('button', { name: 'Swap', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: 'Swap' });
   await expect(sheet.getByRole('list', { name: 'Listed for this slot' })).toHaveCount(0);
   await sheet.getByLabel('Another lift').fill('Zottman press (seated)');
   await sheet.getByRole('button', { name: 'Use "Zottman press (seated)"' }).click();
-  await expectCard(page, 'Zottman press (seated)', 'Round 1 of 3');
-  await expect(card(page), 'a lift never done has no last line').not.toContainText('Last,');
+  await expectCard(page, 'Zottman press (seated)', 'Set 1 of 3');
+  await expect(card(page), 'a lift never done has no last line').not.toContainText('Last ');
   await expect(page.getByLabel('Load', { exact: true }), 'and never the old lift’s weight').toHaveValue('');
   await page.reload();
-  await expectCard(page, 'Zottman press (seated)', 'Round 1 of 3');
+  await expectCard(page, 'Zottman press (seated)', 'Set 1 of 3');
   await page.getByLabel('Load', { exact: true }).fill('35');
   await logSet(page);
 
-  await logExpecting(page, 'Cable row', 'Round 1 of 3');
-  await expectCard(page, 'Zottman press (seated)', 'Round 2 of 3');
+  await logExpecting(page, 'Cable row', 'Set 1 of 3');
+  await expectCard(page, 'Zottman press (seated)', 'Set 2 of 3');
   await expect(page.getByLabel('Load', { exact: true })).toHaveValue('35');
   await logSet(page);
 
   // The second slot swaps mid-superset, from the listed choice.
-  await expectCard(page, 'Cable row', 'Round 2 of 3');
+  await expectCard(page, 'Cable row', 'Set 2 of 3');
   await expect(page.getByLabel('Load', { exact: true })).toHaveValue('70');
   await page.getByRole('button', { name: 'Swap', exact: true }).click();
   await page.getByRole('dialog', { name: 'Swap' }).getByRole('button', { name: 'Dumbbell row' }).click();
-  await expectCard(page, 'Dumbbell row', 'Round 2 of 3');
-  await expect(card(page)).toContainText('Last, Oct 25: 30 kg × 12/11');
+  await expectCard(page, 'Dumbbell row', 'Set 2 of 3');
+  await expect(card(page)).toContainText('Last 30 kg × 12/11 · Oct 25');
   await expect(page.getByLabel('Load', { exact: true }), 'the swapped lift’s own weight').toHaveValue('30');
-  await expect(page.getByRole('radio', { name: 'kg' })).toBeChecked();
-  await page.getByRole('button', { name: 'Cues', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Cues' }).getByText('Invented cue for the swap.')).toBeVisible();
-  await page.getByRole('dialog', { name: 'Cues' }).getByRole('button', { name: 'Done' }).click();
+  await expect(unit(page)).toHaveText('kg');
+  await page.getByRole('button', { name: 'Cue', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Cue' }).getByText('Invented cue for the swap.')).toBeVisible();
+  await page.getByRole('dialog', { name: 'Cue' }).getByRole('button', { name: 'Done' }).click();
   await logSet(page);
 
-  await logExpecting(page, 'Zottman press (seated)', 'Round 3 of 3');
-  await expectCard(page, 'Dumbbell row', 'Round 3 of 3');
+  await logExpecting(page, 'Zottman press (seated)', 'Set 3 of 3');
+  await expectCard(page, 'Dumbbell row', 'Set 3 of 3');
   await expect(page.getByLabel('Load', { exact: true })).toHaveValue('30');
   await logSet(page);
   await finishButton(page).click();
@@ -279,21 +304,21 @@ test('a swap mid-superset keeps the order, prefills from the new lift, and both 
   await tab(page, 'Diary').click();
   await tab(page, 'Train').click();
   await startButton(page).click();
-  await expectCard(page, 'Landmine press', 'Round 1 of 3');
-  await expect(card(page)).toContainText('Last, Oct 29: 50 lb × 10/10/9');
-  await expect(card(page)).toContainText('Last time here you did Zottman press (seated).');
-  await page.getByRole('button', { name: 'Switch' }).click();
-  await expectCard(page, 'Zottman press (seated)', 'Round 1 of 3');
-  await expect(card(page)).toContainText('Last, Nov 5: 35 lb × 8/8/8');
+  await expectCard(page, 'Landmine press', 'Set 1 of 3');
+  await expect(card(page)).toContainText('Last 50 lb × 10/10/9 · Oct 29');
+  await expect(card(page)).toContainText('Last time: Zottman press (seated)');
+  await page.getByRole('button', { name: 'Switch', exact: true }).click();
+  await expectCard(page, 'Zottman press (seated)', 'Set 1 of 3');
+  await expect(card(page)).toContainText('Last 35 lb × 8/8/8 · Nov 5');
   await expect(page.getByLabel('Load', { exact: true })).toHaveValue('35');
   await logSet(page);
 
-  await expectCard(page, 'Cable row', 'Round 1 of 3');
-  await expect(card(page)).toContainText('Last, Nov 5: 70 lb × 10');
-  await expect(card(page), 'he did the planned lift that day too').not.toContainText('Last time here');
+  await expectCard(page, 'Cable row', 'Set 1 of 3');
+  await expect(card(page)).toContainText('Last 70 lb × 10 · Nov 5');
+  await expect(card(page), 'he did the planned lift that day too').not.toContainText('Last time:');
   await page.getByRole('button', { name: 'Swap', exact: true }).click();
   await page.getByRole('dialog', { name: 'Swap' }).getByRole('button', { name: 'Dumbbell row' }).click();
-  await expect(card(page)).toContainText('Last, Nov 5: 30 kg × 12/11');
+  await expect(card(page)).toContainText('Last 30 kg × 12/11 · Nov 5');
 });
 
 test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip, a 2-set slot, a checklist, cardio, an edit and a delete', async ({ page, request }) => {
@@ -325,14 +350,14 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip,
   const checklistCard = page.getByRole('region', { name: 'Checklist' });
   await expect(checklistCard.getByText('Band pull-apart')).toBeVisible();
   await checklistCard.getByRole('button', { name: 'Done' }).click();
-  await expectCard(page, 'Goblet squat', 'Round 1 of 3');
-  await expect(planRow(page, /^Warm up/)).toHaveAccessibleName(/1 of 1 logged/);
+  await expectCard(page, 'Goblet squat', 'Set 1 of 3');
+  await expectDots(page, /^Warm up/, /1 of 1 logged/);
   await toast(page, 'Warm up done').getByRole('button', { name: 'Undo' }).click();
   await expect(checklistCard).toBeVisible();
   await checklistCard.getByRole('button', { name: 'Done' }).click();
 
   // Log set stays off until a load is typed. The steppers go by 2.5 lb, then 1 kg once he switches.
-  await expectCard(page, 'Goblet squat', 'Round 1 of 3');
+  await expectCard(page, 'Goblet squat', 'Set 1 of 3');
   await expect(logButton(page)).toBeDisabled();
   await expect(page.getByLabel('Reps', { exact: true }), 'reps start at the bottom of the range').toHaveValue('8');
   await page.getByLabel('Load', { exact: true }).fill('50');
@@ -343,7 +368,7 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip,
   await logSet(page);
 
   // A per-side set shows two rows in the order the target names.
-  await expectCard(page, 'Pallof press', 'Round 1 of 3');
+  await expectCard(page, 'Pallof press', 'Set 1 of 2');
   await expect(page.locator('.set-row-unit.side')).toHaveText(['R', 'L']);
   await page.getByLabel('Load', { exact: true }).fill('25');
   await expect(page.getByLabel('Left reps', { exact: true })).toHaveValue('10');
@@ -351,69 +376,74 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip,
   await logSet(page);
 
   // kg in the same lift, inherited by the next set, with the number staying as typed.
-  await expectCard(page, 'Goblet squat', 'Round 2 of 3');
-  await page.getByRole('radio', { name: 'kg' }).click();
+  await expectCard(page, 'Goblet squat', 'Set 2 of 3');
+  await unit(page).click();
+  await expect(unit(page)).toHaveText('kg');
   await expect(page.getByLabel('Load', { exact: true })).toHaveValue('50');
   await page.getByLabel('Load', { exact: true }).fill('22');
   await page.getByRole('button', { name: 'More load' }).click();
   await expect(page.getByLabel('Load', { exact: true })).toHaveValue('23');
   await logSet(page);
-  await logExpecting(page, 'Pallof press', 'Round 2 of 3');
+  await logExpecting(page, 'Pallof press', 'Set 2 of 2');
 
   // The 2-set slot drops out of the third round, and the round still rests.
-  await expectCard(page, 'Goblet squat', 'Round 3 of 3');
+  await expectCard(page, 'Goblet squat', 'Set 3 of 3');
   await expect(page.getByLabel('Load', { exact: true })).toHaveValue('23');
-  await expect(page.getByRole('radio', { name: 'kg' })).toBeChecked();
+  await expect(unit(page)).toHaveText('kg');
   await logSet(page);
   await expect(page.getByRole('timer')).toHaveText(/^Rest (1:00|0:5\d)$/);
 
   // A band load is a label.
-  await expectCard(page, 'Band row', 'Round 1 of 2');
+  await expectCard(page, 'Band row', 'Set 1 of 2');
   await expect(page.getByLabel('Load', { exact: true })).toHaveCount(0);
   await expect(logButton(page)).toBeDisabled();
   await page.getByLabel('Band', { exact: true }).fill('green');
   await logSet(page);
-  await expectCard(page, 'Band row', 'Round 2 of 2');
+  await expectCard(page, 'Band row', 'Set 2 of 2');
   await expect(page.getByLabel('Band', { exact: true })).toHaveValue('green');
   await logSet(page);
 
   // A bodyweight load hides the load row, with a way to add weight.
-  await expectCard(page, 'Chin-up', 'Round 1 of 2');
+  await expectCard(page, 'Chin-up', 'Set 1 of 2');
   await expect(page.getByLabel('Load', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Bodyweight', { exact: true })).toBeVisible();
   await logSet(page);
-  await expectCard(page, 'Chin-up', 'Round 2 of 2');
+  await expectCard(page, 'Chin-up', 'Set 2 of 2');
   await page.getByRole('button', { name: 'Add weight' }).click();
   await page.getByLabel('Load', { exact: true }).fill('10');
   await logSet(page);
 
   // A tap on any slot jumps the card, and past the prescription it is an extra set.
-  await expectCard(page, 'Sled push', 'Round 1 of 1');
-  await planRow(page, /^Chin-up/).click();
+  await expectCard(page, 'Sled push', 'Set 1 of 1');
+  await jumpTo(page, /^Chin-up/);
   await expectCard(page, 'Chin-up', 'Extra set');
   await expect(page.getByLabel('Load', { exact: true }), 'an extra set takes the last load').toHaveValue('10');
   await logSet(page);
-  await expect(planRow(page, /^Chin-up/)).toHaveAccessibleName(/3 of 3 logged/);
+  await expectDots(page, /^Chin-up/, /3 of 3 logged/);
 
   // The card goes back to where the data says, and a set prompt lands on the set.
-  await expectCard(page, 'Sled push', 'Round 1 of 1');
+  await expectCard(page, 'Sled push', 'Set 1 of 1');
   await page.getByLabel('Load', { exact: true }).fill('90');
   await page.getByLabel('Distance').fill('Forty metres');
   await logSet(page);
 
   // A skip moves on, undoes, and holds its note.
-  await expectCard(page, 'Suitcase carry', 'Round 1 of 1');
+  await expectCard(page, 'Suitcase carry', 'Set 1 of 1');
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   await page.getByRole('dialog', { name: 'Skip Suitcase carry' }).getByRole('button', { name: 'Skip it' }).click();
   const bikeCard = page.getByRole('region', { name: 'Cardio' });
   await expect(bikeCard).toBeVisible();
+  await openPlan(page);
   await expect(planRow(page, /^Suitcase carry/)).toContainText('Skipped');
+  await closePlan(page);
   await toast(page, 'Skipped Suitcase carry').getByRole('button', { name: 'Undo' }).click();
-  await expectCard(page, 'Suitcase carry', 'Round 1 of 1');
+  await expectCard(page, 'Suitcase carry', 'Set 1 of 1');
+  await openPlan(page);
   await expect(planRow(page, /^Suitcase carry/)).not.toContainText('Skipped');
+  await closePlan(page);
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const skip = page.getByRole('dialog', { name: 'Skip Suitcase carry' });
-  await skip.getByLabel('Why, if you want to say').fill('Invented reason for skipping.');
+  await skip.getByLabel('Why (optional)').fill('Invented reason for skipping.');
   await skip.getByRole('button', { name: 'Skip it' }).click();
 
   // Cardio opens the existing logger, and that workout satisfies the block.
@@ -424,16 +454,17 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip,
   await logger.getByRole('button', { name: '15 min' }).click();
   await logger.getByRole('button', { name: 'Log workout' }).click();
   const doneCard = page.getByRole('region', { name: 'Done' });
-  await expect(doneCard).toContainText('That is the plan done');
-  await expect(planRow(page, /^Easy bike/)).toHaveAccessibleName(/1 of 1 logged/);
+  await expect(doneCard).toContainText('Plan done');
+  await expectDots(page, /^Easy bike/, /1 of 1 logged/);
 
   // An optional block is reached by a tap, and keeps him until its gaps are filled.
-  await planRow(page, /^Dead bug/).click();
-  await logExpecting(page, 'Dead bug', 'Round 1 of 2');
-  await logExpecting(page, 'Dead bug', 'Round 2 of 2');
+  await jumpTo(page, /^Dead bug/);
+  await logExpecting(page, 'Dead bug', 'Set 1 of 2');
+  await logExpecting(page, 'Dead bug', 'Set 2 of 2');
   await expect(doneCard).toBeVisible();
 
   // Editing a set from its row in the plan, with an undo.
+  await openPlan(page);
   await plan(page).getByRole('button', { name: '50 lb × 8' }).click();
   const edit = page.getByRole('dialog', { name: 'Edit Goblet squat' });
   await edit.getByLabel('Load', { exact: true }).fill('55');
@@ -446,14 +477,22 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip,
   // Deleting one, with an undo. Deleting the last of a slot takes its dots and sends the card back.
   await plan(page).getByRole('button', { name: /Forty metres/ }).click();
   await page.getByRole('dialog', { name: 'Edit Sled push' }).getByRole('button', { name: 'Delete set' }).click();
-  await expectCard(page, 'Sled push', 'Round 1 of 1');
+  await expectCard(page, 'Sled push', 'Set 1 of 1');
   await expect(planRow(page, /^Sled push/)).toHaveAccessibleName(/0 of 1 logged/);
   await toast(page, 'Set deleted').getByRole('button', { name: 'Undo' }).click();
   await expect(doneCard).toBeVisible();
+  await closePlan(page);
+
+  // Today's sets sit under the exercise, each a tap from editing.
+  await jumpTo(page, /^Goblet squat/);
+  await expectCard(page, 'Goblet squat', 'Extra set');
+  const today = page.getByRole('group', { name: "Today's sets" }).getByRole('button');
+  await expect(today).toHaveText(['50 lb × 8', '23 kg × 8', '23 kg × 8']);
+  await today.nth(1).click();
+  await expect(page.getByRole('dialog', { name: 'Edit Goblet squat' }).getByLabel('Load', { exact: true })).toHaveValue('23');
+  await page.getByRole('dialog', { name: 'Edit Goblet squat' }).getByRole('button', { name: 'Cancel' }).click();
 
   // Notes on the exercise and on the session.
-  await planRow(page, /^Goblet squat/).click();
-  await expectCard(page, 'Goblet squat', 'Extra set');
   await page.getByRole('button', { name: 'Note', exact: true }).click();
   const note = page.getByRole('dialog', { name: 'Note' });
   await note.getByLabel('On Goblet squat').fill('Invented note on the squat.');
@@ -495,31 +534,30 @@ test('a version published mid-session changes nothing on the card, and a new ses
   await page.clock.install({ time: at(DAY) });
   await openWeek(page);
   await startButton(page).click();
-  await expectCard(page, 'Trap bar deadlift', 'Round 1 of 3');
+  await expectCard(page, 'Trap bar deadlift', 'Set 1 of 3');
   await page.getByLabel('Load', { exact: true }).fill('225');
   await logSet(page);
 
   await seed(request, putPrograms(newer));
   const before = await countOnPhone(page, 'program');
-  await expectCard(page, 'Trap bar deadlift', 'Round 2 of 3');
+  await expectCard(page, 'Trap bar deadlift', 'Set 2 of 3');
   await logSet(page);
   await expect.poll(() => countOnPhone(page, 'program'), { timeout: 15_000 }).toBe(before + 1);
 
-  await expectCard(page, 'Trap bar deadlift', 'Round 3 of 3');
-  await expect(card(page)).toContainText('8–12 reps.');
-  await expect(page.getByRole('timer')).toBeVisible();
-  await expect(plan(page)).toContainText('Rest 90s');
+  await expectCard(page, 'Trap bar deadlift', 'Set 3 of 3');
+  await expect(card(page)).toContainText('8–12 reps');
+  await expect(page.getByRole('timer'), 'the pinned 90 seconds of rest, not the new 180').toHaveText(/^Rest 1:[0-3]\d$/);
   await expect(page.getByRole('heading', { name: 'Pull day', exact: true })).toBeVisible();
   await page.reload();
-  await expectCard(page, 'Trap bar deadlift', 'Round 3 of 3');
+  await expectCard(page, 'Trap bar deadlift', 'Set 3 of 3');
   await expect(page.getByRole('heading', { name: 'Pull day', exact: true })).toBeVisible();
 
   await finishButton(page).click();
   await expect(page.getByTestId('week-count')).toBeVisible();
   await page.getByRole('list', { name: 'Days' }).getByRole('button', { name: /^Pull day, new/ }).first().click();
   await page.getByRole('dialog', { name: 'Pull day, new' }).getByRole('button', { name: 'Start', exact: true }).click();
-  await expectCard(page, 'Deadlift, rewritten', 'Round 1 of 5');
-  await expect(card(page)).toContainText('3–5 reps.');
+  await expectCard(page, 'Deadlift, rewritten', 'Set 1 of 5');
+  await expect(card(page)).toContainText('3–5 reps');
   await page.getByLabel('Load', { exact: true }).fill('225');
   await logSet(page);
 
@@ -558,10 +596,10 @@ for (const policy of ['activity-level', 'eat-back-workouts'] as const) {
 
     await tab(page, 'Train').click();
     await startButton(page).click();
-    await expectCard(page, 'Front squat', 'Round 1 of 2');
+    await expectCard(page, 'Front squat', 'Set 1 of 2');
     await page.getByLabel('Load', { exact: true }).fill('135');
     await logSet(page);
-    await logExpecting(page, 'Front squat', 'Round 2 of 2');
+    await logExpecting(page, 'Front squat', 'Set 2 of 2');
     await page.clock.fastForward(30 * MINUTE);
 
     await page.getByRole('region', { name: 'Cardio' }).getByRole('button', { name: 'Log cardio' }).click();
@@ -621,30 +659,32 @@ test('a forgotten session is settled at its last set on the next launch, and a s
 
   // A mistaken Start undoes from its toast.
   await startButton(page).click();
-  await expectCard(page, 'Seal row', 'Round 1 of 3');
+  await expectCard(page, 'Seal row', 'Set 1 of 3');
   await toast(page, 'Started Solo day').getByRole('button', { name: 'Undo' }).click();
   await expect(startButton(page)).toBeVisible();
 
   // Or Finish leaves no trace of it, and that undo brings the session back.
   await startButton(page).click();
-  await expectCard(page, 'Seal row', 'Round 1 of 3');
+  await expectCard(page, 'Seal row', 'Set 1 of 3');
   await finishButton(page).click();
-  await expect(toast(page, 'Nothing logged, so it does not count')).toBeVisible();
+  await expect(toast(page, 'Nothing logged, not counted')).toBeVisible();
   await expect(page.getByTestId('week-count')).toHaveText('0 of 1 done');
   await expect.poll(async () => JSON.stringify(await wakeLockLog(page)), 'a session asks to keep the screen on, and lets go when it ends').toMatch(/^\["request","release",.*"request","release"\]$/);
-  await toast(page, 'Nothing logged, so it does not count').getByRole('button', { name: 'Undo' }).click();
-  await expectCard(page, 'Seal row', 'Round 1 of 3');
+  await toast(page, 'Nothing logged, not counted').getByRole('button', { name: 'Undo' }).click();
+  await expectCard(page, 'Seal row', 'Set 1 of 3');
 
   await page.getByLabel('Load', { exact: true }).fill('70');
   await logButton(page).dblclick();
-  await expectCard(page, 'Seal row', 'Round 2 of 3');
+  await expectCard(page, 'Seal row', 'Set 2 of 3');
+  await openPlan(page);
   await expect(planRow(page, /^Seal row/), 'a double tap logs one set').toHaveAccessibleName(/1 of 3 logged/);
+  await closePlan(page);
   await page.clock.fastForward(10 * MINUTE);
   await logSet(page);
-  await expectCard(page, 'Seal row', 'Round 3 of 3');
+  await expectCard(page, 'Seal row', 'Set 3 of 3');
   await page.clock.fastForward(5 * 60 * MINUTE);
   await page.reload();
-  await expectCard(page, 'Seal row', 'Round 3 of 3');
+  await expectCard(page, 'Seal row', 'Set 3 of 3');
 
   await page.clock.fastForward(61 * MINUTE);
   await page.reload();
@@ -672,12 +712,12 @@ test('midnight keeps the session’s date, and a refused wake lock changes nothi
   await page.clock.install({ time: at(DAY, '23:50:00') });
   await openWeek(page);
   await startButton(page).click();
-  await expectCard(page, 'Pendlay row', 'Round 1 of 2');
+  await expectCard(page, 'Pendlay row', 'Set 1 of 2');
   await page.getByLabel('Load', { exact: true }).fill('95');
   await logSet(page);
 
   await page.clock.fastForward(20 * MINUTE);
-  await expectCard(page, 'Pendlay row', 'Round 2 of 2');
+  await expectCard(page, 'Pendlay row', 'Set 2 of 2');
   await logSet(page);
   await expect.poll(() => reachesServer(DAY).map((p) => p.sets.length), { timeout: 15_000 }).toEqual([2]);
   expect(stored('session').find((s) => s.date === DAY)?.date, 'the date it started').toBe(DAY);
@@ -694,9 +734,9 @@ test('says so when this phone does not hold the version a session pinned, and st
   await page.clock.install({ time: at(DAY) });
   await page.goto('/');
   await tab(page, 'Train').click();
-  await expect(page.getByText('This session\'s plan is not on this phone yet.')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('This plan is not on this phone yet')).toBeVisible({ timeout: 15_000 });
   await finishButton(page).click();
-  await expect(toast(page, 'Nothing logged, so it does not count')).toBeVisible();
+  await expect(toast(page, 'Nothing logged, not counted')).toBeVisible();
   await expect(startButton(page)).toBeVisible();
 });
 
@@ -737,19 +777,21 @@ test('a copy of the pinned version replaced under an open session moves the card
   await page.clock.install({ time: at(DAY) });
   await openWeek(page);
   await startButton(page).click();
-  await expectCard(page, 'Seal row', 'Round 1 of 2');
+  await expectCard(page, 'Seal row', 'Set 1 of 2');
   await page.getByLabel('Load', { exact: true }).fill('70');
   await logSet(page);
-  await expectCard(page, 'Pendlay row', 'Round 1 of 2');
+  await expectCard(page, 'Pendlay row', 'Set 1 of 2');
   await page.getByLabel('Load', { exact: true }).fill('95');
   await logSet(page);
-  await expectCard(page, 'Seal row', 'Round 2 of 2');
+  await expectCard(page, 'Seal row', 'Set 2 of 2');
   await expect.poll(() => reachesServer(DAY).length, { timeout: 15_000 }).toBe(2);
 
   await seed(request, putPrograms(replaced));
   await page.reload();
-  await expectCard(page, 'Pin press', 'Round 1 of 2');
+  await expectCard(page, 'Pin press', 'Set 1 of 2');
+  await openPlan(page);
   await expect(plan(page)).not.toContainText('Seal row');
+  await closePlan(page);
   await page.getByLabel('Load', { exact: true }).fill('135');
   await logSet(page);
   await expect
