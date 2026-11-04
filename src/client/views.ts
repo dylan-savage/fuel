@@ -5,8 +5,9 @@
  */
 import { createContext } from 'preact';
 import { useCallback, useContext, useEffect, useState } from 'preact/hooks';
-import { bodyWeightOn, projectGoal, trendSeries, weeklyRate, type BodyWeight, type Projection, type TrendPoint, type WeeklyRate, type WeighIn } from '../domain/body.js';
+import { bodyWeightOn, projectGoal, trendSeries, weeklyRate, weighInId, type BodyWeight, type Projection, type TrendPoint, type WeeklyRate, type WeighIn } from '../domain/body.js';
 import { recentWorkouts, type Workout, type WorkoutDraft } from '../domain/burn.js';
+import { coachWeek, type CoachWeek } from '../domain/coach.js';
 import { summarizeDay, type DaySummary } from '../domain/diary.js';
 import type { Food, Gtin } from '../domain/food.js';
 import { PROFILE_ID, budgetOn, goalOn, type Budget, type BudgetPolicy, type Goal, type Profile } from '../domain/goals.js';
@@ -23,9 +24,11 @@ import {
   type Streak,
   type Water,
 } from '../domain/habits.js';
-import { addDays, type LocalDate, type Millis } from '../domain/ids.js';
-import type { LiftId, Performance } from '../domain/lifts.js';
+import { addDays, mondayOf, type LocalDate, type Millis } from '../domain/ids.js';
+import { liftBook, type LiftBook, type LiftId, type Performance, type SlotId } from '../domain/lifts.js';
 import { RECENT_DAYS, recents, type Library, type RecentFood } from '../domain/library.js';
+import { dayNotesFor, dayParts, notesFor, plannedDay, type DayKey, type DayPart, type PlannedDay, type Program, type ProgramNote, type StandingText } from '../domain/program.js';
+import { lastLineOf, weekProgress, type LastLine, type WeekProgress } from '../domain/progress.js';
 import { refreshFor, type EditedRef, type Recipe, type Refresh, type SavedMeal } from '../domain/reuse.js';
 import { localDate } from './clock.js';
 import type { Intents } from './intents.js';
@@ -101,6 +104,88 @@ export async function foodWithBarcode(r: ReplicaReader, gtin: Gtin): Promise<Foo
 export async function lastTimesView(r: ReplicaReader, liftIds: readonly LiftId[], before: LocalDate): Promise<Performance[]> {
   const [own, swaps] = await Promise.all([r.lastPerformances(liftIds, before), r.lastSwaps(liftIds, before)]);
   return [...own, ...swaps];
+}
+
+/** The versions that took effect since `monday`, walked back one seek at a time, and the one they followed. */
+async function coachWeekView(r: ReplicaReader, inEffect: Program, monday: LocalDate): Promise<CoachWeek> {
+  const thisWeek: Program[] = [];
+  let version: Program | undefined = inEffect;
+  while (version !== undefined && version.effectiveFrom >= monday) {
+    thisWeek.unshift(version);
+    version = await r.programOn(addDays(version.effectiveFrom, -1));
+  }
+  return coachWeek(version ?? null, thisWeek);
+}
+
+export interface WeekView extends WeekProgress {
+  readonly minimum: number | null;
+  readonly coach: CoachWeek;
+  /** The week's own notes in effect. A note naming a day is on that day's preview. */
+  readonly notes: readonly ProgramNote[];
+  readonly standing: readonly StandingText[];
+  readonly weighedInToday: boolean;
+}
+
+/**
+ * The week holding `today`, under the version in effect. Null before any version is. A set
+ * logged re-runs this, because it counts toward the week, so last-time lines read separately.
+ */
+export async function weekView(r: ReplicaReader, today: LocalDate): Promise<WeekView | null> {
+  const program = await r.programOn(today);
+  if (program === undefined) return null;
+  const monday = mondayOf(today);
+  const sunday = addDays(monday, 6);
+  const [sessions, performances, weighIn, coach] = await Promise.all([
+    r.between('session', monday, sunday),
+    r.between('performance', monday, sunday),
+    r.get('weighIn', weighInId(today)),
+    coachWeekView(r, program, monday),
+  ]);
+  return {
+    ...weekProgress({ program, sessions, performances, today }),
+    minimum: program.weeklyMinimum ?? null,
+    coach,
+    notes: notesFor(program, today),
+    standing: program.standing,
+    weighedInToday: weighIn !== undefined,
+  };
+}
+
+export interface PlannedDayView {
+  readonly plan: PlannedDay;
+  readonly notes: readonly ProgramNote[];
+  readonly book: LiftBook;
+}
+
+/** One day under the version in effect. Reads no logs, so a logged set does not re-run it. Null when that week does not hold the day. */
+export async function plannedDayView(r: ReplicaReader, key: DayKey, date: LocalDate): Promise<PlannedDayView | null> {
+  const program = await r.programOn(date);
+  const plan = program === undefined ? undefined : plannedDay(program, key, date);
+  if (program === undefined || plan === undefined) return null;
+  return { plan, notes: dayNotesFor(program, key, date), book: liftBook(program.lifts) };
+}
+
+export interface DayPreview {
+  readonly label: string;
+  readonly notes: readonly ProgramNote[];
+  readonly parts: readonly DayPart[];
+  /** Slot ids are unique within a day. Null before the lift was done. */
+  readonly lasts: ReadonlyMap<SlotId, LastLine | null>;
+}
+
+/** A day as its preview reads. Its reads stop at the day before `today`, so a set logged today does not re-run it. */
+export async function dayPreviewView(r: ReplicaReader, key: DayKey, today: LocalDate): Promise<DayPreview | null> {
+  const planned = await plannedDayView(r, key, today);
+  if (planned === null) return null;
+  const { plan, notes, book } = planned;
+  const slots = plan.blocks.flatMap((block) => (block.kind === 'lifts' ? block.slots : []));
+  const rows = await lastTimesView(r, [...new Set(slots.flatMap((slot) => book.members(slot.liftId)))], today);
+  return {
+    label: plan.label,
+    notes,
+    parts: dayParts(plan),
+    lasts: new Map(slots.map((slot) => [slot.id, lastLineOf({ lift: slot.liftId, rows, book, before: today })])),
+  };
 }
 
 export interface GoalView {
