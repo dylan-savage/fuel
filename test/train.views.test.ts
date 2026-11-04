@@ -164,7 +164,7 @@ describe('dayPreviewView', () => {
       ],
     });
     const lasts = (await dayPreviewView(replica.read, PUSH, LATER))?.lasts;
-    expect(lasts?.get(slotId('a1'))).toEqual({ date: '2030-03-01', line: '62.5/62.5/60 kg × 8/8/6', addWeight: false });
+    expect(lasts?.get(slotId('a1'))).toEqual({ date: '2030-03-01', line: '60–62.5 kg × 8/8/6', addWeight: false });
     expect(lasts?.get(slotId('a2'))).toEqual({ date: '2030-02-28', line: '30 lb × 10+9', addWeight: false });
     expect(lasts?.get(slotId('e1'))).toBeNull();
   });

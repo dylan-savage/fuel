@@ -225,11 +225,27 @@ describe('showUpView', () => {
 });
 
 describe('boardView', () => {
-  it('holds only key lifts, in catalog order, with a key lift never done as an empty row', async () => {
-    const replica = await replicaWith({ programs: [version], performances: [performance({ lift: 'squat', date: '2030-05-01', sets: [lb(100, 5)] }), performance({ lift: 'calf-raise', date: '2030-05-01', sets: [lb(100, 5)] })] });
-    const board = await boardView(replica.read, TODAY);
-    expect(board.map((row) => row.name)).toEqual(['Back squat', 'Dip']);
-    expect(board[1]).toMatchObject({ latest: null, spark: [], change: null });
+  const lifts: readonly Lift[] = ['squat', 'dip', 'row', 'curl'].map((id) => ({ id: lift(id), name: id, aliases: [], key: true }));
+  const others: readonly Lift[] = ['fly', 'press', 'lunge'].map((id) => ({ id: lift(id), name: id, aliases: [] }));
+  const boardOf = async (done: readonly (readonly [string, string])[]) => {
+    const replica = await replicaWith({
+      programs: [program('2030-04-01', [{ key: 'a', blocks: [liftsBlock('main', [slot('a1', 'squat', 3)])] }], { lifts: [...lifts, ...others] })],
+      performances: done.map(([id, date]) => performance({ lift: id, date, sets: [lb(100, 5)] })),
+    });
+    return (await boardView(replica.read, TODAY)).map((row) => row.name);
+  };
+
+  it('holds only the key lifts done in twelve weeks, in catalog order, when that is enough', async () => {
+    const recent = '2030-05-01';
+    expect(await boardOf([['row', recent], ['squat', recent], ['curl', recent], ['fly', recent], ['dip', '2029-01-01']])).toEqual(['squat', 'row', 'curl']);
+  });
+
+  it('tops the board up to three from the lifts logged most recently', async () => {
+    expect(await boardOf([['squat', '2030-05-01'], ['fly', '2030-04-20'], ['press', '2030-05-02'], ['lunge', '2030-04-10']])).toEqual(['squat', 'press', 'fly']);
+  });
+
+  it('fills with nothing older than the window, so it can hold fewer than three', async () => {
+    expect(await boardOf([['squat', '2030-05-01'], ['fly', '2029-01-01']])).toEqual(['squat']);
   });
 
   it('has no rows with no version in effect', async () => {

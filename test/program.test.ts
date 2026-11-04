@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Program, dayNotesFor, dayParts, notesFor, plannedDay, programOn, stepsOf, type Block, type LiftsBlock, type PlannedDay } from '../src/domain/program.js';
+import { Program, dayNotesFor, dayParts, exerciseCount, notesFor, plannedDay, programOn, stepsOf, type Block, type LiftsBlock, type PlannedDay } from '../src/domain/program.js';
 import { checklist, day, dayKey, liftsBlock, program, slot } from './training.fixtures.js';
 
 const PUSH = dayKey('push');
@@ -72,6 +72,24 @@ describe('dayParts', () => {
       ),
     );
     expect(parts.map((part) => part.superset)).toEqual([null, { letter: 'A', rounds: 3 }, null, { letter: 'B', rounds: 2 }]);
+  });
+});
+
+describe('exerciseCount', () => {
+  it('counts every required lift, a superset as its slots, and no optional block or checklist', () => {
+    const day: PlannedDay = {
+      key: PUSH,
+      label: 'Push',
+      minutes: 35,
+      blocks: [
+        checklist('warm', { items: ['Band pull-apart'] }),
+        liftsBlock('pair', [slot('a1', 'bench-press', 3), slot('a2', 'cable-row', 3)]),
+        liftsBlock('main', [slot('b1', 'front-squat', 3)]),
+        liftsBlock('extra', [slot('c1', 'pallof-press', 2)], { optional: true }),
+      ],
+    };
+    expect(exerciseCount(day)).toBe(3);
+    expect(exerciseCount({ ...day, blocks: [checklist('warm', { items: ['Band pull-apart'] })] })).toBe(0);
   });
 });
 

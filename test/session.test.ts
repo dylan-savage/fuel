@@ -24,6 +24,7 @@ import {
   sessionWorkoutId,
   setLogOf,
   sideOrder,
+  setsProgress,
   slotLog,
   steppedLoad,
   steppedReps,
@@ -458,6 +459,30 @@ describe('slotLog', () => {
   it('adds a dot for an extra set, and marks a skip', () => {
     expect(slotLog(slot('a2', 'cable-row', 2), { session: session(), performances: [a2(lb(50, 8, 1), lb(50, 8, 2), lb(50, 8, 3))] })).toMatchObject({ rounds: 3, dots: 3 });
     expect(slotLog(bench, { session: session({ skips: [{ slotId: bench.id }] }), performances: [] }).skipped).toBe(true);
+  });
+});
+
+describe('setsProgress', () => {
+  const optional = liftsBlock('extra', [slot('e1', 'pallof-press', 2)], { optional: true });
+  const day = planOf(superset, optional);
+
+  it('counts the required sets, with no warm-up and no optional set', () => {
+    expect(setsProgress(day, logsOf([]))).toEqual({ done: 0, total: 5 });
+    expect(setsProgress(day, logsOf([a1(warm(lb(20, 10)), lb(50, 10)), performance({ slot: 'e1', lift: 'pallof-press', sets: [bw(10)] })]))).toEqual({ done: 1, total: 5 });
+  });
+
+  it('does not run past the end on an extra set', () => {
+    expect(setsProgress(day, logsOf([a1(lb(50, 10), lb(50, 10), lb(50, 10), lb(50, 10)), a2(lb(50, 10), lb(50, 10))]))).toEqual({ done: 5, total: 5 });
+  });
+
+  it('counts a swap under its slot, and asks a skipped slot only for what it got', () => {
+    const skipped = session({ skips: [{ slotId: slotId('a2') }] });
+    expect(setsProgress(day, logsOf([swappedA2(lb(50, 10))]))).toEqual({ done: 1, total: 5 });
+    expect(setsProgress(day, logsOf([a1(lb(50, 10)), swappedA2(lb(50, 10))], { session: skipped }))).toEqual({ done: 2, total: 4 });
+  });
+
+  it('is empty on a day with no required lifting', () => {
+    expect(setsProgress(planOf(checklist('warm')), logsOf([]))).toEqual({ done: 0, total: 0 });
   });
 });
 

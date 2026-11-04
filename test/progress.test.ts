@@ -9,6 +9,7 @@ import {
   boardRow,
   epley,
   lastLineOf,
+  rangeLine,
   lastSwapAt,
   lastTimeOf,
   lbOf,
@@ -123,6 +124,20 @@ describe('typedLine', () => {
     ['a load with a bodyweight set', [lb(25, 5), bw(8)], '25 lb/BW x 5/8'],
   ])('writes %s', (_name, sets, line) => {
     expect(typedLine(sets)).toBe(line);
+  });
+});
+
+describe('rangeLine', () => {
+  it.each([
+    ['one load', [lb(60, 12), lb(60, 12), lb(60, 12)], '60 lb × 12/12/12'],
+    ['a ramp as its range', [lb(40, 12), lb(60, 12), lb(50, 12)], '40–60 lb × 12/12/12'],
+    ['a ramp in kg', [kg(60, 8), kg(62.5, 8)], '60–62.5 kg × 8/8'],
+    ['mixed units as typed', [kg(8, 12), lb(20, 10)], '8 kg/20 lb × 12/10'],
+    ['bodyweight', [bw(11), bw(9)], 'BW × 11/9'],
+    ['a load with a bodyweight set as typed', [lb(25, 5), bw(8)], '25 lb/BW × 5/8'],
+    ['per side, ramping', [sides(25, 10, 9), sides(30, 8, 8)], '25–30 lb × 10+9/8+8'],
+  ])('writes %s', (_name, sets, line) => {
+    expect(rangeLine(sets)).toBe(line);
   });
 });
 

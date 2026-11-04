@@ -95,6 +95,17 @@ export function typedLine(sets: readonly SetLog[], times = 'x'): string {
   return `${loads.join('/')} ${times} ${reps}`;
 }
 
+/** "60 lb × 12/12/12", "40–60 lb × 12/12/12": a ramp in one unit reads as its range, so the line stays short. Anything else reads as typed. */
+export function rangeLine(sets: readonly SetLog[]): string {
+  const amounts = sets.flatMap((set) => (set.load.kind === 'weight' ? [set.load.amount] : []));
+  const units = new Set(sets.map((set) => (set.load.kind === 'weight' ? set.load.unit : null)));
+  const [unit] = units;
+  const lo = Math.min(...amounts);
+  const hi = Math.max(...amounts);
+  if (units.size !== 1 || unit === null || unit === undefined || lo === hi) return typedLine(sets, '×');
+  return `${lo}–${hi} ${unit} × ${sets.map((set) => repsText(set.reps)).join('/')}`;
+}
+
 /** "50 × 12, 50 × 12, 20 kg × 8, BW × 11": set by set as typed. Pounds are the app's unit, so they go unwritten. */
 export function setsLine(sets: readonly SetLog[]): string {
   return sets.map(({ load, reps }) => `${load.kind === 'weight' && load.unit === 'lb' ? load.amount : loadText(load)} × ${repsText(reps)}`).join(', ');
@@ -197,7 +208,7 @@ export function lastTimeOf({ lift, rows, book, before }: LiftRead & { readonly b
 /** What an exercise shows of its last time. */
 export interface LastLine {
   readonly date: LocalDate;
-  /** The working sets as typed, such as "62.5 kg × 8/8/6". */
+  /** The working sets, such as "62.5 kg × 8/8/6" or "40–60 lb × 12/12/12". */
   readonly line: string;
   readonly addWeight: boolean;
 }
@@ -206,7 +217,7 @@ export interface LastLine {
 export function lastLineOf(read: LiftRead & { readonly before: LocalDate }): LastLine | null {
   const last = lastTimeOf(read);
   const working = last === undefined ? [] : workingSets(last.sets);
-  return last === undefined || working.length === 0 ? null : { date: last.date, line: typedLine(working, '×'), addWeight: addWeightNext(last) };
+  return last === undefined || working.length === 0 ? null : { date: last.date, line: rangeLine(working), addWeight: addWeightNext(last) };
 }
 
 /** "Last time here you did X". */
@@ -368,6 +379,8 @@ export function loggedLifts(newest: readonly Performance[], book: LiftBook): rea
 }
 
 export const BOARD_WEEKS = 12;
+/** Fewer key lifts done than this and recently logged lifts top the board up. */
+export const BOARD_MIN = 3;
 
 export interface BoardRow {
   readonly liftId: LiftId;

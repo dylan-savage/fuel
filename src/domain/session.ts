@@ -191,6 +191,26 @@ export function slotLog(slot: Slot, { session, performances }: Pick<SessionLogs,
   return { rounds, dots: Math.max(slot.target.sets, rounds), skipped: skippedSlots(session).has(slot.id), sets: setsInSlot(performances, slot.id) };
 }
 
+export interface SetsProgress {
+  readonly done: number;
+  readonly total: number;
+}
+
+/** How much of the day's required lifting is logged. An extra set does not run it past the end, and a skipped slot asks only for the sets it got. */
+export function setsProgress(day: PlannedDay, { session, performances }: Pick<SessionLogs, 'session' | 'performances'>): SetsProgress {
+  const skipped = skippedSlots(session);
+  const slots = liftsBlocks(day)
+    .filter((block) => block.optional !== true)
+    .flatMap((block) => block.slots);
+  return slots.reduce(
+    ({ done, total }, slot) => {
+      const logged = Math.min(roundsLogged(performances, slot.id), slot.target.sets);
+      return { done: done + logged, total: total + (skipped.has(slot.id) ? logged : slot.target.sets) };
+    },
+    { done: 0, total: 0 },
+  );
+}
+
 export interface RestClock {
   readonly endsAt: Millis;
   readonly seconds: number;

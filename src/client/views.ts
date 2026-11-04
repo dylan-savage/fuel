@@ -29,6 +29,7 @@ import { liftBook, type Lift, type LiftBook, type LiftId, type Performance, type
 import { RECENT_DAYS, recents, type Library, type RecentFood } from '../domain/library.js';
 import { dayNotesFor, dayParts, notesFor, plannedDay, type DayKey, type DayPart, type PlannedDay, type Program, type ProgramNote, type StandingText } from '../domain/program.js';
 import {
+  BOARD_MIN,
   BOARD_WEEKS,
   SHOW_UP_WEEKS,
   boardRow,
@@ -288,12 +289,19 @@ export async function boardView(r: ReplicaReader, today: LocalDate): Promise<rea
   const program = await r.programOn(today);
   if (program === undefined) return [];
   const book = liftBook(program.lifts);
-  const keys = program.lifts.filter((lift) => lift.key === true);
-  const rows = await r.performancesFrom(
-    keys.flatMap((lift) => book.members(lift.id)),
-    addDays(today, -7 * BOARD_WEEKS),
-  );
-  return keys.map((lift) => boardRow({ lift: lift.id, rows, book, today }));
+  const from = addDays(today, -7 * BOARD_WEEKS);
+  const doneIn = async (lifts: readonly LiftId[]) => {
+    const rows = await r.performancesFrom(
+      lifts.flatMap((lift) => book.members(lift)),
+      from,
+    );
+    return lifts.map((lift) => boardRow({ lift, rows, book, today })).filter((row) => row.latest !== null);
+  };
+  const keys = await doneIn(program.lifts.filter((lift) => lift.key === true).map((lift) => lift.id));
+  if (keys.length >= BOARD_MIN) return keys;
+  const others = loggedLifts(await r.newestOfEachLift(), book).filter((lift) => lift.lastDate > from && !keys.some((key) => key.liftId === lift.liftId));
+  const filled = await doneIn(others.map((lift) => lift.liftId));
+  return [...keys, ...filled.slice(0, BOARD_MIN - keys.length)];
 }
 
 /** Every lift ever logged, most recent first, including names the catalog has not placed yet. */

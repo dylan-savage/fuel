@@ -165,6 +165,11 @@ export function dayNotesFor(program: Program, key: DayKey, date: LocalDate): rea
   return program.notes.filter((note) => note.day === key && liveIn(note, monday));
 }
 
+/** The lifts a day asks for. Optional blocks are extra, so they do not count. */
+export function exerciseCount(day: PlannedDay): number {
+  return day.blocks.reduce((sum, block) => sum + (block.kind === 'lifts' && block.optional !== true ? block.slots.length : 0), 0);
+}
+
 /** One set's place in a block. */
 export interface Step {
   readonly block: LiftsBlock;
