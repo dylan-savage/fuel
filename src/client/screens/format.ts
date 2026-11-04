@@ -4,6 +4,7 @@ import { KG_PER_LB } from '../../domain/goals.js';
 import { ML_PER_FL_OZ } from '../../domain/habits.js';
 import { addDays, type LocalDate } from '../../domain/ids.js';
 import type { Target } from '../../domain/lifts.js';
+import type { DayPart } from '../../domain/program.js';
 import type { FoodUnit } from '../../domain/units.js';
 import { localDate } from '../clock.js';
 
@@ -164,10 +165,42 @@ export function pastMoment(at: number, today: LocalDate): string {
 
 const PER_SIDE: Readonly<Record<NonNullable<Target['perSide']>, string>> = { 'left-first': 'per side, left first', 'right-first': 'per side, right first', either: 'per side' };
 
+const repRange = ({ reps }: Target) => (reps.min === reps.max ? `${reps.max}` : `${reps.min}–${reps.max}`);
+
 /** "3 × 8–12", "2 × 10, per side, left first", "3 × 15, band". */
-export function prescriptionText({ sets, reps, perSide, load }: Target): string {
-  const range = reps.min === reps.max ? `${reps.max}` : `${reps.min}–${reps.max}`;
-  return [`${sets} × ${range}`, ...(perSide === undefined ? [] : [PER_SIDE[perSide]]), ...(load === undefined || load === 'weight' ? [] : [load])].join(', ');
+export function prescriptionText(target: Target): string {
+  const { sets, perSide, load } = target;
+  return [`${sets} × ${repRange(target)}`, ...(perSide === undefined ? [] : [PER_SIDE[perSide]]), ...(load === undefined || load === 'weight' ? [] : [load])].join(', ');
+}
+
+/** "8–12 reps", "10 reps per side", "1 rep": a set's target, on the card. */
+export function repsTargetText(target: Target): string {
+  return `${repRange(target)} ${target.reps.max === 1 ? 'rep' : 'reps'}${target.perSide === undefined ? '' : ' per side'}`;
+}
+
+const phrase = (...words: readonly (string | undefined)[]) => words.filter((word) => word !== undefined).join(', ');
+
+/** "Superset A, 3 rounds, rest 75s", "Main lift, rest 150s", "Rest 60s", "Easy ride, cardio". Null for a lifts block with nothing to say. */
+export function blockHeading({ block, superset }: DayPart): string | null {
+  switch (block.kind) {
+    case 'lifts': {
+      const rest = block.restSeconds === undefined ? undefined : `rest ${block.restSeconds}s`;
+      if (superset !== null) return phrase(block.title ?? `Superset ${superset.letter}`, `${superset.rounds} rounds`, rest);
+      if (block.title === undefined) return rest === undefined ? null : `Rest ${block.restSeconds}s`;
+      return phrase(block.title, rest);
+    }
+    case 'checklist':
+      return block.title ?? 'Checklist';
+    case 'cardio':
+      return block.title === undefined ? 'Cardio' : phrase(block.title, 'cardio');
+  }
+}
+
+/** "Rest 0:48", then past zero, counting up, "Rest +0:12". */
+export function restText(endsAt: number, now: number): string {
+  const left = endsAt - now;
+  const seconds = left > 0 ? Math.ceil(left / 1000) : Math.floor(-left / 1000);
+  return `Rest ${left > 0 || seconds === 0 ? '' : '+'}${Math.floor(seconds / 60)}:${pad2(seconds % 60)}`;
 }
 
 /** The start of a long text, cut at a word. Null when the whole text fits. */

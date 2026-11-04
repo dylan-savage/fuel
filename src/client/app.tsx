@@ -2,16 +2,19 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { useRegisterSW } from 'virtual:pwa-register/preact';
 import { mealAt, type Meal } from '../domain/diary.js';
 import type { LocalDate } from '../domain/ids.js';
-import { localDate } from './clock.js';
+import { localDate, now } from './clock.js';
 import { InvalidDocument } from './replica.js';
 import { Add } from './screens/Add.js';
 import { Diary } from './screens/Diary.js';
 import type { OnLogged } from './screens/flow.js';
+import { timeOfDay } from './screens/format.js';
 import { GoalScreen } from './screens/Goal.js';
 import { Train } from './screens/Train.js';
 import { Icon, useToast } from './screens/ui.js';
+import { openSessionView, useIntents, useLive } from './views.js';
+import { useWakeLock } from './wakeLock.js';
 
-type Tab = 'diary' | 'add' | 'scan' | 'train' | 'goal';
+export type Tab = 'diary' | 'add' | 'scan' | 'train' | 'goal';
 
 const TABS: readonly { readonly tab: Tab; readonly label: string }[] = [
   { tab: 'diary', label: 'Diary' },
@@ -42,9 +45,30 @@ function useToday(): LocalDate {
 
 const mealNow = () => mealAt(new Date().getHours());
 
-export function App() {
+/** Finishes a forgotten session on launch, and when the app comes back, since iOS often resumes one rather than launching it. */
+function useSettleLapsed() {
+  const intents = useIntents();
+  const toast = useToast();
+  useEffect(() => {
+    const settle = () => {
+      if (document.visibilityState !== 'visible') return;
+      void intents.settleLapsed().then((settled) => {
+        const last = settled.at(-1);
+        if (last !== undefined) toast({ text: `Finished ${last.label ?? 'a session'} at its last set, ${timeOfDay(last.at)}` });
+      });
+    };
+    settle();
+    document.addEventListener('visibilitychange', settle);
+    return () => document.removeEventListener('visibilitychange', settle);
+  }, [intents, toast]);
+}
+
+export function App({ startOn }: { readonly startOn: Tab }) {
   const today = useToday();
-  const [tab, setTab] = useState<Tab>('diary');
+  const [tab, setTab] = useState<Tab>(startOn);
+  const open = useLive((r) => openSessionView(r, { today, now: now() }), [today]);
+  useWakeLock(open !== null && open !== undefined);
+  useSettleLapsed();
   const [date, setDate] = useState(today);
   const [meal, setMeal] = useState<Meal>(mealNow);
   const [scan, setScan] = useState<ScanModule | null>(null);
@@ -104,7 +128,7 @@ export function App() {
         )}
         {tab === 'add' && <Add slot={slot} today={today} onMeal={setMeal} onLogged={onLogged} onScan={() => setTab('scan')} />}
         {tab === 'scan' && (scan === null ? <p class="empty">Loading the scanner…</p> : <scan.Scan slot={slot} onLogged={onLogged} />)}
-        {tab === 'train' && <Train today={today} />}
+        {tab === 'train' && <Train today={today} open={open} />}
         {tab === 'goal' && <GoalScreen today={today} />}
       </main>
       <nav class="tab-bar" aria-label="Sections">

@@ -233,6 +233,12 @@ export async function sessionPlanView(r: ReplicaReader, session: Session): Promi
   return { plan, parts: dayParts(plan), notes: dayNotesFor(program, plan.key, session.date), book: liftBook(program.lifts), lifts: program.lifts };
 }
 
+/** Every id whose last time a running session can show: its plan, what it has logged, and swaps chosen with no set yet. */
+export function sessionLiftIds({ plan, book }: SessionPlan, performances: readonly Performance[], swaps: readonly { readonly liftId: LiftId }[]): readonly LiftId[] {
+  const slots = plan.blocks.flatMap((block) => (block.kind === 'lifts' ? block.slots : []));
+  return [...new Set([...slots, ...performances, ...swaps].flatMap(({ liftId }) => book.members(liftId)))].toSorted();
+}
+
 export interface GoalView {
   readonly profile: Profile | undefined;
   /** The goal in effect today. */

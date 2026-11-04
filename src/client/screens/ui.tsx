@@ -230,6 +230,16 @@ export function TextField({
   );
 }
 
+/** Several lines of free text, labelled above. */
+export function NoteField({ label, value, onInput, maxLength }: { readonly label: string; readonly value: string; readonly onInput: (value: string) => void; readonly maxLength: number }) {
+  return (
+    <label class="note-field">
+      <span class="field-label">{label}</span>
+      <textarea rows={3} maxLength={maxLength} value={value} onInput={(event) => onInput(event.currentTarget.value)} />
+    </label>
+  );
+}
+
 export interface ToastMessage {
   readonly text: string;
   readonly undo?: Undo;

@@ -1871,3 +1871,527 @@ main {
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
+
+/* Session */
+
+.note-field {
+  display: grid;
+  gap: 6px;
+}
+
+.note-field .field-label {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.note-field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  font-size: 17px;
+  outline: none;
+  resize: none;
+}
+
+.day-startable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+}
+
+.day-startable > .day-row {
+  flex: 1;
+  min-width: 0;
+  padding-right: 0;
+}
+
+.start-button {
+  flex: none;
+  min-width: 72px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 12px;
+  background: var(--tint);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.day-start {
+  position: sticky;
+  bottom: 0;
+  margin-top: 16px;
+  padding: 8px 0;
+  background: var(--bg);
+}
+
+.session {
+  position: fixed;
+  top: calc(var(--viewport-top, 0px) + env(safe-area-inset-top));
+  left: 0;
+  right: 0;
+  bottom: calc(var(--tab-height) + env(safe-area-inset-bottom));
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.session-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 16px;
+  border-bottom: 0.5px solid var(--separator);
+}
+
+.session-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-title h1 {
+  font-size: 17px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-title p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-title .badge {
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.session-finish {
+  flex: none;
+  padding: 0 8px;
+  font-weight: 600;
+}
+
+.session-plan {
+  flex: 1 1 0;
+  /* Room for a two-line current slot, however tall the card wants to be. */
+  min-height: 72px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 12px;
+}
+
+.session-plan .plan-block-head {
+  margin: 8px 4px 4px;
+}
+
+.session-plan .plan-block-head:first-child {
+  margin-top: 0;
+}
+
+.session-plan .list > li {
+  margin-left: 0;
+}
+
+.session-plan > .list + section,
+.session-plan > section + .list,
+.session-plan > .list + .list {
+  margin-top: 8px;
+}
+
+.plan-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 12px;
+  text-align: left;
+}
+
+.plan-row[aria-current='step'] {
+  background: rgba(10, 132, 255, 0.16);
+  box-shadow: inset 3px 0 0 var(--tint);
+}
+
+.plan-row-name,
+.set-card-head h2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.plan-row-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.plan-set {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  padding: 4px 12px 4px 20px;
+  border-top: 0.5px solid var(--separator);
+  color: var(--muted);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.dots {
+  flex: none;
+  display: flex;
+  gap: 5px;
+}
+
+.dots > span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--muted);
+}
+
+.dots > .filled {
+  background: var(--green);
+  box-shadow: none;
+}
+
+.rest-pill {
+  flex: none;
+  align-self: center;
+  margin: 6px 0;
+  padding: 3px 14px;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.rest-pill.over {
+  color: var(--tint);
+}
+
+.set-card {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px 0;
+  border-radius: 14px 14px 0 0;
+  background: var(--card);
+  box-shadow: 0 -0.5px 0 var(--separator);
+}
+
+.set-card-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.set-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.set-card-head h2 {
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.set-card-round {
+  flex: none;
+  color: var(--muted);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.set-card-line {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.set-card-line .text-button {
+  min-height: 32px;
+}
+
+.set-card-line .exercise-add {
+  white-space: nowrap;
+}
+
+.card-items {
+  margin: 6px 0 0;
+  padding: 0 0 0 18px;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.set-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 138px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.set-row-end {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 6px;
+}
+
+.set-row-end .segmented {
+  margin: 0;
+}
+
+.set-row-end .segmented button {
+  min-height: 40px;
+}
+
+.set-row-unit,
+.set-row-text {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.set-row-unit.side {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.set-row-link {
+  min-height: 44px;
+  padding: 0;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.stepper {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+}
+
+.stepper button {
+  height: 44px;
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--tint);
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.stepper input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.warm-toggle {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.warm-toggle[aria-pressed='true'] {
+  background: var(--orange);
+  color: #fff;
+}
+
+.band-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: var(--fill);
+  outline: none;
+}
+
+.load-kinds {
+  display: flex;
+  gap: 16px;
+  font-size: 15px;
+}
+
+.load-kinds .text-button {
+  min-height: 32px;
+  padding: 0;
+}
+
+.set-prompt {
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.set-prompt input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: var(--fill);
+  outline: none;
+}
+
+.log-set {
+  flex: none;
+  margin-top: 8px;
+}
+
+.log-set:disabled {
+  opacity: 0.45;
+}
+
+.set-actions {
+  flex: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
+}
+
+.set-actions .text-button {
+  font-size: 15px;
+}
+
+.swap-choice {
+  color: inherit;
+}
+
+.swap-search + .list,
+.list + .swap-search {
+  margin-top: 16px;
+}
+
+.sheet-body > .list + .sheet-actions,
+.sheet-body > .hint + .sheet-actions {
+  margin-top: 16px;
+}
+
+.cue-text {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.cue-text + .cue-text {
+  margin-top: 12px;
+}
+
+.edit-set .set-row:first-child {
+  margin-top: 0;
+}
+
+/* A short phone keeps the plan's current slot in view by tightening the card. */
+@media (max-height: 620px) {
+  .set-card-head h2 {
+    -webkit-line-clamp: 1;
+  }
+
+  .set-row {
+    margin-top: 4px;
+  }
+
+  .log-set {
+    min-height: 44px;
+    margin-top: 6px;
+  }
+
+  .set-actions .text-button {
+    min-height: 36px;
+  }
+
+  .rest-pill {
+    margin: 4px 0;
+  }
+
+  .session-plan {
+    padding: 6px 12px;
+  }
+}
+
+/* The toast rests on the tab bar, which would put it over Log set during a session. */
+body:has(.session) .toast {
+  top: calc(env(safe-area-inset-top) + 56px);
+  bottom: auto;
+}
+
+.keyboard-up .session {
+  bottom: var(--keyboard);
+}
+
+.keyboard-up .session-plan,
+.keyboard-up .rest-pill,
+.keyboard-up .set-actions {
+  display: none;
+}
+
+.keyboard-up .set-card {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+  justify-content: space-between;
+  padding-bottom: 8px;
+}
+
+.keyboard-up .sheet-backdrop {
+  top: var(--viewport-top, 0px);
+  bottom: var(--keyboard);
+}
+
+.keyboard-up .sheet {
+  max-height: 100%;
+}
+
+.keyboard-up .sheet-body {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.keyboard-up .sheet-body .sheet-actions {
+  position: sticky;
+  bottom: 0;
+  margin-top: 8px;
+  padding-top: 8px;
+  background: var(--bg);
+}
+
+.keyboard-up .sheet-body .note-field textarea {
+  height: 3.2em;
+}

@@ -1,11 +1,13 @@
 import { useState } from 'preact/hooks';
 import type { CoachWeek, DiffItem, DiffKind } from '../../domain/coach.js';
 import { mondayOf, type LocalDate } from '../../domain/ids.js';
-import type { Block, DayKey, DayPart, ProgramNote, Slot, StandingText } from '../../domain/program.js';
+import type { Block, DayKey, ProgramNote, Slot, StandingText } from '../../domain/program.js';
 import type { WeekDay } from '../../domain/progress.js';
-import { dayPreviewView, useLive, weekView, type DayPreview, type WeekView } from '../views.js';
-import { clipped, pastMoment, prescriptionText, shortDate, weekdayName } from './format.js';
-import { Icon, Sheet, TitleBar } from './ui.js';
+import { TrainingNote, type SessionLogs } from '../../domain/session.js';
+import { dayPreviewView, useIntents, useLive, weekView, type DayPreview, type WeekView } from '../views.js';
+import { blockHeading, clipped, pastMoment, prescriptionText, shortDate, weekdayName } from './format.js';
+import { SessionScreen, useKeyboardAvoidance } from './Session.js';
+import { Icon, NoteField, Sheet, TitleBar, useToast } from './ui.js';
 import { WeighInSheet } from './Weight.js';
 
 const REPORT_LIMIT = 160;
@@ -100,15 +102,20 @@ function CoachCard({ coach, today }: { readonly coach: CoachWeek; readonly today
   );
 }
 
-function DayRow({ day, suggested, onOpen }: { readonly day: WeekDay; readonly suggested: boolean; readonly onOpen: () => void }) {
+function DayRow({ day, suggested, onOpen, onStart }: { readonly day: WeekDay; readonly suggested: boolean; readonly onOpen: () => void; readonly onStart: () => void }) {
   const { plan, doneOn } = day;
   return (
-    <li>
+    <li class={suggested ? 'day-startable' : undefined}>
       <button type="button" class={suggested ? 'entry-row day-row suggested' : 'entry-row day-row'} aria-current={suggested ? 'true' : undefined} onClick={onOpen}>
         <span class="food-name">{plan.label}</span>
         {plan.minutes !== undefined && <span class="food-detail">{plan.minutes} min</span>}
         {doneOn !== null && <span class="entry-kcal">Done {weekdayName(doneOn)}</span>}
       </button>
+      {suggested && (
+        <button type="button" class="start-button" onClick={onStart}>
+          Start
+        </button>
+      )}
     </li>
   );
 }
@@ -137,22 +144,6 @@ function Exercise({ slot, preview, today }: { readonly slot: Slot; readonly prev
   );
 }
 
-const phrase = (...words: readonly (string | undefined)[]) => words.filter((word) => word !== undefined).join(', ');
-
-function headingOf({ block, superset }: DayPart): string | null {
-  switch (block.kind) {
-    case 'lifts': {
-      const rest = block.restSeconds === undefined ? undefined : `rest ${block.restSeconds}s`;
-      if (superset !== null) return phrase(block.title ?? `Superset ${superset.letter}`, `${superset.rounds} rounds`, rest);
-      return phrase(block.title, rest) || null;
-    }
-    case 'checklist':
-      return block.title ?? 'Checklist';
-    case 'cardio':
-      return block.title === undefined ? 'Cardio' : phrase(block.title, 'cardio');
-  }
-}
-
 function BlockBody({ block, preview, today }: { readonly block: Block; readonly preview: DayPreview; readonly today: LocalDate }) {
   switch (block.kind) {
     case 'lifts':
@@ -176,7 +167,7 @@ function BlockBody({ block, preview, today }: { readonly block: Block; readonly 
   }
 }
 
-function DaySheet({ dayKey, label, today, onClose }: { readonly dayKey: DayKey; readonly label: string; readonly today: LocalDate; readonly onClose: () => void }) {
+function DaySheet({ dayKey, label, today, onClose, onStart }: { readonly dayKey: DayKey; readonly label: string; readonly today: LocalDate; readonly onClose: () => void; readonly onStart: () => void }) {
   const preview = useLive((r) => dayPreviewView(r, dayKey, today), [dayKey, today]);
   return (
     <Sheet title={label} onClose={onClose} closeLabel="Done">
@@ -187,7 +178,7 @@ function DaySheet({ dayKey, label, today, onClose }: { readonly dayKey: DayKey; 
             <NoteCard key={i} note={note} />
           ))}
           {preview.parts.map((part) => {
-            const heading = headingOf(part);
+            const heading = blockHeading(part);
             const { block } = part;
             const optional = block.optional === true;
             return (
@@ -203,8 +194,40 @@ function DaySheet({ dayKey, label, today, onClose }: { readonly dayKey: DayKey; 
               </section>
             );
           })}
+          <div class="day-start">
+            <button type="button" class="primary" onClick={onStart}>
+              Start
+            </button>
+          </div>
         </>
       )}
+    </Sheet>
+  );
+}
+
+/** A loose line to the coach, with no session under it. */
+function TellCoachSheet({ today, onClose }: { readonly today: LocalDate; readonly onClose: () => void }) {
+  const intents = useIntents();
+  const toast = useToast();
+  const [text, setText] = useState('');
+  useKeyboardAvoidance();
+  const valid = TrainingNote.shape.text.safeParse(text.trim()).success;
+  return (
+    <Sheet title="Tell the coach" onClose={onClose}>
+      <NoteField label="For Sunday's review" value={text} onInput={setText} maxLength={2000} />
+      <div class="sheet-actions">
+        <button
+          type="button"
+          class="primary"
+          disabled={!valid}
+          onClick={() => {
+            onClose();
+            void intents.tellCoach(text, today).then((undo) => toast({ text: 'Saved for the coach', undo }));
+          }}
+        >
+          Save note
+        </button>
+      </div>
     </Sheet>
   );
 }
@@ -227,11 +250,20 @@ function ProgramSheet({ standing, onClose }: { readonly standing: readonly Stand
 }
 
 function Week({ week, today }: { readonly week: WeekView; readonly today: LocalDate }) {
+  const intents = useIntents();
+  const toast = useToast();
   const [open, setOpen] = useState<WeekDay | null>(null);
   const [weighing, setWeighing] = useState(false);
   const [reading, setReading] = useState(false);
+  const [telling, setTelling] = useState(false);
   const planned = week.days.length;
-  const chips = week.weighedInToday ? [] : [{ label: 'Weigh in', onClick: () => setWeighing(true) }];
+  const chips = [...(week.weighedInToday ? [] : [{ label: 'Weigh in', onClick: () => setWeighing(true) }]), { label: 'Tell the coach', onClick: () => setTelling(true) }];
+  const start = (key: DayKey, label: string) => {
+    setOpen(null);
+    void intents.startSession(key, today).then((undo) => {
+      if (undo !== null) toast({ text: `Started ${label}`, undo });
+    });
+  };
 
   return (
     <>
@@ -253,7 +285,7 @@ function Week({ week, today }: { readonly week: WeekView; readonly today: LocalD
       {planned > 0 && (
         <ul class="list" aria-label="Days">
           {week.days.map((day) => (
-            <DayRow key={day.plan.key} day={day} suggested={week.suggested?.key === day.plan.key} onOpen={() => setOpen(day)} />
+            <DayRow key={day.plan.key} day={day} suggested={week.suggested?.key === day.plan.key} onOpen={() => setOpen(day)} onStart={() => start(day.plan.key, day.plan.label)} />
           ))}
         </ul>
       )}
@@ -279,15 +311,16 @@ function Week({ week, today }: { readonly week: WeekView; readonly today: LocalD
           </li>
         </ul>
       )}
-      {open !== null && <DaySheet dayKey={open.plan.key} label={open.plan.label} today={today} onClose={() => setOpen(null)} />}
+      {open !== null && <DaySheet dayKey={open.plan.key} label={open.plan.label} today={today} onClose={() => setOpen(null)} onStart={() => start(open.plan.key, open.plan.label)} />}
       {reading && <ProgramSheet standing={week.standing} onClose={() => setReading(false)} />}
       {weighing && <WeighInSheet date={today} today={today} onClose={() => setWeighing(false)} />}
+      {telling && <TellCoachSheet today={today} onClose={() => setTelling(false)} />}
     </>
   );
 }
 
-/** The week as the calendar and the version in effect say. Read-only: Start, logging and Finish come later, with Start on the suggested row. */
-export function Train({ today }: { readonly today: LocalDate }) {
+/** The week as the calendar and the version in effect say. */
+function WeekScreen({ today }: { readonly today: LocalDate }) {
   const week = useLive((r) => weekView(r, today), [today]);
   return (
     <section class="screen train">
@@ -296,4 +329,10 @@ export function Train({ today }: { readonly today: LocalDate }) {
       {week !== null && week !== undefined && <Week week={week} today={today} />}
     </section>
   );
+}
+
+/** An open session comes first. `open` is undefined only until IndexedDB first answers, which draws nothing so the week cannot flash. */
+export function Train({ today, open }: { readonly today: LocalDate; readonly open: SessionLogs | null | undefined }) {
+  if (open === undefined) return null;
+  return open === null ? <WeekScreen today={today} /> : <SessionScreen logs={open} today={today} />;
 }
