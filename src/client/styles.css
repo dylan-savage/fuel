@@ -493,7 +493,7 @@ main {
   height: 100%;
   border-radius: inherit;
   background: var(--green);
-  transition: width 0.25s ease-out;
+  transition: transform 0.25s ease-out;
 }
 
 .bar > span.over {

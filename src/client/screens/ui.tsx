@@ -80,6 +80,11 @@ export function ExpandRow({
   );
 }
 
+/** How far a `.bar`'s fill reaches. It slides rather than resizes, so a bar that moves every second lays nothing out. */
+export function barFill(fraction: number) {
+  return { transform: `translateX(${(Math.min(1, Math.max(0, fraction)) - 1) * 100}%)` };
+}
+
 /** One of a quiet row of numbers, opening the sheet that holds its actions. */
 export function Stat({ label, value, onClick }: { readonly label: string; readonly value: ComponentChildren; readonly onClick: () => void }) {
   return (

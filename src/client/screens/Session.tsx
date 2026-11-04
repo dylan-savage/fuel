@@ -14,7 +14,7 @@ import { afterLog, entryOf, typedFor, useTrainDraft, withSwap, withoutFocus, typ
 import { lastTimesView, sessionLiftIds, sessionPlanView, useIntents, useLive, type SessionPlan } from '../views.js';
 import { CardAction, CardActions, FocusTitle, SetCard } from './SetCard.js';
 import { CueSheet, EditSetSheet, NoteSheet, PlanSheet, SkipSheet, SwapSheet } from './SessionSheets.js';
-import { useNow, useToast } from './ui.js';
+import { barFill, useNow, useToast } from './ui.js';
 import { Waiting } from './Waiting.js';
 import { WorkoutSheet } from './Workouts.js';
 
@@ -83,7 +83,7 @@ function SessionBar({ logs, progress, onPlan, onFinish }: { readonly logs: Sessi
       </div>
       {progress !== undefined && (
         <div class="bar small" role="progressbar" aria-label="Sets done" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done}>
-          <span style={{ width: `${progress.total === 0 ? 0 : (progress.done / progress.total) * 100}%` }} />
+          <span style={barFill(progress.total === 0 ? 0 : progress.done / progress.total)} />
         </div>
       )}
     </header>

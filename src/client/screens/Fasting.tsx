@@ -4,7 +4,7 @@ import type { LocalDate } from '../../domain/ids.js';
 import { localDate } from '../clock.js';
 import { fastView, useIntents, useLive, type FastView } from '../views.js';
 import { count, dayTitle, fastLabel, span, stopwatch, timeOfDay } from './format.js';
-import { Icon, Row, Segmented, Sheet, Stat, useNow, useToast } from './ui.js';
+import { Icon, Row, Segmented, Sheet, Stat, barFill, useNow, useToast } from './ui.js';
 
 const TARGETS = [12, 14, 16, 18, 20, 24] as const;
 
@@ -43,7 +43,7 @@ function FastSheet({ view, today, onClose }: { readonly view: FastView; readonly
             </p>
             <p class="detail">{progress.reached ? `Goal reached, ${span(progress.elapsedMs - progress.targetMs)} over` : `${span(progress.remainingMs)} left`}</p>
             <div class={progress.reached ? 'bar small' : 'bar small fast'} role="presentation">
-              <span style={{ width: `${Math.min(1, progress.elapsedMs / progress.targetMs) * 100}%` }} />
+              <span style={barFill(progress.elapsedMs / progress.targetMs)} />
             </div>
           </>
         )}

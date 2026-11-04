@@ -3,7 +3,7 @@ import { ML_PER_FL_OZ, Water } from '../../domain/habits.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { useIntents, useLive, waterView, type WaterView } from '../views.js';
 import { amount, dayPhrase, flOz, parseNumber, timeOfDay } from './format.js';
-import { Icon, NumberField, Row, Sheet, Stat, useToast } from './ui.js';
+import { Icon, NumberField, Row, Sheet, Stat, barFill, useToast } from './ui.js';
 
 const DRINK_OZ = [8, 12, 16, 24] as const;
 
@@ -23,7 +23,7 @@ function WaterSheet({ date, today, view, onClose }: { readonly date: LocalDate; 
           <strong data-testid="water-sheet-total">{flOz(view.totalMl)}</strong> of {flOz(view.goalMl)} fl oz
         </p>
         <div class="bar small water" role="presentation">
-          <span style={{ width: `${Math.min(1, view.totalMl / view.goalMl) * 100}%` }} />
+          <span style={barFill(view.totalMl / view.goalMl)} />
         </div>
       </div>
       <div class="pills">

@@ -8,13 +8,11 @@ import { DiaryMenu, type MenuTarget } from './DiaryMenu.js';
 import { FastStat } from './Fasting.js';
 import { FoodSheet } from './FoodSheet.js';
 import { MACRO_LABEL, MEAL_LABEL, amount, dayTitle, foodRowParts, kcal } from './format.js';
-import { DaySection, Icon, Row, useToast } from './ui.js';
+import { DaySection, Icon, Row, barFill, useToast } from './ui.js';
 import { Waiting } from './Waiting.js';
 import { WaterStat } from './Water.js';
 import { WeightStat } from './Weight.js';
 import { WorkoutsSection } from './Workouts.js';
-
-const fraction = (part: number, whole: number) => (whole <= 0 ? 0 : Math.min(1, Math.max(0, part / whole)));
 
 function Summary({ day, onGoal }: { readonly day: DayView; readonly onGoal: () => void }) {
   const { totals } = day.summary;
@@ -44,7 +42,7 @@ function Summary({ day, onGoal }: { readonly day: DayView; readonly onGoal: () =
         </p>
       </div>
       <div class="bar small" role="presentation">
-        <span class={left >= 0 ? '' : 'over'} style={{ width: `${fraction(totals.sum.kcal, budget.kcal) * 100}%` }} />
+        <span class={left >= 0 ? '' : 'over'} style={barFill(budget.kcal <= 0 ? 0 : totals.sum.kcal / budget.kcal)} />
       </div>
       <dl class="macros">
         {MACROS.map((macro) => (
