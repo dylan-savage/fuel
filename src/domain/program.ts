@@ -71,8 +71,8 @@ export const Day = z.looseObject({
 });
 export type Day = z.infer<typeof Day>;
 
-/** A callout at the top of the week. */
-export const ProgramNote = z.looseObject({ title: z.string().max(80).optional(), text: z.string().min(1).max(6000), onlyWeek: LocalDate.optional() });
+/** A callout at the top of the week, or on one day's preview when it names that day. */
+export const ProgramNote = z.looseObject({ title: z.string().max(80).optional(), text: z.string().min(1).max(6000), onlyWeek: LocalDate.optional(), day: DayKey.optional() });
 export type ProgramNote = z.infer<typeof ProgramNote>;
 
 /** Rules, plans and sources that outlast any one week. `key` follows the text across versions. */
@@ -153,10 +153,16 @@ export function plannedDay(program: Program, key: DayKey, date: LocalDate): Plan
   return blocks.length === 0 ? undefined : { key: day.key, label: day.label, minutes: day.minutes, blocks };
 }
 
-/** The notes that week shows. */
+/** The notes at the top of that week. A note naming a day waits on that day's preview. */
 export function notesFor(program: Program, date: LocalDate): readonly ProgramNote[] {
   const monday = mondayOf(date);
-  return program.notes.filter((note) => liveIn(note, monday));
+  return program.notes.filter((note) => note.day === undefined && liveIn(note, monday));
+}
+
+/** The notes on one day's preview that week. */
+export function dayNotesFor(program: Program, key: DayKey, date: LocalDate): readonly ProgramNote[] {
+  const monday = mondayOf(date);
+  return program.notes.filter((note) => note.day === key && liveIn(note, monday));
 }
 
 /** One set's place in a block. */

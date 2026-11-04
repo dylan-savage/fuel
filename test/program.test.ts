@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Program, notesFor, plannedDay, programOn, stepsOf, type Block, type LiftsBlock } from '../src/domain/program.js';
+import { Program, dayNotesFor, notesFor, plannedDay, programOn, stepsOf, type Block, type LiftsBlock } from '../src/domain/program.js';
 import { checklist, day, dayKey, liftsBlock, program, slot } from './training.fixtures.js';
 
 const PUSH = dayKey('push');
@@ -61,6 +61,16 @@ describe('notesFor', () => {
     });
     expect(notesFor(version, day('2030-03-13')).map((n) => n.text)).toEqual(['Deload this week.', 'Sleep comes first.']);
     expect(notesFor(version, day('2030-03-18')).map((n) => n.text)).toEqual(['Sleep comes first.']);
+  });
+
+  it('keeps a note naming a day off the week and on that day alone, lapsing the same way', () => {
+    const version = program('2030-03-04', [{ key: 'push', blocks: [checklist('warm')] }, { key: 'pull', blocks: [checklist('warm')] }], {
+      notes: [{ text: 'For the week.' }, { text: 'Bring chalk.', day: PUSH }, { text: 'Light this time.', day: PUSH, onlyWeek: day('2030-03-11') }],
+    });
+    expect(notesFor(version, day('2030-03-13')).map((n) => n.text)).toEqual(['For the week.']);
+    expect(dayNotesFor(version, PUSH, day('2030-03-13')).map((n) => n.text)).toEqual(['Bring chalk.', 'Light this time.']);
+    expect(dayNotesFor(version, PUSH, day('2030-03-18')).map((n) => n.text)).toEqual(['Bring chalk.']);
+    expect(dayNotesFor(version, dayKey('pull'), day('2030-03-13'))).toEqual([]);
   });
 });
 

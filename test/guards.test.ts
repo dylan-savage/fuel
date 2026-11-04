@@ -110,7 +110,7 @@ const PROGRAM_SAMPLE = {
     { id: 'bench-press', name: 'Bench press', aliases: ['barbell-bench'], key: true },
     { id: 'incline-press', name: 'Incline press', aliases: [] },
   ],
-  notes: [{ title: 'This week', text: 'Deload.', onlyWeek: '2030-03-04' }],
+  notes: [{ title: 'This week', text: 'Deload.', onlyWeek: '2030-03-04' }, { text: 'Start light.', day: 'push' }],
   standing: [{ key: 'rules', title: 'Rules', text: 'Stop two reps short.' }],
   report: { title: 'Week 1', text: 'A good start.' },
   changes: [{ target: 'slot:push/a2', why: 'The machine is gone.' }],

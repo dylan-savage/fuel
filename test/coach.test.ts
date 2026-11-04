@@ -378,6 +378,18 @@ describe('checkPublish', () => {
     });
   });
 
+  describe('a note naming a day', () => {
+    const noteOn = (key: string) => (d: ProgramDraft): ProgramDraft => ({ ...d, notes: [{ text: 'On that day.', day: dayKey(key) }] });
+
+    it('publishes when the version holds that day', () => {
+      expect(check(noteOn('push')).status).toBe('valid');
+    });
+
+    it('refuses a day the version lacks, because the note would show nowhere', () => {
+      expect(problemsOf(check(noteOn('swim'))).map((p) => [p.code, p.path])).toEqual([['unknown-day', 'notes[0].day']]);
+    });
+  });
+
   it('reports every problem at once', () => {
     const verdict = check(
       (d) => ({

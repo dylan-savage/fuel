@@ -155,7 +155,7 @@ export function sameContent(a: ProgramDraft, b: ProgramDraft): boolean {
   return content(a) === content(b);
 }
 
-export type ProblemCode = 'shape' | 'unknown-field' | 'frozen' | 'back-dated' | 'duplicate-id' | 'unknown-lift' | 'alias-conflict' | 'catalog-drop' | 'bad-only-week' | 'unexplained';
+export type ProblemCode = 'shape' | 'unknown-field' | 'frozen' | 'back-dated' | 'duplicate-id' | 'unknown-lift' | 'unknown-day' | 'alias-conflict' | 'catalog-drop' | 'bad-only-week' | 'unexplained';
 
 export interface Problem {
   readonly code: ProblemCode;
@@ -205,6 +205,12 @@ function liftProblems(draft: ProgramDraft): readonly Problem[] {
       });
     }),
   );
+}
+
+/** A note naming a day the version lacks would never show anywhere, which is a quiet drop. */
+function noteDayProblems(draft: ProgramDraft): readonly Problem[] {
+  const days = new Set(draft.days.map((day) => day.key));
+  return draft.notes.flatMap((note, n) => (note.day === undefined || days.has(note.day) ? [] : [{ code: 'unknown-day', path: `notes[${n}].day`, message: `${note.day} is not a day in this version` }]));
 }
 
 function catalogIds(lifts: ProgramDraft['lifts']): readonly LiftId[] {
@@ -274,6 +280,7 @@ export function checkPublish(raw: unknown, versions: readonly Program[], at: { r
     ...(draft.effectiveFrom < at.today ? [{ code: 'back-dated' as const, path: 'effectiveFrom', message: `${draft.effectiveFrom} is before today, ${at.today}` }] : []),
     ...idProblems(draft),
     ...liftProblems(draft),
+    ...noteDayProblems(draft),
     ...aliasProblems(draft, before),
     ...onlyWeekProblems(draft),
     ...diff.filter((item) => item.needsReason && item.why === null).map((item): Problem => ({ code: 'unexplained', path: 'changes', message: `${item.kind} ${item.label}: name target "${item.target}" in changes with a reason` })),
