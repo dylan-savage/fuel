@@ -14,19 +14,14 @@ import { Icon, useToast } from './screens/ui.js';
 import { openSessionView, useIntents, useLive } from './views.js';
 import { useWakeLock } from './wakeLock.js';
 
-export type Tab = 'diary' | 'add' | 'scan' | 'train' | 'goal';
+export type Tab = 'diary' | 'add' | 'train' | 'goal';
 
 const TABS: readonly { readonly tab: Tab; readonly label: string }[] = [
   { tab: 'diary', label: 'Diary' },
   { tab: 'add', label: 'Add' },
-  { tab: 'scan', label: 'Scan' },
   { tab: 'train', label: 'Train' },
   { tab: 'goal', label: 'Goal' },
 ];
-
-/** The scanner pulls in the zxing glue, so it loads on first use, never at startup. */
-const loadScan = () => import('./screens/Scan.js');
-type ScanModule = Awaited<ReturnType<typeof loadScan>>;
 
 /** The phone's calendar day, refreshed when the app comes back to the foreground. */
 function useToday(): LocalDate {
@@ -71,7 +66,6 @@ export function App({ startOn }: { readonly startOn: Tab }) {
   useSettleLapsed();
   const [date, setDate] = useState(today);
   const [meal, setMeal] = useState<Meal>(mealNow);
-  const [scan, setScan] = useState<ScanModule | null>(null);
   const toast = useToast();
   const {
     needRefresh: [needRefresh],
@@ -84,10 +78,6 @@ export function App({ startOn }: { readonly startOn: Tab }) {
     if (date === shownToday.current) setDate(today);
     shownToday.current = today;
   }, [today]);
-
-  useEffect(() => {
-    if (tab === 'scan' && scan === null) void loadScan().then(setScan);
-  }, [tab, scan]);
 
   useEffect(() => {
     const onRejection = (event: PromiseRejectionEvent) => {
@@ -126,8 +116,7 @@ export function App({ startOn }: { readonly startOn: Tab }) {
             onGoal={() => setTab('goal')}
           />
         )}
-        {tab === 'add' && <Add slot={slot} today={today} onMeal={setMeal} onLogged={onLogged} onScan={() => setTab('scan')} />}
-        {tab === 'scan' && (scan === null ? <p class="empty">Loading the scanner…</p> : <scan.Scan slot={slot} onLogged={onLogged} />)}
+        {tab === 'add' && <Add slot={slot} today={today} onMeal={setMeal} onLogged={onLogged} />}
         {tab === 'train' && <Train today={today} open={open} />}
         {tab === 'goal' && <GoalScreen today={today} />}
       </main>

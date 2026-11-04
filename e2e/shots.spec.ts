@@ -570,6 +570,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await expect(confirm.getByLabel('Name')).toHaveValue('Classic Potato Chips');
       await page.screenshot({ path: join(dir, `confirm-sheet-${colorScheme}.png`), animations: 'disabled' });
       await confirm.getByRole('button', { name: 'Cancel' }).click();
+      await page.getByRole('dialog', { name: 'Scan' }).getByRole('button', { name: 'Cancel' }).click();
 
       await tab(page, 'Add').click();
       await page.getByRole('radio', { name: 'Recipes' }).click();
@@ -725,7 +726,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
         await page.clock.setFixedTime(TRAIN_NOON);
         await page.goto('/');
         const tabs = page.getByRole('navigation', { name: 'Sections' }).getByRole('button');
-        await expect(tabs).toHaveCount(5);
+        await expect(tabs).toHaveCount(4);
         for (const button of await tabs.all()) {
           const fits = await button.evaluate((el) => el.scrollWidth <= el.clientWidth);
           expect(fits, await button.innerText()).toBe(true);

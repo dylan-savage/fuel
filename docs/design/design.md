@@ -192,7 +192,7 @@ scripts/        run.sh, com.dylansavage.fuel.plist, restore.sh, ai-smoke.mjs, tr
 
 Logging a recent food traces `screens/Diary.tsx` to `intents.ts` to `replica.ts`, with the math in `domain/diary.ts`. The server side is `routes.ts` to `store.ts`. Recipes, saved meals and the food-edit refresh live in `domain/reuse.ts`, water and fasts in `domain/habits.ts`, weigh-ins and the trend in `domain/body.ts`, workouts in `domain/burn.ts`, and AI drafts in `domain/quicklog.ts`.
 
-The tab bar has five tabs: Diary, Add, Scan, Train and Goal. Train is in [training/design.md](training/design.md). Recipes and saved meals are shelves inside Add, beside Recent, where logging starts. Water, the fast timer and weight are tiles on the Diary under the day's summary. The fasting tile shows only on today, where the weight tile takes the row below the other two and adds a 30-day trend line. The weight tile has a one-tap Weigh in and opens the Weight sheet, which the Goal screen's Profile group opens too. Workouts are a section after Snacks, laid out like a meal.
+The tab bar has four tabs: Diary, Add, Train and Goal. Scanning is a button in Add's search row, which opens a sheet. Train is in [training/design.md](training/design.md). Recipes and saved meals are shelves inside Add, beside Recent, where logging starts. Water, the fast timer and weight are tiles on the Diary under the day's summary. The fasting tile shows only on today, where the weight tile takes the row below the other two and adds a 30-day trend line. The weight tile has a one-tap Weigh in and opens the Weight sheet, which the Goal screen's Profile group opens too. Workouts are a section after Snacks, laid out like a meal.
 
 ### HTTP surface
 

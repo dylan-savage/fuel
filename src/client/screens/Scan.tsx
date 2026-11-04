@@ -6,7 +6,7 @@ import { decodePhoto, scanCamera } from '../scanner.js';
 import { foodWithBarcode, useRead } from '../views.js';
 import { useLogFlow, type OnLogged } from './flow.js';
 import { AiStatus, PhotoButton, useAi } from './QuickLog.js';
-import { TitleBar } from './ui.js';
+import { Sheet } from './ui.js';
 
 type ScanState =
   | { readonly kind: 'idle' }
@@ -34,9 +34,10 @@ function typedGtin(text: string): Gtin | null {
 export interface ScanProps {
   readonly slot: Slot;
   readonly onLogged: OnLogged;
+  readonly onClose: () => void;
 }
 
-export function Scan({ slot, onLogged }: ScanProps) {
+export function Scan({ slot, onLogged, onClose }: ScanProps) {
   const [state, setState] = useState<ScanState>({ kind: 'idle' });
   const [typed, setTyped] = useState('');
   const video = useRef<HTMLVideoElement>(null);
@@ -106,9 +107,9 @@ export function Scan({ slot, onLogged }: ScanProps) {
   const aiReachable = ai.reachable && !(state.kind === 'unknown' && state.why === 'offline');
 
   return (
-    <section class="screen scan">
-      <TitleBar title="Scan" />
-      <video ref={video} playsInline muted hidden={state.kind !== 'camera'} />
+    <>
+      <Sheet title="Scan" onClose={onClose}>
+      <video class="scan-video" ref={video} playsInline muted hidden={state.kind !== 'camera'} />
       <div class="actions-row">
         {state.kind === 'camera' ? (
           <button type="button" onClick={() => camera.current?.abort()}>
@@ -179,7 +180,8 @@ export function Scan({ slot, onLogged }: ScanProps) {
         </div>
       )}
       {state.kind === 'failed' && <p class="error">{state.message}</p>}
+      </Sheet>
       {flow.sheet}
-    </section>
+    </>
   );
 }

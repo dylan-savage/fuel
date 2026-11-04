@@ -148,8 +148,9 @@ test('AI is off, with the reason, while the mini cannot be reached', async ({ pa
   await expect(quickLog.getByLabel('Label photo')).toBeDisabled();
 
   await typeBarcode(page, NOT_IN_LIBRARY);
-  await expect(page.getByLabel('Photograph the label')).toBeDisabled();
-  await expect(page.getByText(UNREACHABLE)).toBeVisible();
+  const scan = page.getByRole('dialog', { name: 'Scan' });
+  await expect(scan.getByLabel('Photograph the label')).toBeDisabled();
+  await expect(scan.getByText(UNREACHABLE)).toBeVisible();
 });
 
 for (const colorScheme of ['light', 'dark'] as const) {

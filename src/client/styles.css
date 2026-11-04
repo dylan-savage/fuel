@@ -885,6 +885,21 @@ main {
   padding: 12px 0 4px;
 }
 
+/* The scan button sits inside the field, centered on it. */
+.search-scan {
+  position: absolute;
+  right: 0;
+  bottom: 2px;
+}
+
+.search:has(.search-scan) input {
+  padding-right: 44px;
+}
+
+.search + .list {
+  margin-top: 8px;
+}
+
 .search input {
   width: 100%;
   -webkit-appearance: none;
@@ -1417,7 +1432,7 @@ main {
 
 /* Scan */
 
-.scan video {
+.scan-video {
   width: 100%;
   border-radius: 14px;
   background: #000;

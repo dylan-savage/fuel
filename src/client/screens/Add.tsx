@@ -14,6 +14,10 @@ import { QuickLog } from './QuickLog.js';
 import { FoodRow, OnlineSection } from './search.js';
 import { Icon, Segmented, TitleBar, useToast } from './ui.js';
 
+/** The scanner pulls in the zxing glue, so it loads on the first tap, never at startup. */
+const loadScan = () => import('./Scan.js');
+type ScanModule = Awaited<ReturnType<typeof loadScan>>;
+
 /** What the Add screen lists before anything is typed. */
 type Shelf = 'recent' | 'recipes' | 'meals';
 
@@ -44,19 +48,18 @@ export function Add({
   today,
   onMeal,
   onLogged,
-  onScan,
 }: {
   readonly slot: Slot;
   readonly today: LocalDate;
   readonly onMeal: (meal: Meal) => void;
   readonly onLogged: OnLogged;
-  readonly onScan: () => void;
 }) {
   const recentList = useLive((r) => recentsView(r, { today, now: now() }), [today]);
   const library = useLive(libraryView, []);
   const meals = useLive(savedMealsView, []);
   const [query, setQuery] = useState('');
   const [shelf, setShelf] = useState<Shelf>('recent');
+  const [scanner, setScanner] = useState<ScanModule | null>(null);
   const flow = useLogFlow(slot, onLogged);
   const intents = useIntents();
   const toast = useToast();
@@ -107,6 +110,9 @@ export function Add({
           value={query}
           onInput={(event) => setQuery(event.currentTarget.value)}
         />
+        <button type="button" class="icon-button search-scan" aria-label="Scan" onClick={() => void loadScan().then(setScanner)}>
+          <Icon name="scan" />
+        </button>
       </div>
 
       {trimmed === '' ? (
@@ -118,9 +124,6 @@ export function Add({
             </button>
             <button type="button" onClick={() => flow.open({ kind: 'editor', seed: { kind: 'new', barcodes: [] } })}>
               New food
-            </button>
-            <button type="button" onClick={onScan}>
-              Scan
             </button>
           </div>
           <Segmented label="Show" options={SHELVES} value={shelf} onChange={setShelf} />
@@ -175,6 +178,7 @@ export function Add({
         </>
       )}
       {flow.sheet}
+      {scanner !== null && <scanner.Scan slot={slot} onLogged={onLogged} onClose={() => setScanner(null)} />}
     </section>
   );
 }

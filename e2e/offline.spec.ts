@@ -4,7 +4,7 @@
  */
 import { expect, test } from '@playwright/test';
 import { writeBarcode } from 'zxing-wasm/writer';
-import { openOffline, stored, tab } from './app.js';
+import { openOffline, openScan, stored } from './app.js';
 
 test('logs a quick add offline and syncs it to fuel.db on reconnect', async ({ page, context }) => {
   await openOffline(page, context);
@@ -29,8 +29,8 @@ test('decodes a barcode photo offline with the precached scanner and wasm', asyn
   if (!image) throw new Error('could not draw the barcode');
   await openOffline(page, context);
 
-  await tab(page, 'Scan').click();
-  await page.locator('input[type=file]').setInputFiles({
+  const scan = await openScan(page);
+  await scan.locator('input[type=file]').setInputFiles({
     name: 'label.png',
     mimeType: 'image/png',
     buffer: Buffer.from(await image.arrayBuffer()),

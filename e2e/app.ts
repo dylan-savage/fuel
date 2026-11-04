@@ -76,7 +76,7 @@ export function countOnPhone(page: Page, table: string): Promise<number> {
   );
 }
 
-export function tab(page: Page, name: 'Diary' | 'Add' | 'Scan' | 'Train' | 'Goal') {
+export function tab(page: Page, name: 'Diary' | 'Add' | 'Train' | 'Goal') {
   return page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name, exact: true });
 }
 
@@ -104,9 +104,16 @@ export async function setGoal(page: Page) {
   await expect(page.getByRole('status').filter({ hasText: 'Goal saved' })).toBeVisible();
 }
 
-/** Types a barcode on the Scan screen and looks it up. */
+/** Opens the Scan sheet from the button in Add's search row. */
+export async function openScan(page: Page) {
+  await tab(page, 'Add').click();
+  await page.getByRole('button', { name: 'Scan', exact: true }).click();
+  return page.getByRole('dialog', { name: 'Scan' });
+}
+
+/** Types a barcode on the Scan sheet and looks it up. */
 export async function typeBarcode(page: Page, digits: string) {
-  await tab(page, 'Scan').click();
-  await page.getByLabel('Barcode number').fill(digits);
-  await page.getByRole('button', { name: 'Look up' }).click();
+  const scan = await openScan(page);
+  await scan.getByLabel('Barcode number').fill(digits);
+  await scan.getByRole('button', { name: 'Look up' }).click();
 }
