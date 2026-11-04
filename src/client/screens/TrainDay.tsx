@@ -210,7 +210,7 @@ function HeldDay({ view, day, slotId, onSlot, onBack }: { readonly view: DayScre
         onBack={onBack}
       />
       {open !== undefined && <ExerciseScreen view={view} day={day} block={open.block} slot={open.slot} lift={liftOf(open.slot)} rows={lastTimes} draft={draft} onDraft={setDraft} onBack={() => onSlot(null)} />}
-      {cardio !== null && <WorkoutSheet date={day.date} lead={cardio.note} onClose={() => setCardio(null)} />}
+      {cardio !== null && <WorkoutSheet date={day.date} day={day} lead={cardio.note} onClose={() => setCardio(null)} />}
     </>
   );
 }

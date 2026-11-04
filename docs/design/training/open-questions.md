@@ -17,7 +17,7 @@ Deferred decisions and unstated assumptions for [design.md](design.md), as of 20
 10. **Finish with nothing done.** Closed on 2026-11-04. There is no Finish, and settling removes a session with nothing in it.
 11. **A session with no timed set.** Ticks, skips or a note with no set leave it unfinished, because there is no last set to finish at, so that day does not count. The coach still reads them. A session with nothing at all is removed.
 12. **A set on a lift never loaded.** A swap to a new name starts on a blank weight. Bodyweight and Band appear under a blank weight so that swap can log, which the mockup did not show.
-13. **A day with no sets to log.** A day is done when it has a set, so a cardio-only or checklist-only day never reads Done, and its cardio makes no session. Say if logging cardio from such a day should count it.
+13. **A day with no sets to log.** Closed. Cardio logged from a day's plan makes a day with no sets done, as the Notion routine counted it. A checklist alone still does not.
 14. **A workout past midnight.** The first set after midnight makes a new session, so one late workout counts as two and writes two diary workouts. Say if a session should stretch across midnight.
 15. **Morning and evening on one day.** Both land in one session, and the workout runs first set to last, so a morning set and an evening set read as hours of lifting under eat-back. Say if a long gap should split the minutes.
 16. **When the diary's workout appears.** Six idle hours after the last set, at the next launch or return to the app. Under eat-back the day's target moves only then.

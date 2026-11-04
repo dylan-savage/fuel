@@ -349,6 +349,29 @@ describe('cardio', () => {
     expect(await s.replica.read.all('session')).toEqual([]);
   });
 
+  it('makes a day with no sets done when logged from that day, and undo takes both back', async () => {
+    const s = await setup();
+    await s.intents.logWeight(80, TODAY);
+    const undo = await s.intents.logDayCardio(PUSH, metDraft('walk_3', 20));
+    const [held] = await s.replica.read.all('session');
+    expect(held?.date).toBe(TODAY);
+    expect(held?.finishedAt).toBeDefined();
+    expect(await s.replica.read.all('workout')).toHaveLength(1);
+    await undo?.();
+    expect(await s.replica.read.all('session')).toEqual([]);
+    expect(await s.replica.read.all('workout')).toEqual([]);
+  });
+
+  it('leaves a day with sets open, so settle still times them', async () => {
+    const s = await setup();
+    await s.intents.logWeight(80, TODAY);
+    await logged(s);
+    await s.intents.logDayCardio(PUSH, metDraft('walk_3', 20));
+    const [held] = await s.replica.read.all('session');
+    expect(held?.finishedAt).toBeUndefined();
+    expect(await s.replica.read.all('workout')).toHaveLength(1);
+  });
+
   it('is not satisfied by the session\'s own workout', async () => {
     const s = await setup();
     await s.intents.logWeight(80, TODAY);

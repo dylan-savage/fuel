@@ -131,6 +131,8 @@ export interface Intents {
    * weigh-ins never change it. Null when no weight is known yet: no weigh-in and no profile.
    */
   logWorkout(draft: WorkoutDraft, date: LocalDate): Promise<Undo | null>;
+  /** Cardio logged from a day's plan. On a day with no sets, it makes the day done. */
+  logDayCardio(day: DayRef, draft: WorkoutDraft): Promise<Undo | null>;
   /** Changes a workout, keeping the weight its burn was first worked out at. */
   editWorkout(id: WorkoutId, draft: WorkoutDraft): Promise<Undo>;
   deleteWorkout(id: WorkoutId): Promise<Undo>;
@@ -220,6 +222,11 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
     return { session: { id: SessionId.parse(clock.newId()), date, day: { key, label: plan.label }, programId: program.id, startedAt: at }, isNew: true };
   };
   const restoreSession = ({ session, isNew }: { readonly session: Session; readonly isNew: boolean }): PhoneMutation => (isNew ? { op: 'delete', kind: 'session', id: session.id } : { op: 'put', kind: 'session', doc: session });
+  const newWorkout = async (draft: WorkoutDraft, date: LocalDate): Promise<Workout | null> => {
+    const [weighIns, profile] = await Promise.all([replica.read.all('weighIn'), replica.read.get('profile', PROFILE_ID)]);
+    const weight = bodyWeightOn(weighIns, profile, date);
+    return weight === undefined ? null : makeWorkout(draft, { id: WorkoutId.parse(clock.newId()), date, kg: weight.kg, loggedAt: clock.now() });
+  };
   /** A tap with no set under it. A new session with nothing to hold, as from a blank note, is not written. */
   const changeDay = (day: DayRef, change: (session: Session) => Session): Promise<Undo> =>
     oneAtATime(async () => {
@@ -389,13 +396,28 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
     },
 
     logWorkout: async (draft, date) => {
-      const [weighIns, profile] = await Promise.all([replica.read.all('weighIn'), replica.read.get('profile', PROFILE_ID)]);
-      const weight = bodyWeightOn(weighIns, profile, date);
-      if (weight === undefined) return null;
-      const workout = makeWorkout(draft, { id: WorkoutId.parse(clock.newId()), date, kg: weight.kg, loggedAt: clock.now() });
+      const workout = await newWorkout(draft, date);
+      if (workout === null) return null;
       await replica.commit([{ op: 'put', kind: 'workout', doc: workout }]);
       return () => replica.commit([{ op: 'delete', kind: 'workout', id: workout.id }]);
     },
+
+    logDayCardio: (day, draft) =>
+      oneAtATime(async () => {
+        const workout = await newWorkout(draft, day.date);
+        const target = await sessionToWrite(day, clock.now());
+        if (workout === null || target === null) return null;
+        const put: PhoneMutation = { op: 'put', kind: 'workout', doc: workout };
+        const undoWorkout: PhoneMutation = { op: 'delete', kind: 'workout', id: workout.id };
+        const performances = await replica.read.performancesOfSession(target.session.id);
+        // Sets already make the day done, and settle will time them. With none, this cardio is the day.
+        if (performances.length > 0 || target.session.finishedAt !== undefined) {
+          await replica.commit([put]);
+          return () => replica.commit([undoWorkout]);
+        }
+        await replica.commit([put, { op: 'put', kind: 'session', doc: { ...target.session, finishedAt: clock.now() } }]);
+        return () => replica.commit([undoWorkout, restoreSession(target)]);
+      }),
 
     editWorkout: async (id, draft) => {
       const before = await replica.read.get('workout', id);

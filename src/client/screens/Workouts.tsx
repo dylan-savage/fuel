@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { ACTIVITY_GROUPS, MET_ACTIVITIES, MET_ACTIVITY_IDS, Workout, WorkoutDraft, metDraft, netKcal, type WorkoutSource } from '../../domain/burn.js';
+import type { DayRef } from '../../domain/session.js';
 import type { LocalDate } from '../../domain/ids.js';
 import { useIntents, useLive, workoutLoggerView } from '../views.js';
 import { amount, editable, kcal, lb, parseNumber } from './format.js';
@@ -76,7 +77,7 @@ function sourceOf(choice: Choice, grossKcal: number | null): WorkoutSource | nul
 }
 
 /** Logs a workout, or edits one: pick an activity, set the minutes, see the burn above resting. */
-export function WorkoutSheet({ date, editing, lead, onClose }: { readonly date: LocalDate; readonly editing?: Workout; /** Words from the plan above the choices. */ readonly lead?: string | undefined; readonly onClose: () => void }) {
+export function WorkoutSheet({ date, day, editing, lead, onClose }: { readonly date: LocalDate; readonly day?: DayRef; readonly editing?: Workout; /** Words from the plan above the choices. */ readonly lead?: string | undefined; readonly onClose: () => void }) {
   const intents = useIntents();
   const toast = useToast();
   const view = useLive((r) => workoutLoggerView(r, date), [date]);
@@ -118,7 +119,7 @@ export function WorkoutSheet({ date, editing, lead, onClose }: { readonly date: 
     if (draft === null || !storable) return;
     onClose();
     if (editing === undefined) {
-      void intents.logWorkout(draft, date).then((undo) => {
+      void (day === undefined ? intents.logWorkout(draft, date) : intents.logDayCardio(day, draft)).then((undo) => {
         if (undo !== null) toast({ text: `Logged ${draft.name}`, undo });
       });
     } else {
