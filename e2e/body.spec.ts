@@ -9,7 +9,7 @@ import { weighInId } from '../src/domain/body.js';
 import { KG_PER_LB } from '../src/domain/goals.js';
 import { Millis, addDays } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
-import { kcalOf, openControlled, seed, setGoal, stored, tab } from './app.js';
+import { kcalOf, openControlled, openRow, saveGoal, seed, setGoal, stored, tab } from './app.js';
 
 const shown = (n: number) => Math.round(Math.abs(n)).toLocaleString('en-US');
 
@@ -37,8 +37,9 @@ function clearWorkouts(): Mutation[] {
 test('logs weigh-ins over several days and sees the trend, rate and projected goal date', async ({ page }) => {
   await page.goto('/');
   await setGoal(page);
+  await openRow(page, 'Weekly goal');
   await page.getByLabel('Goal weight').fill('170');
-  await page.getByRole('button', { name: 'Save goal' }).click();
+  await saveGoal(page);
   await tab(page, 'Diary').click();
 
   // 183.0, 182.8, 182.6 lb: the trend moves a tenth of the way each day, 183 → 182.98 → 182.942.
@@ -116,8 +117,9 @@ test('eats back a workout and sees remaining calories rise by its burn', async (
   await page.goto('/');
   await setGoal(page);
   // Sedentary is the eat-back baseline too, so switching policy changes only the workout part.
+  await openRow(page, 'Activity');
   await page.getByRole('radio', { name: /^Sedentary/ }).click();
-  await page.getByRole('button', { name: 'Save goal' }).click();
+  await saveGoal(page);
 
   await tab(page, 'Diary').click();
   const target = await kcalOf(page, 'kcal-target');
@@ -136,7 +138,7 @@ test('eats back a workout and sees remaining calories rise by its burn', async (
   await expect(page.getByTestId('kcal-remaining')).toHaveText(shown(target - eaten));
 
   await tab(page, 'Goal').click();
-  await page.getByRole('radio', { name: 'Eat back workouts' }).click();
+  await page.getByRole('switch', { name: /^Count workouts/ }).check();
   await expect(page.getByTestId('policy-sentence')).toHaveText(/adds 100% of its calories to that day/);
   await page.getByRole('button', { name: 'Save goal' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Goal saved' })).toBeVisible();
@@ -144,4 +146,83 @@ test('eats back a workout and sees remaining calories rise by its burn', async (
   await tab(page, 'Diary').click();
   await expect(page.getByTestId('kcal-target')).toHaveText(shown(target + burn));
   await expect(page.getByTestId('kcal-remaining')).toHaveText(shown(target + burn - eaten));
+});
+
+test('Save appears only once something has changed, and a collapsed row keeps its edit', async ({ page }) => {
+  await page.goto('/');
+  await setGoal(page);
+  const save = page.getByRole('button', { name: 'Save goal' });
+  await expect(save).toBeHidden();
+
+  await openRow(page, 'Water');
+  const water = page.getByLabel('Daily goal');
+  const saved = await water.inputValue();
+  await water.fill('96');
+  await expect(save).toBeEnabled();
+  await page.locator('summary', { hasText: /^Water/ }).click();
+  await expect(water).toBeHidden();
+  await expect(page.locator('summary', { hasText: /^Water/ })).toContainText('96 fl oz');
+  await expect(save, 'still there with its row shut').toBeEnabled();
+  await openRow(page, 'Water');
+  await expect(water).toHaveValue('96');
+
+  await water.fill(`${saved}.0`);
+  await expect(save, 'the same number typed another way is not a change').toBeHidden();
+
+  await water.fill('0');
+  await expect(save, 'a change that cannot be saved').toBeDisabled();
+  await page.locator('summary', { hasText: /^Water/ }).click();
+  await expect(page.locator('summary', { hasText: /^Water/ }), 'and its shut row says so').toContainText('Fix');
+
+  await openRow(page, 'Water');
+  await water.fill('96');
+  await save.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Goal saved' })).toBeVisible();
+  await expect(save, 'saved, so nothing is left to save').toBeHidden();
+  await expect.poll(() => stored('goal').at(-1)?.waterMl, { timeout: 15_000 }).toBeCloseTo(96 * 29.5735, 0);
+});
+
+test('a custom target, macros in grams, a goal weight and the share of workouts counted all save', async ({ page }) => {
+  await page.goto('/');
+  await setGoal(page);
+
+  await openRow(page, 'Weekly goal');
+  await page.getByRole('switch', { name: 'Custom calorie target' }).check();
+  await page.getByLabel(/^Target/).fill('2100');
+  await page.getByLabel('Goal weight').fill('165');
+  await expect(page.getByTestId('goal-kcal')).toHaveText('2,100');
+
+  await openRow(page, 'Macros');
+  await page.getByRole('radio', { name: 'Grams' }).click();
+  await page.getByLabel('Protein').fill('180');
+  await page.getByLabel('Carbs').fill('200');
+  await page.getByLabel('Fat').fill('70');
+
+  await page.getByRole('switch', { name: /^Count workouts/ }).check();
+  await page.getByLabel('Workouts counted').fill('50');
+  await expect(page.getByTestId('policy-sentence')).toHaveText(/adds 50%/);
+  await page.getByRole('button', { name: 'Save goal' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Goal saved' })).toBeVisible();
+
+  await expect.poll(() => stored('goal').at(-1)?.kcalOverride, { timeout: 15_000 }).toBe(2100);
+  const goal = stored('goal').at(-1);
+  expect(goal?.macros).toMatchObject({ kind: 'grams', protein: 180, carbs: 200, fat: 70 });
+  expect(goal?.policy).toEqual({ kind: 'eat-back-workouts', fraction: 0.5 });
+  expect(goal?.goalWeightKg).toBeCloseTo(165 * KG_PER_LB, 3);
+
+  await page.getByText('How this is worked out').click();
+  await expect(page.getByText(/^Custom target, plus workouts each day/)).toBeVisible();
+
+  // Back to the plain goal setGoal assumes, for the specs after this one.
+  await page.getByRole('switch', { name: 'Custom calorie target' }).uncheck();
+  await page.getByRole('switch', { name: /^Count workouts/ }).uncheck();
+  await page.getByRole('radio', { name: 'Percent' }).click();
+  for (const [label, value] of [
+    ['Protein', '30'],
+    ['Carbs', '40'],
+    ['Fat', '30'],
+  ] as const) {
+    await page.getByLabel(label).fill(value);
+  }
+  await saveGoal(page);
 });

@@ -85,10 +85,25 @@ export async function kcalOf(page: Page, testId: string): Promise<number> {
   return Number((await page.getByTestId(testId).textContent())?.replace(/,/g, ''));
 }
 
+/** Opens a row of the Goal screen, if it is not open already. */
+export async function openRow(page: Page, name: string) {
+  const row = page.locator('details.expand').filter({ has: page.locator('summary .row-name', { hasText: name }) });
+  if (!(await row.evaluate((el) => el instanceof HTMLDetailsElement && el.open))) await row.locator('summary').click();
+}
+
+/** Saves the goal, if anything has changed. Save only appears when something has. */
+export async function saveGoal(page: Page) {
+  const save = page.getByRole('button', { name: 'Save goal' });
+  if (await save.isVisible()) {
+    await save.click();
+    await expect(save).toBeHidden();
+  }
+}
+
 /** Fills the profile sheet and saves a 1 lb a week loss at moderate activity, workouts not eaten back. */
 export async function setGoal(page: Page) {
   await tab(page, 'Goal').click();
-  await page.getByRole('button', { name: /Add your details|Male|Female/ }).click();
+  await page.getByRole('button', { name: /^Your details/ }).click();
   const sheet = page.getByRole('dialog', { name: 'Your details' });
   await sheet.getByRole('radio', { name: 'Male', exact: true }).click();
   await sheet.getByLabel('Birth date').fill('1990-06-15');
@@ -97,11 +112,12 @@ export async function setGoal(page: Page) {
   await sheet.getByLabel('Weight').fill('180');
   await sheet.getByRole('button', { name: 'Save details' }).click();
   await expect(sheet).toBeHidden();
-  await page.getByRole('radio', { name: 'Activity level', exact: true }).click();
+  await page.getByRole('switch', { name: /^Count workouts/ }).uncheck();
+  await openRow(page, 'Activity');
   await page.getByRole('radio', { name: /Moderately active/ }).click();
-  await page.getByLabel('Weekly goal').selectOption({ label: 'Lose 1 lb per week' });
-  await page.getByRole('button', { name: 'Save goal' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Goal saved' })).toBeVisible();
+  await openRow(page, 'Weekly goal');
+  await page.getByLabel('Weekly goal').selectOption({ label: 'Lose 1 lb a week' });
+  await saveGoal(page);
 }
 
 /** Opens the Scan sheet from the button in Add's search row. */

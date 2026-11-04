@@ -16,7 +16,7 @@ import { EntryId, FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, Wate
 import type { Mutation } from '../src/domain/kinds.js';
 import type { Recipe, SavedMeal } from '../src/domain/reuse.js';
 import { band, bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, target, warm } from '../test/training.fixtures.js';
-import { seed, setGoal, stored, tab, typeBarcode } from './app.js';
+import { openRow, saveGoal, seed, setGoal, stored, tab, typeBarcode } from './app.js';
 
 const dir = process.env.FUEL_SHOTS_DIR ?? join('test-results', 'shots');
 /** Lay's Classic, never imported by any spec, so its barcode always reaches the confirm sheet. */
@@ -319,8 +319,9 @@ test('seeds a day worth photographing', async ({ page, request }) => {
   await seed(request, [...reuseDocs(), ...habitDocs(), ...bodyDocs(), ...busyDocs(), ...trainDocs(), ...progressDocs(), ...sessionDocs()]);
   await page.goto('/');
   await setGoal(page);
+  await openRow(page, 'Weekly goal');
   await page.getByLabel('Goal weight').fill('170');
-  await page.getByRole('button', { name: 'Save goal' }).click();
+  await saveGoal(page);
 
   await tab(page, 'Diary').click();
   await page.getByRole('button', { name: 'Add to Breakfast' }).click();
@@ -558,6 +559,13 @@ async function photographFood(page: Page, suffix: string) {
   await page.getByRole('button', { name: 'Scan', exact: true }).click();
   await shot('scan', 'the Scan sheet');
   await page.getByRole('dialog', { name: 'Scan' }).getByRole('button', { name: 'Cancel' }).click();
+
+  await tab(page, 'Goal').click();
+  await expect(page.getByTestId('goal-kcal')).not.toHaveText('–');
+  await shot('goal', 'Goal');
+  await openRow(page, 'Weekly goal');
+  await openRow(page, 'Macros');
+  await shot('goal-open', 'Goal with its rows open');
 }
 
 /** The Progress sheet and every lift sheet worth a look, at the suffix's width and scheme. */
@@ -824,13 +832,26 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.screenshot({ path: join(dir, `today-${colorScheme}-full.png`), fullPage: true, animations: 'disabled', style: '.tab-bar, .toast { display: none; }' });
 
       await tab(page, 'Goal').click();
-      const choice = page.getByRole('radiogroup', { name: 'Workouts and your target' });
-      await choice.scrollIntoViewIfNeeded();
-      await page.evaluate(() => window.scrollBy(0, -60));
-      await page.screenshot({ path: join(dir, `goal-policy-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
-      await choice.getByRole('radio', { name: 'Eat back workouts' }).click();
-      await expect(page.getByTestId('policy-sentence')).toContainText('adds 100%');
+      await openRow(page, 'Activity');
+      await page.screenshot({ path: join(dir, `goal-activity-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
+      await openRow(page, 'Weekly goal');
+      await openRow(page, 'Macros');
+      await openRow(page, 'Water');
+      await openRow(page, 'How this is worked out');
+      await page.getByLabel('Daily goal').fill('97');
+      await expect(page.getByRole('button', { name: 'Save goal' })).toBeVisible();
+      await page.screenshot({ path: join(dir, `goal-changed-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
+      await page.screenshot({ path: join(dir, `goal-open-${colorScheme}-full.png`), fullPage: true, animations: 'disabled', style: '.tab-bar, .toast { display: none; } .screen-actions { position: static; }' });
+      await page.getByRole('switch', { name: /^Count workouts/ }).check();
+      await page.getByText('Count workouts').scrollIntoViewIfNeeded();
       await page.screenshot({ path: join(dir, `goal-eat-back-${colorScheme}.png`), animations: 'disabled', style: '.toast { display: none; }' });
+      await page.getByLabel('Workouts counted').fill('140');
+      await page.getByLabel('Daily goal').fill('0');
+      await page.getByLabel('Protein').fill('90');
+      await page.locator('summary', { hasText: /^Water/ }).click();
+      await page.locator('summary', { hasText: /^Macros/ }).click();
+      await expect(page.getByRole('button', { name: 'Save goal' })).toBeDisabled();
+      await page.screenshot({ path: join(dir, `goal-invalid-${colorScheme}-full.png`), fullPage: true, animations: 'disabled', style: '.tab-bar, .toast { display: none; } .screen-actions { position: static; }' });
     });
 
     test(`photographs the Train tab, its sheets and the empty state in ${colorScheme}`, async ({ page }) => {
