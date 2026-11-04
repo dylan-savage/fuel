@@ -54,7 +54,7 @@ Program   = { id; effectiveFrom; days; lifts; weeklyMinimum?; notes; standing; r
 
 **Versions freeze when their date arrives.** A session pins a version, and the publish route refuses to replace a version already in effect. This calendar rule also protects a session started offline that the mini has not heard of. A mid-week change is a new version from today or tomorrow.
 
-**Sets live on performances, indexed by lift and date.** Each set writes a small document, so the outbox and sync stay unchanged. The last-time read is two seeks per slot on `[doc.liftId+doc.date]` and `[doc.plannedLiftId+doc.date]`. Twelve slots took 1 ms at 10,000 rows against 31 ms for a scan, in desktop WebKit with invented rows. The iPhone is unmeasured, and unit 5 gates on it. The upper bound is the closed day before, because an open bound re-ran `liveQuery` on every set.
+**Sets live on performances, indexed by lift and date.** Each set writes a small document, so the outbox and sync stay unchanged. The last-time read is two seeks per slot on `[doc.liftId+doc.date]` and `[doc.plannedLiftId+doc.date]`. On Dylan's iPhone with 10,000 invented performances, on 2026-11-03: opening a day took 5 ms (range 4 to 8), storing a set 2 ms (range 1 to 3), twelve last-time reads 3 ms against 43 ms for a scan, and a five-year lift chart 4 ms. Medians of 25 runs, in Firefox for iOS, which uses the same WebKit engine as the Home Screen app. They time storage, not drawing the screen. The upper bound is the closed day before, because an open bound re-ran `liveQuery` on every set.
 
 **Everything computed is derived.** `progress.ts` holds top weight, volume, Epley, hints, sessions done, skips and swaps once, for the phone and the coach's read. Nothing derived is stored.
 
