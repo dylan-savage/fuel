@@ -9,6 +9,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { localDate } from '../src/client/clock.js';
 import { addDays, mondayOf } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
+import { stepsOf } from '../src/domain/program.js';
 import { dayKey, lb, liftsBlock, ms, newSessionId, performance as performanceOf, program, slot, target } from '../test/training.fixtures.js';
 import { countOnPhone, seed, stored, tab } from './app.js';
 
@@ -39,6 +40,13 @@ function planned() {
   const days = slots.map((daySlots, d) => ({ key: dayKey(`timed-${d}`), label: `Timed day ${d + 1}`, weekday: d + 1, minutes: 55, blocks: [liftsBlock('main', daySlots.slice(0, 2), { restSeconds: 75 }), ...daySlots.slice(2).map((one, e) => liftsBlock(`b${e}`, [one], { restSeconds: 120 }))] }));
   return { days, slots };
 }
+
+/** Once per run, so both tests hold the same documents and seeding twice writes nothing new. */
+function historyOf(today: ReturnType<typeof localDate>) {
+  cachedHistory ??= history(today);
+  return cachedHistory;
+}
+let cachedHistory: ReturnType<typeof history> | undefined;
 
 function history(today: ReturnType<typeof localDate>) {
   const thisWeek = mondayOf(today);
@@ -107,7 +115,7 @@ function summary(values: readonly number[]) {
 test('reports the time from a tap on Train to the day list, on years of invented data', async ({ page, request }) => {
   test.setTimeout(240_000);
   const today = localDate();
-  const { versions, docs } = history(today);
+  const { versions, docs } = historyOf(today);
   const versionBytes = Math.max(...versions.map((version) => JSON.stringify(version).length));
   expect(versionBytes, 'a version of realistic size').toBeGreaterThanOrEqual(25_000);
   const performances = docs.filter((m) => m.kind === 'performance').length;
@@ -154,4 +162,103 @@ test('reports the time from a tap on Train to the day list, on years of invented
   writeFileSync(join(dir, 'train-tab.json'), JSON.stringify(report, null, 2));
   process.stdout.write(`train tab timing ${JSON.stringify(report)}\n`);
   expect(report.afterTabSwitch.painted.median, 'a ceiling far above the measured number, to catch a table scan coming back').toBeLessThan(500);
+});
+
+interface LogTap {
+  /** From the tap's own event time: the card naming the next step in the DOM, then the second frame after, by which the first has painted it. */
+  readonly domMs: number;
+  readonly paintedMs: number;
+  readonly next: string;
+}
+
+async function tapLogSet(page: Page): Promise<LogTap> {
+  const armed = await page.evaluateHandle(() => {
+    let tappedAt: number | null = null;
+    const noteTap = (event: Event) => {
+      tappedAt ??= event.timeStamp;
+    };
+    for (const type of ['touchstart', 'pointerdown', 'mousedown', 'click']) document.addEventListener(type, noteTap, { capture: true, once: true });
+    const onCard = () => `${document.querySelector('.set-card h2')?.textContent ?? ''} | ${document.querySelector('[data-testid="round"]')?.textContent ?? ''}`;
+    const before = onCard();
+    const done = new Promise<LogTap>((resolve) => {
+      const observer = new MutationObserver(() => {
+        const next = onCard();
+        if (tappedAt === null || next === before) return;
+        observer.disconnect();
+        const start = tappedAt;
+        const domAt = performance.now();
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve({ domMs: domAt - start, paintedMs: performance.now() - start, next })));
+      });
+      observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+    return { done };
+  });
+  await page.getByRole('button', { name: 'Log set' }).tap();
+  return armed.evaluate((handle) => handle.done);
+}
+
+const SESSIONS_TIMED = 2;
+
+test('reports the time from a tap on Log set to the card showing the next step, on years of invented data', async ({ page, request }) => {
+  test.setTimeout(240_000);
+  const trouble: string[] = [];
+  page.on('pageerror', (err) => trouble.push(err.message));
+  const today = localDate();
+  const { versions, docs } = historyOf(today);
+  const performances = docs.filter((m) => m.kind === 'performance').length;
+  const left = stored('session').filter((s) => s.date >= mondayOf(today));
+  await seed(request, [...left.map((s): Mutation => ({ op: 'delete', kind: 'session', id: s.id })), ...versions.map((doc): Mutation => ({ op: 'put', kind: 'program', doc }))]);
+  if (stored('performance').length < performances) for (let i = 0; i < docs.length; i += 400) await seed(request, docs.slice(i, i + 400));
+
+  await page.goto('/');
+  await expect.poll(() => countOnPhone(page, 'performance'), { timeout: 120_000 }).toBeGreaterThanOrEqual(performances);
+  const held = { session: stored('session').length, performance: stored('performance').length, program: stored('program').length };
+  await page.reload();
+  await tab(page, 'Train').click();
+
+  const { days } = planned();
+  const taps: LogTap[] = [];
+  const startedOn: string[] = [];
+  for (let s = 0; s < SESSIONS_TIMED; s++) {
+    const start = page.getByRole('list', { name: 'Days' }).getByRole('button', { name: 'Start', exact: true });
+    await expect(start).toBeVisible();
+    const label = (await page.locator('.day-startable .food-name').textContent()) ?? '';
+    await start.tap();
+    await expect(page.getByRole('button', { name: 'Log set' })).toBeVisible();
+    startedOn.push(label);
+    const plan = days.find((one) => one.label === label);
+    if (plan === undefined) throw new Error(`no plan for ${label}`);
+    const steps = plan.blocks.flatMap((block) => (block.kind === 'lifts' ? stepsOf(block) : []));
+    for (const [i, _step] of steps.entries()) {
+      const tap = await tapLogSet(page);
+      const after = steps[i + 1];
+      expect(tap.next, 'the card moved to the step the plan names').toBe(after === undefined ? 'That is the plan done | ' : `${after.slot.label} | Round ${after.round} of 3`);
+      taps.push(tap);
+    }
+    await page.getByRole('button', { name: 'Finish', exact: true }).tap();
+    await expect(page.getByTestId('week-count')).toHaveText(`${s + 1} of ${SESSIONS_A_WEEK} done, minimum 3`);
+  }
+
+  const expectedSets = taps.length;
+  await expect
+    .poll(
+      () =>
+        stored('performance')
+          .filter((p) => p.date === today && p.sets.every((set) => set.at !== undefined))
+          .reduce((sum, p) => sum + p.sets.length, 0),
+      { timeout: 30_000, message: 'every timed tap stored a set that reached the server' },
+    )
+    .toBe(expectedSets);
+  expect(trouble).toEqual([]);
+  const report = {
+    data: { ...held, today, startedOn },
+    runs: taps.length,
+    painted: summary(taps.map((t) => t.paintedMs)),
+    dom: summary(taps.map((t) => t.domMs)),
+  };
+  const dir = join('test-results', 'timing');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'log-set.json'), JSON.stringify(report, null, 2));
+  process.stdout.write(`log set timing ${JSON.stringify(report)}\n`);
+  expect(report.painted.median, 'a ceiling far above the measured number, to catch a table scan coming back').toBeLessThan(500);
 });
