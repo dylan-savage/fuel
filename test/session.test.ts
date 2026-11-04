@@ -8,6 +8,7 @@ import {
   blockDone,
   cardFor,
   cardioDoneOn,
+  cueFor,
   entryOfSet,
   finishDocs,
   finishOf,
@@ -533,6 +534,17 @@ describe('liftInSlot', () => {
     const swapped = performance({ slot: 'a2', lift: 'dumbbell-row', label: 'Dumbbell row', planned: 'cable-row', sets: [lb(30, 8, 2)] });
     expect(liftInSlot(row, [planned, swapped]).liftId).toBe(lift('dumbbell-row'));
     expect(liftInSlot(row, [{ ...planned, sets: [lb(50, 8, 1), lb(50, 8, 3)] }, swapped]).liftId).toBe(lift('cable-row'));
+  });
+});
+
+describe('cueFor', () => {
+  const press = slot('a1', 'bench-press', 3, { cue: 'Invented slot cue.', swaps: [{ liftId: lift('landmine-press'), label: 'Landmine press', cue: 'Invented swap cue.' }, { liftId: lift('machine-press'), label: 'Machine press' }] });
+
+  it('is the slot\'s for its own lift, the swap\'s for a listed swap, and none otherwise', () => {
+    expect(cueFor(press, lift('bench-press'))).toBe('Invented slot cue.');
+    expect(cueFor(press, lift('landmine-press'))).toBe('Invented swap cue.');
+    expect(cueFor(press, lift('machine-press'))).toBeUndefined();
+    expect(cueFor(press, lift('zottman-press'))).toBeUndefined();
   });
 });
 

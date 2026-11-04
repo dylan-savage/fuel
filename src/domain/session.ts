@@ -337,7 +337,12 @@ export interface LiftChoice {
  */
 export function liftInSlot(slot: Slot, performances: readonly Performance[]): LiftChoice {
   const newest = setsInSlot(performances, slot.id).at(-1)?.performance;
-  return newest === undefined ? { liftId: slot.liftId, label: slot.label } : { liftId: newest.liftId, label: newest.label };
+  return newest === undefined || newest.liftId === slot.liftId ? { liftId: slot.liftId, label: slot.label } : { liftId: newest.liftId, label: newest.label };
+}
+
+/** The cue on the card. A listed swap's replaces the slot's, and any other lift has none. */
+export function cueFor(slot: Slot, liftId: LiftId): string | undefined {
+  return liftId === slot.liftId ? slot.cue : slot.swaps?.find((swap) => swap.liftId === liftId)?.cue;
 }
 
 /** Where a set goes, in the plan and in the lifts. */
