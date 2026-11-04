@@ -725,3 +725,39 @@ test('Tell the coach writes a loose note beside the chip that was there, with an
   await expect(toast(page, 'Saved for the coach')).toBeVisible();
   await expect.poll(() => stored('trainingNote').filter((n) => n.date === DAY).map((n) => n.text), { timeout: 15_000 }).toEqual(['Invented line two.']);
 });
+
+test('a copy of the pinned version replaced under an open session moves the card, and the sets already logged stay stored', async ({ page, request }) => {
+  const MONDAY = '2031-06-30';
+  const DAY = '2031-07-02';
+  const trouble: string[] = [];
+  page.on('pageerror', (err) => trouble.push(err.message));
+  const first = program(MONDAY, [{ key: 'moved', label: 'Moved day', weekday: 3, blocks: [liftsBlock('pair', [slot('a1', 'seal-row', 2, { label: 'Seal row', target: target(2, 8, 12) }), slot('a2', 'pendlay-row', 2, { label: 'Pendlay row', target: target(2, 8, 12) })])] }]);
+  const replaced = program(MONDAY, [{ key: 'moved', label: 'Moved day', weekday: 3, blocks: [liftsBlock('main', [slot('b1', 'pin-press', 2, { label: 'Pin press', target: target(2, 5, 5) })])] }]);
+  await seed(request, putPrograms(first));
+  await page.clock.install({ time: at(DAY) });
+  await openWeek(page);
+  await startButton(page).click();
+  await expectCard(page, 'Seal row', 'Round 1 of 2');
+  await page.getByLabel('Load', { exact: true }).fill('70');
+  await logSet(page);
+  await expectCard(page, 'Pendlay row', 'Round 1 of 2');
+  await page.getByLabel('Load', { exact: true }).fill('95');
+  await logSet(page);
+  await expectCard(page, 'Seal row', 'Round 2 of 2');
+  await expect.poll(() => reachesServer(DAY).length, { timeout: 15_000 }).toBe(2);
+
+  await seed(request, putPrograms(replaced));
+  await page.reload();
+  await expectCard(page, 'Pin press', 'Round 1 of 2');
+  await expect(plan(page)).not.toContainText('Seal row');
+  await page.getByLabel('Load', { exact: true }).fill('135');
+  await logSet(page);
+  await expect
+    .poll(() => reachesServer(DAY).map((p) => [p.lift, p.sets.length]), { timeout: 15_000 })
+    .toEqual([
+      ['pendlay-row', 1],
+      ['pin-press', 1],
+      ['seal-row', 1],
+    ]);
+  expect(trouble).toEqual([]);
+});
