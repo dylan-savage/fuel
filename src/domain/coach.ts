@@ -533,6 +533,8 @@ export interface CoachSnapshot {
   /** Echoed by a publish, which answers stale if the plan has moved past it. */
   readonly basedOnRev: number;
   readonly program: Program | null;
+  /** The newest report on or before today. A mid-week version holds none, and an unanswered question must not be lost with it. */
+  readonly lastReport: { readonly from: LocalDate; readonly report: NonNullable<Program['report']> } | null;
   readonly upcoming: readonly Program[];
   /** The weeks asked for, oldest first, plus the week of any session that arrived late. */
   readonly weeks: readonly SnapshotWeek[];
@@ -554,6 +556,14 @@ export function targetMondayOf(today: LocalDate): LocalDate {
  * week are removed, so a retest planned for a later week is not lost, and the draft publishes
  * with nothing to explain. `changes` explained the last version, so it starts empty.
  */
+function lastReportOn(programs: readonly Program[], today: LocalDate): CoachSnapshot['lastReport'] {
+  const version = programs
+    .filter((p) => p.effectiveFrom <= today && p.report !== undefined)
+    .toSorted((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))
+    .at(-1);
+  return version?.report === undefined ? null : { from: version.effectiveFrom, report: version.report };
+}
+
 function draftFrom(program: Program, targetMonday: LocalDate): ProgramDraft {
   const { id: _id, publishedAt: _publishedAt, report: _report, ...rest } = program;
   const stillLive = liveFrom(targetMonday);
@@ -688,6 +698,7 @@ export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; rea
     earliestEffectiveFrom: earliestEffectiveFrom(programs, today),
     basedOnRev: docs.programRev,
     program,
+    lastReport: lastReportOn(programs, today),
     upcoming: programs.filter((version) => version.effectiveFrom > today).toSorted((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom)),
     weeks,
     notes: [...summaries.flatMap(({ notes }) => notes), ...trainingNotes].toSorted((a, b) => a.date.localeCompare(b.date)),

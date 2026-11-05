@@ -638,6 +638,13 @@ describe('snapshotOf', () => {
     return { ...base, food: { ...base.food, nutrients: { kcal, ...(protein === undefined ? {} : { protein }) } } };
   }
 
+  it('keeps the newest report when a mid-week version holds none', () => {
+    const reported = program('2030-02-25', [{ key: 'push', blocks: [pushBlock] }], { report: { text: 'A question for you.' } });
+    const snapshot = snapshotOf({ ...noDocs, programs: [arrived(reported), arrived(base)] }, AT_SUNDAY);
+    expect(snapshot.program?.id).toBe(base.id);
+    expect(snapshot.lastReport).toEqual({ from: '2030-02-25', report: { text: 'A question for you.' } });
+  });
+
   it('gives the version in effect and the upcoming ones', () => {
     const next = program('2030-03-11', [{ key: 'push', blocks: [pushBlock] }]);
     const later = program('2030-03-18', [{ key: 'push', blocks: [pushBlock] }]);
