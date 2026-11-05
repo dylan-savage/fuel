@@ -1,26 +1,27 @@
-/* iOS system colors, so the app sits naturally beside native ones in light and dark. */
+/* Graphite: plain cool grays with an ink accent, which leaves color for status and nothing else. */
 :root {
   color-scheme: light dark;
-  --bg: #f2f2f7;
+  --bg: #f1f1f3;
   --card: #ffffff;
-  --fill: rgba(118, 118, 128, 0.12);
-  --text: #000000;
-  --muted: rgba(60, 60, 67, 0.6);
-  --separator: rgba(60, 60, 67, 0.2);
-  --tint: #007aff;
-  --green: #34c759;
-  --red: #ff3b30;
-  --orange: #ff9500;
-  --protein: #ff9500;
-  --carbs: #32ade6;
-  --fat: #af52de;
-  --water: #32ade6;
-  --fast: #5856d6;
-  --goal-line: #248a3d;
-  --scale-dot: #8e8e93;
-  --bar: rgba(120, 120, 128, 0.16);
-  --tabbar: rgba(249, 249, 249, 0.94);
-  --toast: rgba(28, 28, 30, 0.96);
+  --fill: rgba(80, 82, 90, 0.11);
+  --text: #17181c;
+  --muted: rgba(46, 48, 56, 0.7);
+  --separator: rgba(46, 48, 56, 0.15);
+  --tint: #24262c;
+  --on-tint: #ffffff;
+  --green: #2c8a5f;
+  --red: #c0413a;
+  --orange: #b47a24;
+  --protein: #24262c;
+  --carbs: #6f7886;
+  --fat: #a9afb9;
+  --water: #6f7886;
+  --fast: #4a4e59;
+  --goal-line: #2c8a5f;
+  --scale-dot: #969aa3;
+  --bar: rgba(80, 82, 90, 0.17);
+  --tabbar: rgba(247, 247, 249, 0.94);
+  --toast: rgba(23, 24, 28, 0.96);
   --segment: #ffffff;
   --tab-height: 50px;
   /* The four text sizes. Weight does the rest. */
@@ -32,27 +33,29 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #000000;
-    --card: #1c1c1e;
-    --fill: rgba(118, 118, 128, 0.24);
-    --text: #ffffff;
-    --muted: rgba(235, 235, 245, 0.6);
-    --separator: rgba(84, 84, 88, 0.6);
-    --tint: #0a84ff;
-    --green: #30d158;
-    --red: #ff453a;
-    --orange: #ff9f0a;
-    --protein: #ff9f0a;
-    --carbs: #64d2ff;
-    --fat: #bf5af2;
-    --water: #64d2ff;
-    --fast: #5e5ce6;
-    --goal-line: #34a853;
-    --bar: rgba(120, 120, 128, 0.32);
-    --tabbar: rgba(22, 22, 23, 0.94);
-    --toast: rgba(58, 58, 60, 0.98);
-    --segment: #636366;
-  }
+    --bg: #0c0d0f;
+    --card: #1a1b1f;
+    --fill: rgba(160, 163, 172, 0.15);
+    --text: #eeeff2;
+    --muted: rgba(228, 230, 236, 0.64);
+    --separator: rgba(160, 163, 172, 0.22);
+    --tint: #eceef2;
+    --on-tint: #131418;
+    --green: #57c08e;
+    --red: #ee6f66;
+    --orange: #dfa650;
+    --protein: #eceef2;
+    --carbs: #a4abb7;
+    --fat: #6d7380;
+    --water: #a4abb7;
+    --fast: #c3c7d0;
+    --goal-line: #57c08e;
+    --bar: rgba(160, 163, 172, 0.24);
+    --tabbar: rgba(22, 23, 26, 0.94);
+    --toast: rgba(46, 47, 53, 0.98);
+    --segment: #3a3c43;
+  --scale-dot: #80848d;
+}
 }
 
 * {
@@ -278,7 +281,7 @@ main {
   min-height: 44px;
   border-radius: 12px;
   background: var(--tint);
-  color: #fff;
+  color: var(--on-tint);
   font-weight: 600;
 }
 
@@ -1026,7 +1029,7 @@ main {
   min-height: 50px;
   border-radius: 12px;
   background: var(--tint);
-  color: #fff;
+  color: var(--on-tint);
   font-weight: 600;
 }
 
@@ -1042,6 +1045,7 @@ main {
 
 .text-button {
   color: var(--tint);
+  font-weight: 500;
   min-height: 44px;
   padding: 0 4px;
 }
@@ -1369,7 +1373,7 @@ main {
 }
 
 .toast .text-button {
-  color: #0a84ff;
+  color: #fff;
   font-weight: 600;
 }
 

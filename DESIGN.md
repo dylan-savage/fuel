@@ -2,16 +2,16 @@
 
 Fuel is one person's food and lifting log on an iPhone, used one-handed, often mid-set. It should sit beside native iOS apps and disappear into the task. The owner's complaint on 2026-11-04 was that it reads as busy, with too many words, and that the context in it is good but badly organized. These rules fix that for the whole app, calorie tracker and trainer alike.
 
-This is a simplification of the existing look, not a new brand. iOS system colors and fonts stay. Features stay, unless this file says one goes.
+This is a simplification of the existing look, not a new brand. The system font stays. Colors are Graphite: plain cool grays with an ink accent, chosen by the owner on 2026-11-04. Features stay, unless this file says one goes.
 
 ## The rules
 
-1. **One screen, one job.** A screen has at most one primary action, and it is the only filled blue control on screen.
+1. **One screen, one job.** A screen has at most one primary action, and it is the only filled accent control on screen.
 2. **Numbers first, words on request.** A row shows a name and a number. Explanations, cues, formulas and history open on a tap. No row carries more than one line of muted text.
 3. **Say it once.** Nothing repeats what is already on screen: no heading that restates its only row, no caption that restates its heading, no subtitle that restates a selected control.
 4. **Plain nouns.** A section heading is a noun, such as "Key lifts". Never a question, and never a sentence.
 5. **One container.** Content lives in grouped list rows (`.list`) or a single summary card. Never a stack of paragraph cards, and never a card in a card.
-6. **Blue means act.** Blue is for the primary action and small text actions. A row that navigates is black text with a chevron. Status and macro colors stay, on small marks only.
+6. **The accent means act.** The accent is for the primary action and small text actions, which also carry a heavier weight, because in Graphite the accent is close to the text color. A row that navigates is black text with a chevron. Status and macro colors stay, on small marks only.
 7. **Four text sizes.** 28 for a screen title, 22 for a hero number, 17 for row text, 13 for muted detail. Weight does the rest. Drop the 15, 14, 19, 12 and 11 steps wherever a screen is touched.
 8. **Empty stays quiet.** An empty thing takes one short line or no space at all. It does not explain the app.
 9. **Copy is short.** Cut every string in half, then again. Use the words he uses: "est. max", not "est. 1RM".
