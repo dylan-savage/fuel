@@ -81,7 +81,7 @@ test('a fake clock crosses two Mondays offline with no writes', async ({ page, c
   await expect(coach).toContainText(/Sunday 7:02\sAM/);
   await expect(coach.getByText('Invented report for the first week.')).toBeVisible();
   await expect(coach.getByRole('list', { name: 'Changes' }).getByRole('listitem'), 'two blocks and the minimum, with the notes left out').toHaveCount(3);
-  await expect(coach.getByText('A new note on the week')).toHaveCount(3);
+  await expect(coach.getByText('A new note on the week'), 'week notes rotate, so they are not changes').toHaveCount(0);
   await expect(coach.getByText('First week only.')).toBeVisible();
   await expect(coach.getByText('Second week only.')).toBeHidden();
   await closeCoach(page);
