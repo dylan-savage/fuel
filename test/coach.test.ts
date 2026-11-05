@@ -356,6 +356,15 @@ describe('parseProgramDraft', () => {
 });
 
 describe('coachWeek', () => {
+  it('leaves week notes out of what the phone lists as changed', () => {
+    const pushDay = { key: 'push', blocks: [liftsBlock('main', [slot('a1', 'bench-press', 3)])] };
+    const before = program('2030-03-04', [pushDay], { notes: [{ text: 'An old reminder.' }] });
+    const after = program('2030-03-11', [pushDay, { key: 'pull', blocks: [liftsBlock('other', [slot('b1', 'seal-row', 3)])] }]);
+    const week = coachWeek(before, [after]);
+    expect(week.kind === 'checked-in' ? week.changes.map((item) => item.target) : []).toEqual(['day:pull']);
+    expect(programDiff(before, after).some((item) => item.kind.startsWith('note-'))).toBe(true);
+  });
+
   const reported = (text: string, at: number) => ({ report: { text }, publishedAt: ms(at) });
   const week = program('2030-03-11', DAYS, { ...reported('A good week.', T0), standing: [], changes: [{ target: 'standing:rules', why: 'Said elsewhere now.' }] });
 

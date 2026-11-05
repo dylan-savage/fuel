@@ -299,7 +299,8 @@ export function coachWeek(before: Program | null, thisWeek: readonly Program[]):
     kind: 'checked-in',
     at: reporting.publishedAt,
     report: reporting.report ?? null,
-    changes: thisWeek.flatMap((version, i) => programDiff(thisWeek[i - 1] ?? before, version)),
+    // Week notes rotate on purpose, and they sit in the same sheet, so listing them is only noise.
+    changes: thisWeek.flatMap((version, i) => programDiff(thisWeek[i - 1] ?? before, version)).filter((item) => !item.kind.startsWith('note-')),
   };
 }
 

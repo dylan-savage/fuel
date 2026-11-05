@@ -94,7 +94,6 @@ Per separate-before-serializing-shared-state, each piece of state has one owner.
 |---|---|
 | foods, recipes, saved meals, entries, workouts, water, fasts, weigh-ins, goals, profile, sessions, performances, training notes | the phone, through `/api/sync` pushes |
 | program versions | the coach tool, through `/api/train/publish`. A backup restore re-pushes them as the phone's. |
-| Notion's sessions, performances and weigh-ins, until cutover | the import, through `/api/train/import`. It never overwrites a document a phone last wrote, and it writes no other kind. |
 | revision counter, epoch, per-client last mutation id | the server's `DocStore` |
 | totals, remaining, trend, recents, fasting state | nobody. Pure functions derive them on read. |
 
@@ -184,7 +183,7 @@ Importing measured burn is out of scope until Dylan has a wearable he trusts (de
 src/domain/     pure; compiled with no DOM and no Node types
   ids.ts units.ts nutrients.ts food.ts diary.ts library.ts reuse.ts goals.ts body.ts burn.ts habits.ts quicklog.ts kinds.ts
 src/protocol.ts zod schemas for every HTTP body
-src/server/     main.ts routes.ts train.ts import.ts store.ts foods.ts off.ts usda.ts upstream.ts ai.ts backup.ts
+src/server/     main.ts routes.ts train.ts store.ts foods.ts off.ts usda.ts upstream.ts ai.ts backup.ts
 src/client/     main.tsx replica.ts sync.ts intents.ts views.ts api.ts scanner.ts photo.ts screens/
 test/           domain units, adapter fixtures, routes, sync simulation, schema history pin
 scripts/        run.sh, com.dylansavage.fuel.plist, restore.sh, ai-smoke.mjs, train.mjs, coach-prompt.md, reconcile-history.mjs, import-history.mjs
@@ -201,7 +200,6 @@ The tab bar has four tabs: Diary, Add, Train and Goal. Scanning is a button in A
 | `POST /api/sync` | the phone's write path for user data: push mutations, pull changes |
 | `GET /api/train/snapshot?weeks=6` | the coach's read: the version in effect, recent sessions by the phone's own math, every note, and `basedOnRev` to echo |
 | `POST /api/train/publish`, `?dryRun=1` | the coach's write path, for program versions only. Same perimeter as `/api/sync` and the same lack of auth. A named JSON status: 200 `published`, `unchanged` or `dry-run`, 422 `invalid`, 409 `frozen`, `stale` or `phone_behind` |
-| `POST /api/train/import`, `?dryRun=1`, `?weighIns=1` | the one-time Notion import, deleted at cutover. 200 `imported` or `dry-run`, 422 `invalid`, `unreconciled` or `past_cutover`, 409 `phone_behind` |
 | `GET /api/foods/search?q=` | USDA (when `USDA_API_KEY` is set) and Open Food Facts text search through search-a-licious; 502 only when every source fails |
 | `GET /api/foods/lookup/:ref` | barcode (`gtin:`) or USDA (`usda:`) lookup, cached on the mini |
 | `POST /api/ai/parse` | a description or photo to drafts, or a label to a food candidate; writes nothing; 503 `ai_unconfigured` without a key |

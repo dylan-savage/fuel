@@ -136,59 +136,6 @@ export const PublishAnswer = z.discriminatedUnion('status', [
 ]);
 export type PublishAnswer = z.infer<typeof PublishAnswer>;
 
-const ImportCounts = z.object({ session: z.number().int(), performance: z.number().int(), weighIn: z.number().int() });
-const ImportedDoc = z.object({ kind: z.enum(['session', 'performance', 'weighIn']), id: z.string() });
-const DayShift = z.object({ date: LocalDate, before: z.number(), after: z.number(), change: z.number() });
-const TargetShift = z.object({ days: z.array(DayShift), largest: DayShift.nullable() });
-
-const ImportedFields = {
-  /** Sha-256 of the documents, the one scripts/reconcile-history.mjs prints for the same file. */
-  digest: z.string(),
-  /** What the file holds, whatever was stored already. */
-  inFile: z.object({ sessions: z.number().int(), performances: z.number().int(), sets: z.number().int(), lifts: z.number().int() }),
-  written: ImportCounts,
-  unchanged: ImportCounts,
-  /** A phone last wrote these and they differ, so they were left as Dylan left them. */
-  conflicts: z.array(ImportedDoc),
-  /** Written by an earlier import and gone from this file, so they still count until someone removes them. */
-  orphans: z.array(ImportedDoc),
-  weighIns: z.object({
-    /** Null when fuel has none, and `meaning` says what follows from that. */
-    firstInFuel: LocalDate.nullable(),
-    /** Dates written unless a phone holds that day. */
-    newer: z.array(LocalDate),
-    /** Dates written only under ?weighIns=1. */
-    older: z.array(LocalDate),
-    included: z.boolean(),
-    meaning: z.string().nullable(),
-  }),
-};
-
-/**
- * POST /api/train/import. Every outcome names itself, as a publish does, and the body stays
- * unknown here because the route reports every problem in it. Deleted at cutover with
- * src/server/import.ts.
- */
-export const ImportAnswer = z.discriminatedUnion('status', [
-  /** 200. A listed conflict was skipped, and everything else landed. */
-  z.object({ status: z.literal('imported'), ...ImportedFields }),
-  /** 200. Nothing written. `targetShift` compares today's calorie targets with each choice about weigh-ins. */
-  z.object({ status: z.literal('dry-run'), ...ImportedFields, phoneBehind: z.boolean(), targetShift: z.object({ byDefault: TargetShift, withOlder: TargetShift }) }),
-  /** 422. Nothing written. The file failed its schema, or a document failed its own. */
-  z.object({ status: z.literal('invalid'), problems: z.array(z.object({ path: z.string(), message: z.string() })) }),
-  /** 422. Nothing written. A disagreement with Progress stands with no waiver, or a waiver names nothing that disagrees. */
-  z.object({
-    status: z.literal('unreconciled'),
-    standing: z.array(z.object({ row: z.string(), field: z.string(), notion: z.string(), computed: z.string() })),
-    staleWaivers: z.array(z.object({ row: z.string(), field: z.string() })),
-  }),
-  /** 422. Nothing written. These sessions are dated on or after the cutover in the body. */
-  z.object({ status: z.literal('past_cutover'), cutover: LocalDate, dates: z.array(LocalDate) }),
-  /** 409. Nothing written. No shell that can skip an unknown kind has reported in. */
-  z.object({ status: z.literal('phone_behind') }),
-]);
-export type ImportAnswer = z.infer<typeof ImportAnswer>;
-
 /** The `:ref` path segment of GET /api/foods/lookup: `gtin:<13 digits>` or `usda:<fdcId>`. */
 export function formatRef(ref: ExternalRef): string {
   switch (ref.kind) {
