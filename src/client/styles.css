@@ -1832,8 +1832,17 @@ main {
 }
 
 .sheet-body > .list + .sheet-actions,
-.sheet-body > .hint + .sheet-actions {
+.sheet-body > .hint + .sheet-actions,
+.sheet-body > .list + .note-field {
   margin-top: 16px;
+}
+
+/* An earlier note is a row to tap, and the tap shows it whole. */
+.note-lines .row-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .cue-text {
