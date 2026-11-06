@@ -53,6 +53,7 @@ import {
   type WeekProgress,
 } from '../domain/progress.js';
 import { refreshFor, type EditedRef, type Recipe, type Refresh, type SavedMeal } from '../domain/reuse.js';
+import type { TrainingNote } from '../domain/notes.js';
 import { PICK_WEEKS } from '../domain/picks.js';
 import { addedOn, cardioDoneOn, sessionForDay, trainedLately, type DayLogs, type DayRef, type LiftChoice, type Session, type SessionLogs } from '../domain/session.js';
 import { localDate } from './clock.js';
@@ -187,6 +188,8 @@ export interface DayScreenView extends DayLogs {
   readonly lifts: readonly Lift[];
   /** Exercises he added that day, from addedOn. */
   readonly added: readonly LiftChoice[];
+  /** That date's lines, which the Note sheet lists. */
+  readonly trainingNotes: readonly TrainingNote[];
 }
 
 /**
@@ -195,7 +198,7 @@ export interface DayScreenView extends DayLogs {
  * version in effect. Null when neither holds the day.
  */
 export async function dayScreenView(r: ReplicaReader, { key, date }: DayRef): Promise<DayScreenView | null> {
-  const [sessions, workouts, inEffect] = await Promise.all([r.onDate('session', date), r.onDate('workout', date), r.programOn(date)]);
+  const [sessions, workouts, inEffect, trainingNotes] = await Promise.all([r.onDate('session', date), r.onDate('workout', date), r.programOn(date), r.onDate('trainingNote', date)]);
   const session = sessionForDay(sessions, key) ?? null;
   const pinned = session?.programId === undefined ? undefined : await r.get('program', session.programId);
   const pinnedPlan = pinned === undefined ? undefined : plannedDay(pinned, key, date);
@@ -212,6 +215,7 @@ export async function dayScreenView(r: ReplicaReader, { key, date }: DayRef): Pr
     session,
     performances,
     added: addedOn(performances),
+    trainingNotes,
     cardioDone: cardioDoneOn(session, workouts),
   };
 }

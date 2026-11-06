@@ -4,9 +4,10 @@ import type { Workout } from './burn.js';
 import { summarizeDay, type Entry } from './diary.js';
 import { addDays, isMonday, mondayOf, type LocalDate, type Millis, type ProgramId, type SessionId } from './ids.js';
 import { MUSCLES, liftBook, type Lift, type LiftId, type Performance, type Target } from './lifts.js';
+import type { TrainingNote } from './notes.js';
 import { Program, ProgramDraft, plannedDay, programId, programOn, type Block, type Day, type ProgramNote, type Report, type Slot, type StandingText } from './program.js';
 import { addWeightNext, skipsOf, sessionsDone, swapsOf, totalsOf, typedLine, workingSets, type Skip, type Swap } from './progress.js';
-import { finishOf, sessionPhase, sessionWorkoutDraft, type Session, type SessionPhase, type TrainingNote } from './session.js';
+import { finishOf, sessionPhase, sessionWorkoutDraft, type Session, type SessionPhase } from './session.js';
 import { isRecord, unknownFields } from './strict.js';
 
 /**
@@ -639,6 +640,14 @@ function notesOf(session: Session, performances: readonly Performance[], skips: 
   ];
 }
 
+/** Where a line about a day or an exercise reads as coming from, the same as an older build's line on the session or the exercise. */
+const NOTE_SOURCE = { day: 'session', exercise: 'exercise' } as const satisfies Record<NonNullable<TrainingNote['about']>['kind'], SnapshotNote['source']>;
+
+/** A line with no `about` is a loose one about the week, as Tell the coach has always written. */
+function snapshotNote(note: TrainingNote): SnapshotNote {
+  return { date: note.date, source: note.about === undefined ? 'training' : NOTE_SOURCE[note.about.kind], about: note.about?.label ?? null, text: note.text };
+}
+
 export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; readonly now: Millis; readonly phoneLastSyncAt: Millis | null }, weekCount = SNAPSHOT_WEEKS): CoachSnapshot {
   const { today, now } = at;
   const programs = docs.programs.map((program) => program.doc);
@@ -701,7 +710,12 @@ export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; rea
   const oldestFirst = performances.filter((p) => !book.has(p.liftId)).toSorted((a, b) => a.date.localeCompare(b.date));
   const uncataloged = [...new Map(oldestFirst.map((p) => [p.liftId, { liftId: p.liftId, label: p.label, lastDone: p.date }])).values()].toSorted((a, b) => a.liftId.localeCompare(b.liftId));
 
-  const trainingNotes = docs.trainingNotes.filter((note) => note.date >= firstWeek).map((note): SnapshotNote => ({ date: note.date, source: 'training', about: null, text: note.text }));
+  // A line on the date of a session that arrived late is read with that session, however old.
+  const shownDates = new Set(shown.map((read) => read.session.date));
+  const trainingNotes = docs.trainingNotes
+    .filter((note) => note.date >= firstWeek || shownDates.has(note.date))
+    .toSorted((a, b) => a.at - b.at)
+    .map(snapshotNote);
 
   const targetMonday = targetMondayOf(today);
   const holdingTarget = programOn(programs, targetMonday);

@@ -4,7 +4,6 @@ import { WorkoutId } from '../src/domain/ids.js';
 import { Performance, liftBook, type SetLog } from '../src/domain/lifts.js';
 import type { Slot } from '../src/domain/program.js';
 import {
-  TrainingNote,
   addedOn,
   afterSet,
   blockDone,
@@ -315,15 +314,6 @@ describe('trainedLately', () => {
     expect(trainedLately([at(3)], ms(T0))).toBe(false);
     expect(trainedLately([performance({ lift: 'bench-press', sets: [lb(100, 8)] })], ms(T0))).toBe(false);
     expect(trainedLately([], ms(T0))).toBe(false);
-  });
-});
-
-describe('TrainingNote', () => {
-  it('holds a line of text for a date', () => {
-    const note = { id: '0b1e6c7a-3f2d-4e5a-8b9c-0d1e2f3a4b5c', date: '2030-03-04', text: 'Invented line.', at: T0 };
-    expect(TrainingNote.safeParse(note).success).toBe(true);
-    expect(TrainingNote.safeParse({ ...note, text: '' }).success).toBe(false);
-    expect(TrainingNote.safeParse({ ...note, id: 'not-a-uuid' }).success).toBe(false);
   });
 });
 

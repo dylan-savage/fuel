@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import type { CoachWeek } from '../../domain/coach.js';
 import { mondayOf, type LocalDate } from '../../domain/ids.js';
 import type { DayKey, StandingText } from '../../domain/program.js';
-import { TrainingNote } from '../../domain/session.js';
+import { TrainingNote } from '../../domain/notes.js';
 import { useIntents, useLive, weekView, type WeekView } from '../views.js';
 import { changeWords, clipped, count, pastMoment, shortDate, weekdayName } from './format.js';
 import { ProgressSheet } from './Progress.js';
@@ -74,7 +74,7 @@ function CoachSheet({ week, today, onClose }: { readonly week: WeekView; readonl
           disabled={!valid}
           onClick={() => {
             onClose();
-            void intents.tellCoach(text, today).then((undo) => toast({ text: 'Saved for the coach', undo }));
+            void intents.addNote({ kind: 'week', date: today }, text).then((undo) => toast({ text: 'Saved for the coach', undo }));
           }}
         >
           Save note

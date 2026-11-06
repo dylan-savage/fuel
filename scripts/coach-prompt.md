@@ -8,7 +8,7 @@ He logs exercises in whatever order the gym allows, so the order of `exercises` 
 
 ## 1. Read
 
-Run `node scripts/train.mjs read`. It prints the paths of `snapshot.json` and `draft.json`. Open the snapshot and read all of it: `weeks` with each session's exercises, skips and swaps, every entry of `notes` (`session`, `skip`, `exercise`, `set` and `training`), `uncataloged`, and `phoneLastSyncAt`. Also read `lastReport`, the newest report on or before today. A question in it he has not answered must not be lost, so answer it or carry it into the new report.
+Run `node scripts/train.mjs read`. It prints the paths of `snapshot.json` and `draft.json`. Open the snapshot and read all of it: `weeks` with each session's exercises, skips and swaps, every entry of `notes` (`session`, `skip`, `exercise`, `set` and `training`), `uncataloged`, and `phoneLastSyncAt`. A day or an exercise can carry several notes, each its own entry. Also read `lastReport`, the newest report on or before today. A question in it he has not answered must not be lost, so answer it or carry it into the new report.
 
 If `program` or an entry of `upcoming` has `effectiveFrom` equal to `targetMonday` and has a `report`, this week is done. Print "Already ran for <date>." and stop, unless Dylan asked you for a change.
 

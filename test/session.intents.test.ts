@@ -9,6 +9,7 @@ import { metDraft } from '../src/domain/burn.js';
 import type { GoalDraft } from '../src/domain/goals.js';
 import { addDays, type Millis } from '../src/domain/ids.js';
 import { performanceId } from '../src/domain/lifts.js';
+import { notesOn, type DayNoteTarget } from '../src/domain/notes.js';
 import type { Slot } from '../src/domain/program.js';
 import { sessionWorkoutId, type DayRef, type Session, type SetEntry } from '../src/domain/session.js';
 import { T0, blockId, cardio, checklist, day, dayKey, lift, liftsBlock, ms, program, session, slot, target } from './training.fixtures.js';
@@ -25,6 +26,7 @@ const push = { key: 'push', label: 'Push', weekday: 3, blocks: [warmUp, liftsBlo
 const pull = { key: 'pull', label: 'Pull', weekday: 4, blocks: [liftsBlock('main', [slot('b1', 'seal-row', 3, { label: 'Seal row' })])] };
 const version = program('2030-03-04', [push, pull]);
 const PUSH: DayRef = { key: dayKey('push'), date: TODAY };
+const dayNote: DayNoteTarget = { kind: 'day', day: PUSH, label: 'Push' };
 
 const open: Replica[] = [];
 afterEach(() => {
@@ -99,7 +101,6 @@ describe('the lazy session', () => {
 
   it.each([
     ['a skip', (s: Setup) => s.intents.skipSlot(PUSH, row.id, 'Invented reason.'), { skips: [{ slotId: row.id, note: 'Invented reason.' }] }],
-    ['a note', (s: Setup) => s.intents.noteSession(PUSH, ' Invented note. '), { note: 'Invented note.' }],
     ['a tick', (s: Setup) => s.intents.checkBlock(PUSH, warmUp.id), { checked: [warmUp.id] }],
   ])('is made by %s too, and its undo takes it away', async (_name, write, holds) => {
     const s = await setup();
@@ -109,9 +110,9 @@ describe('the lazy session', () => {
     expect(await s.replica.read.all('session')).toEqual([]);
   });
 
-  it('is not made by a blank note, which has nothing to hold', async () => {
+  it('is not made by a note, which is a document of its own', async () => {
     const s = await setup();
-    await s.intents.noteSession(PUSH, '   ');
+    await s.intents.addNote(dayNote, 'Invented note.');
     expect(await s.replica.read.all('session')).toEqual([]);
   });
 
@@ -122,7 +123,6 @@ describe('the lazy session', () => {
     await s.intents.logSet(rowOn(), lbs(50, 10));
     await s.intents.logSet(benchOn(), lbs(100, 8));
     await s.intents.skipSlot(PUSH, row.id, '');
-    await s.intents.noteSession(PUSH, 'Invented note.');
     await s.intents.checkBlock(PUSH, warmUp.id);
     expect((await sessionOf(s)).id).toBe(doc.id);
     expect(await sets(s, doc)).toEqual([8, 8]);
@@ -199,7 +199,7 @@ describe('a day being done', () => {
     await s.intents.logSet(benchOn(), { ...lbs(45, 10), warmup: true });
     await s.intents.checkBlock(PUSH, warmUp.id);
     await s.intents.skipSlot(PUSH, row.id, '');
-    await s.intents.noteSession(PUSH, 'Invented note.');
+    await s.intents.addNote(dayNote, 'Invented note.');
     expect(await doneDays(s)).toEqual([]);
   });
 
@@ -314,23 +314,109 @@ describe('editSet', () => {
   });
 });
 
-describe('notes, skips and ticks', () => {
-  it('notes an exercise and the day, blank removes, and undo restores', async () => {
-    const s = await setup();
-    const doc = await logged(s);
-    await s.intents.noteExercise(benchId(doc), ' Invented note. ');
-    expect((await s.replica.read.get('performance', benchId(doc)))?.note).toBe('Invented note.');
-    const undoBlank = await s.intents.noteExercise(benchId(doc), '  ');
-    expect(await s.replica.read.get('performance', benchId(doc))).not.toHaveProperty('note');
-    await undoBlank();
-    expect((await s.replica.read.get('performance', benchId(doc)))?.note).toBe('Invented note.');
+describe('notes', () => {
+  const linesOn = async ({ replica }: Pick<Setup, 'replica'>, target: DayNoteTarget) => {
+    const view = await dayScreenView(replica.read, PUSH);
+    if (view === null) throw new Error('expected the day');
+    return notesOn(target, { notes: view.trainingNotes, session: view.session, performances: view.performances });
+  };
+  const texts = async (s: Setup, target: DayNoteTarget) => (await linesOn(s, target)).map((line) => line.text);
+  const benchNote: DayNoteTarget = { kind: 'exercise', day: PUSH, exercise: benchOn().exercise };
 
-    const undoDay = await s.intents.noteSession(PUSH, 'Invented session note.');
-    expect((await sessionOf(s)).note).toBe('Invented session note.');
-    await undoDay();
-    expect(await sessionOf(s)).not.toHaveProperty('note');
+  it('writes one document per line, keeps two on one day apart, and writes nothing for blank text', async () => {
+    const s = await setup();
+    const undo = await s.intents.addNote(dayNote, ' Invented first. ');
+    s.later(MINUTE);
+    await s.intents.addNote(dayNote, 'Invented second.');
+    await s.intents.addNote(dayNote, '   ');
+    expect(await s.replica.read.all('trainingNote')).toMatchObject([
+      { date: TODAY, text: 'Invented first.', about: { kind: 'day', key: 'push', label: 'Push' } },
+      { date: TODAY, text: 'Invented second.', about: { kind: 'day', key: 'push', label: 'Push' } },
+    ]);
+    await undo();
+    expect(await texts(s, dayNote)).toEqual(['Invented second.']);
   });
 
+  it('notes an exercise before any set, by its slot', async () => {
+    const s = await setup();
+    await s.intents.addNote(benchNote, 'Invented note on the bench.');
+    expect(await s.replica.read.all('trainingNote')).toMatchObject([{ about: { kind: 'exercise', key: 'push', slotId: bench.id, liftId: bench.liftId, label: 'Bench press' } }]);
+    expect(await texts(s, benchNote)).toEqual(['Invented note on the bench.']);
+    expect(await texts(s, dayNote)).toEqual([]);
+    expect(await s.replica.read.all('session')).toEqual([]);
+  });
+
+  it('edits a line in place, keeping its id and time, and null deletes it, each with an undo', async () => {
+    const s = await setup();
+    await s.intents.addNote(dayNote, 'Invented first.');
+    const [before] = await s.replica.read.all('trainingNote');
+    const [line] = await linesOn(s, dayNote);
+    if (line === undefined || before === undefined) throw new Error('expected a line');
+    s.later(MINUTE);
+    const undoEdit = await s.intents.editNote(line, 'Invented, edited.');
+    expect(await s.replica.read.all('trainingNote')).toEqual([{ ...before, text: 'Invented, edited.' }]);
+    await undoEdit();
+    expect(await s.replica.read.all('trainingNote')).toEqual([before]);
+    const undoDelete = await s.intents.editNote(line, null);
+    expect(await s.replica.read.all('trainingNote')).toEqual([]);
+    await undoDelete();
+    expect(await s.replica.read.all('trainingNote')).toEqual([before]);
+  });
+
+  it('moves an older build\'s line on the session into a document in one commit, and undo puts both back', async () => {
+    const s = await setup();
+    const doc = await logged(s);
+    await s.replica.commit([{ op: 'put', kind: 'session', doc: { ...doc, note: 'Invented old line.' } }]);
+    s.later(MINUTE);
+    await s.intents.addNote(dayNote, 'Invented new line.');
+    const [old] = await linesOn(s, dayNote);
+    expect(await texts(s, dayNote), 'the older line first, since it kept no time').toEqual(['Invented old line.', 'Invented new line.']);
+    if (old === undefined) throw new Error('expected the older line');
+    const pending = (await pendingOps(s.port)).length;
+    const undo = await s.intents.editNote(old, 'Invented old line, edited.');
+    expect((await pendingOps(s.port)).slice(pending).toSorted()).toEqual(['put session', 'put trainingNote']);
+    expect(await sessionOf(s)).not.toHaveProperty('note');
+    expect(await texts(s, dayNote), 'and keeps its place').toEqual(['Invented old line, edited.', 'Invented new line.']);
+    await undo();
+    expect((await sessionOf(s)).note).toBe('Invented old line.');
+    expect(await texts(s, dayNote)).toEqual(['Invented old line.', 'Invented new line.']);
+  });
+
+  it('moves an older build\'s line on an exercise the same way, and deleting it only empties the field', async () => {
+    const s = await setup();
+    const doc = await logged(s);
+    const performance = await s.replica.read.get('performance', benchId(doc));
+    if (performance === undefined) throw new Error('expected the bench');
+    await s.replica.commit([{ op: 'put', kind: 'performance', doc: { ...performance, note: 'Invented old line.' } }]);
+    const [old] = await linesOn(s, benchNote);
+    if (old === undefined) throw new Error('expected the older line');
+    await s.intents.editNote(old, 'Invented, edited.');
+    expect(await s.replica.read.get('performance', benchId(doc))).not.toHaveProperty('note');
+    expect(await s.replica.read.all('trainingNote')).toMatchObject([{ text: 'Invented, edited.', about: { kind: 'exercise', slotId: bench.id, liftId: bench.liftId } }]);
+
+    await s.replica.commit([{ op: 'put', kind: 'performance', doc: { ...performance, note: 'Invented other line.' } }]);
+    const [other] = await linesOn(s, benchNote);
+    if (other === undefined) throw new Error('expected the other line');
+    const undo = await s.intents.editNote(other, null);
+    expect(await s.replica.read.get('performance', benchId(doc))).not.toHaveProperty('note');
+    expect(await s.replica.read.all('trainingNote')).toHaveLength(1);
+    await undo();
+    expect((await s.replica.read.get('performance', benchId(doc)))?.note).toBe('Invented other line.');
+  });
+
+  it('writes a loose line to the coach, about nothing but the week, and undo removes it', async () => {
+    const s = await setup();
+    const undo = await s.intents.addNote({ kind: 'week', date: TODAY }, ' Invented line. ');
+    const [line, ...rest] = await s.replica.read.all('trainingNote');
+    expect(rest).toEqual([]);
+    expect(line).toMatchObject({ date: TODAY, text: 'Invented line.', at: s.at() });
+    expect(line).not.toHaveProperty('about');
+    await undo();
+    expect(await s.replica.read.all('trainingNote')).toEqual([]);
+  });
+});
+
+describe('skips and ticks', () => {
   it('skips a slot on a session already there, and undo keeps the session', async () => {
     const s = await setup();
     const doc = await logged(s);
@@ -349,14 +435,6 @@ describe('notes, skips and ticks', () => {
     expect((await sessionOf(s)).checked).toEqual([blockId('warm')]);
     await undo();
     expect((await sessionOf(s)).checked).toBeUndefined();
-  });
-
-  it('writes a loose line to the coach, and undo removes it', async () => {
-    const s = await setup();
-    const undo = await s.intents.tellCoach(' Invented line. ', TODAY);
-    expect(await s.replica.read.all('trainingNote')).toMatchObject([{ date: TODAY, text: 'Invented line.', at: s.at() }]);
-    await undo();
-    expect(await s.replica.read.all('trainingNote')).toEqual([]);
   });
 });
 

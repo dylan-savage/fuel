@@ -7,9 +7,10 @@ import { Goal, Profile } from './goals.js';
 import { Fast, FastEnd, Water } from './habits.js';
 import type { LocalDate } from './ids.js';
 import { Performance } from './lifts.js';
+import { TrainingNote } from './notes.js';
 import { Program } from './program.js';
 import { Recipe, SavedMeal } from './reuse.js';
-import { Session, TrainingNote } from './session.js';
+import { Session } from './session.js';
 
 interface KindDef<S extends z.ZodType<{ id: string }>, D extends boolean> {
   readonly schema: S;

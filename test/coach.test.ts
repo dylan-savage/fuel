@@ -5,6 +5,7 @@ import { makeWorkout, metDraft } from '../src/domain/burn.js';
 import type { Entry } from '../src/domain/diary.js';
 import { TrainingNoteId, WorkoutId, type LocalDate } from '../src/domain/ids.js';
 import { Lift, Muscle, Target } from '../src/domain/lifts.js';
+import type { TrainingNote } from '../src/domain/notes.js';
 import { CardioBlock, ChecklistBlock, Day, LiftsBlock, ProgramDraft, ProgramNote, Slot, StandingText, SwapOption, type Block, type Program } from '../src/domain/program.js';
 import { entry, newEntryId, weighIn } from './fixtures.js';
 import { T0, blockId, bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, pinned, program, session, slot, slotId, target, warm } from './training.fixtures.js';
@@ -844,6 +845,29 @@ describe('snapshotOf', () => {
       performance({ lift: 'landmine-press', label: 'Landmine press', date: '2030-03-05', sets: [lb(40, 8)] }),
     ].map((row) => arrived(row));
     expect(snapshotOf({ ...noDocs, programs: [arrived(aliased)], performances: rows }, AT_SUNDAY).uncataloged).toEqual([{ liftId: lift('landmine-press'), label: 'Landmine press', lastDone: day('2030-03-05') }]);
+  });
+
+  describe('lines he wrote', () => {
+    const line = (n: number, date: string, about?: TrainingNote['about']): TrainingNote => ({ id: TrainingNoteId.parse(`2c3f7d8b-4a3e-4f6b-9cad-1e2f3a4b5c6${n}`), date: day(date), text: `Invented line ${n}.`, at: ms(T0 + n), ...(about === undefined ? {} : { about }) });
+    const read = (docs: Partial<TrainDocs>) => snapshotOf({ ...noDocs, ...docs }, AT_SUNDAY).notes.map((n) => [n.source, n.about, n.text]);
+
+    it('reads a day\'s line as the session\'s and an exercise\'s as the exercise\'s, in the order written, beside older lines', () => {
+      const older = session({ date: day('2030-03-06'), note: 'Invented older line.', finishedAt: minutes(30) });
+      const trainingNotes = [line(3, '2030-03-06', { kind: 'exercise', key: dayKey('push'), liftId: lift('calf-raise'), label: 'Calf raise' }), line(2, '2030-03-06', { kind: 'day', key: dayKey('push'), label: 'Push' }), line(4, '2030-03-07')];
+      expect(read({ sessions: [arrived(older)], trainingNotes })).toEqual([
+        ['session', 'Push', 'Invented older line.'],
+        ['session', 'Push', 'Invented line 2.'],
+        ['exercise', 'Calf raise', 'Invented line 3.'],
+        ['training', null, 'Invented line 4.'],
+      ]);
+    });
+
+    it('keeps a line dated with a session that arrived late, however old, and leaves out an old one alone', () => {
+      const reported = { ...base, report: { text: 'Good week.' } };
+      const late = session({ date: day('2030-01-07'), finishedAt: minutes(30) });
+      const trainingNotes = [line(1, '2030-01-07', { kind: 'day', key: dayKey('push'), label: 'Push' }), line(2, '2030-01-08')];
+      expect(read({ programs: [arrived(reported, 50)], sessions: [arrived(late, 51)], trainingNotes })).toEqual([['session', 'Push', 'Invented line 1.']]);
+    });
   });
 
   describe('newSinceLastReport', () => {

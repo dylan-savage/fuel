@@ -21,6 +21,7 @@ import { endAt, fastState, openFasts, withEnds, type Fast, type FastEnd, type Wa
 import { EntryId, FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, SessionId, TrainingNoteId, WaterId, WorkoutId, type LocalDate, type PerformanceId } from '../domain/ids.js';
 import type { PhoneMutation } from '../domain/kinds.js';
 import { SetLog, type SlotId } from '../domain/lifts.js';
+import { noteOf, type NoteLine, type NoteTarget, type TrainingNote } from '../domain/notes.js';
 import type { CoreKey } from '../domain/nutrients.js';
 import { plannedDay, type BlockId } from '../domain/program.js';
 import { Recipe, type EditedRef, type RecipeDraft, type SavedMeal, type SavedMealDraft } from '../domain/reuse.js';
@@ -46,7 +47,6 @@ import {
   type Session,
   type SessionLogs,
   type SetEntry,
-  type TrainingNote,
 } from '../domain/session.js';
 import type { Replica } from './replica.js';
 import { sessionLogsView, usesView } from './views.js';
@@ -144,15 +144,17 @@ export interface Intents {
   logSet(place: { readonly day: DayRef; readonly exercise: Exercise }, entry: SetEntry): Promise<Undo | null>;
   /** Changes one logged set, keeping its tap, or removes it when `entry` is null. Removing the last removes the performance. A settled session reopens, so its workout catches up. */
   editSet(ref: { readonly performanceId: PerformanceId; readonly index: number }, entry: SetEntry | null): Promise<Undo>;
-  /** Blank text removes the note. */
-  noteExercise(id: PerformanceId, text: string): Promise<Undo>;
-  /** Blank text removes the note. */
-  noteSession(day: DayRef, text: string): Promise<Undo>;
+  /** One more line, as its own document, so it needs no queue and competes with nothing. Blank text writes nothing. */
+  addNote(target: NoteTarget, text: string): Promise<Undo>;
+  /**
+   * Rewrites one line, keeping its time, or removes it when `text` is null or blank. A line an
+   * older build kept on the session or an exercise moves into its own document in the same commit,
+   * so this build only ever empties those fields.
+   */
+  editNote(line: NoteLine, text: string | null): Promise<Undo>;
   skipSlot(day: DayRef, slot: SlotId, note: string): Promise<Undo>;
   /** A checklist's Done. */
   checkBlock(day: DayRef, block: BlockId): Promise<Undo>;
-  /** A loose line to the coach with no session under it. */
-  tellCoach(text: string, date: LocalDate): Promise<Undo>;
   /**
    * Finishes every session idle long enough at its last set, with its workout, and removes any left
    * empty. Finds nothing to do when run again.
@@ -227,16 +229,24 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
     const weight = bodyWeightOn(weighIns, profile, date);
     return weight === undefined ? null : makeWorkout(draft, { id: WorkoutId.parse(clock.newId()), date, kg: weight.kg, loggedAt: clock.now() });
   };
-  /** A tap with no set under it. A new session with nothing to hold, as from a blank note, is not written. */
+  /** A tap with no set under it. */
   const changeDay = (day: DayRef, change: (session: Session) => Session): Promise<Undo> =>
     oneAtATime(async () => {
       const target = await sessionToWrite(day, clock.now());
       if (target === null) return nothingToUndo;
-      const next = change(target.session);
-      if (target.isNew && leftEmpty({ session: next, performances: [] })) return nothingToUndo;
-      await replica.commit([{ op: 'put', kind: 'session', doc: next }]);
+      await replica.commit([{ op: 'put', kind: 'session', doc: change(target.session) }]);
       return () => replica.commit([restoreSession(target)]);
     });
+  /**
+   * An older build's line leaves the document holding it and, unless he removed it, becomes a
+   * document of its own, in one commit. It kept no time, so it takes its holder's, which keeps it
+   * ahead of the lines written after.
+   */
+  const moveOut = async (line: NoteLine, text: string, emptied: PhoneMutation, before: PhoneMutation, at: Millis | undefined): Promise<Undo> => {
+    const note: TrainingNote | null = text === '' ? null : { id: TrainingNoteId.parse(clock.newId()), date: line.date, text, at: at ?? clock.now(), about: line.about };
+    await replica.commit([emptied, ...(note === null ? [] : [{ op: 'put' as const, kind: 'trainingNote' as const, doc: note }])]);
+    return () => replica.commit([before, ...(note === null ? [] : [{ op: 'delete' as const, kind: 'trainingNote' as const, id: note.id }])]);
+  };
 
   const putRecipe = async (id: RecipeId, draft: RecipeDraft): Promise<Recipe> => {
     const before = await replica.read.get('recipe', id);
@@ -467,32 +477,42 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
         return () => replica.commit([{ op: 'put', kind: 'performance', doc: before }, ...settled.map((doc): PhoneMutation => ({ op: 'put', kind: 'session', doc }))]);
       }),
 
-    noteExercise: (id, text) =>
-      oneAtATime(async () => {
-        const before = await replica.read.get('performance', id);
-        if (before === undefined) return nothingToUndo;
-        const { note: _note, ...rest } = before;
-        const note = text.trim();
-        await replica.commit([{ op: 'put', kind: 'performance', doc: note === '' ? rest : { ...rest, note } }]);
-        return () => replica.commit([{ op: 'put', kind: 'performance', doc: before }]);
-      }),
+    addNote: async (target, text) => {
+      const note = noteOf(target, text, { id: TrainingNoteId.parse(clock.newId()), at: clock.now() });
+      if (note === null) return nothingToUndo;
+      await replica.commit([{ op: 'put', kind: 'trainingNote', doc: note }]);
+      return () => replica.commit([{ op: 'delete', kind: 'trainingNote', id: note.id }]);
+    },
 
-    noteSession: (day, text) =>
-      changeDay(day, (session) => {
-        const { note: _note, ...rest } = session;
-        const note = text.trim();
-        return note === '' ? rest : { ...rest, note };
+    editNote: (line, text) =>
+      oneAtATime(async () => {
+        const next = text?.trim() ?? '';
+        const { ref } = line;
+        switch (ref.kind) {
+          case 'note': {
+            const before = await replica.read.get('trainingNote', ref.id);
+            if (before === undefined) return nothingToUndo;
+            await replica.commit([next === '' ? { op: 'delete', kind: 'trainingNote', id: ref.id } : { op: 'put', kind: 'trainingNote', doc: { ...before, text: next } }]);
+            return () => replica.commit([{ op: 'put', kind: 'trainingNote', doc: before }]);
+          }
+          case 'session': {
+            const before = await replica.read.get('session', ref.id);
+            if (before?.note === undefined) return nothingToUndo;
+            const { note: _note, ...emptied } = before;
+            return moveOut(line, next, { op: 'put', kind: 'session', doc: emptied }, { op: 'put', kind: 'session', doc: before }, before.startedAt);
+          }
+          case 'performance': {
+            const before = await replica.read.get('performance', ref.id);
+            if (before?.note === undefined) return nothingToUndo;
+            const { note: _note, ...emptied } = before;
+            return moveOut(line, next, { op: 'put', kind: 'performance', doc: emptied }, { op: 'put', kind: 'performance', doc: before }, before.sets[0]?.at);
+          }
+        }
       }),
 
     skipSlot: (day, slot, note) => changeDay(day, (session) => withSkip(session, slot, note)),
 
     checkBlock: (day, block) => changeDay(day, (session) => withChecked(session, block)),
-
-    tellCoach: async (text, date) => {
-      const note: TrainingNote = { id: TrainingNoteId.parse(clock.newId()), date, text: text.trim(), at: clock.now() };
-      await replica.commit([{ op: 'put', kind: 'trainingNote', doc: note }]);
-      return () => replica.commit([{ op: 'delete', kind: 'trainingNote', id: note.id }]);
-    },
 
     settleLapsed: () =>
       oneAtATime(async () => {

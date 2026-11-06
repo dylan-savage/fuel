@@ -80,6 +80,11 @@ function reachesServer(date: string) {
 }
 
 const sessionsOn = (date: string) => stored('session').filter((s) => s.date === date);
+const notesOn = (date: string) =>
+  stored('trainingNote')
+    .filter((n) => n.date === date)
+    .toSorted((a, b) => a.at - b.at)
+    .map((n) => [n.about?.kind, n.about?.label, n.text]);
 
 /** What the coach reads of a date's exercises, through the route the Sunday run calls. */
 const CoachRead = z.object({
@@ -541,12 +546,16 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip 
   await expect(dayRow(page, /^Mixed day/)).toContainText('Done Wed');
 
   await expect.poll(() => reachesServer(DAY).length, { timeout: 15_000 }).toBe(6);
-  await expect.poll(() => sessionsOn(DAY)[0]?.note, { timeout: 15_000 }).toBe('Invented note on the day.');
+  await expect
+    .poll(() => notesOn(DAY), { timeout: 15_000 })
+    .toEqual([
+      ['exercise', 'Goblet squat', 'Invented note on the squat.'],
+      ['day', 'Mixed day', 'Invented note on the day.'],
+    ]);
   expect(sessionsOn(DAY)).toHaveLength(1);
   const held = new Map(stored('performance').filter((p) => p.date === DAY).map((p) => [p.liftId, p]));
   const units = held.get(lift('goblet-squat'))?.sets.map((set) => (set.load.kind === 'weight' ? `${set.load.amount} ${set.load.unit}` : null));
   expect(units, 'lb and kg in one lift, each as typed').toEqual(['50 lb', '23 kg', '23 kg']);
-  expect(held.get(lift('goblet-squat'))?.note).toBe('Invented note on the squat.');
   expect(held.get(lift('pallof-press'))?.sets[0]?.reps).toEqual({ kind: 'sides', left: 9, right: 10 });
   expect(held.get(lift('band-row'))?.sets.map((set) => set.load)).toEqual([{ kind: 'band', label: 'green' }, { kind: 'band', label: 'green' }]);
   expect(held.get(lift('chin-up'))?.sets.map((set) => set.load)).toEqual([{ kind: 'bodyweight' }, { kind: 'weight', amount: 10, unit: 'lb' }, { kind: 'weight', amount: 10, unit: 'lb' }]);
@@ -1119,4 +1128,83 @@ test('Swap suggests the listed swap and lifts for the same muscle with no typing
   await expect(sheet.getByRole('list', { name: 'Suggested' })).toHaveCount(0);
   await sheet.getByRole('button', { name: 'Use "Guillotine press (slow)"' }).click();
   await expectCard(page, 'Guillotine press (slow)', 'Set 1 of 3');
+});
+
+test('a second note starts on a fresh field, an earlier one edits or deletes, and an older build\'s note moves into its own line', async ({ page, request }) => {
+  const MONDAY = '2031-06-09';
+  const DAY = '2031-06-11';
+  const version = program(MONDAY, [{ key: 'notes', label: 'Note day', weekday: 3, blocks: [liftsBlock('main', [slot('a1', 'pin-press', 3, { label: 'Pin press', target: target(3, 5, 8) })])] }]);
+  const older = session({ date: day(DAY), day: { key: dayKey('notes'), label: 'Note day' }, programId: version.id, startedAt: ms(at(DAY, '17:30:00').getTime()), note: 'Invented older line.' });
+  await seed(request, docs(putPrograms(version), [{ op: 'put', kind: 'session', doc: older }]));
+  await page.clock.install({ time: at(DAY) });
+  await openWeek(page);
+  await openDay(page, 'Note day');
+  await openExercise(page, 'Pin press', 'Set 1 of 3');
+
+  const sheet = page.getByRole('dialog', { name: /^(Edit )?[Nn]ote$/ });
+  const lines = sheet.getByRole('list', { name: 'Earlier notes' }).getByRole('button');
+  const save = sheet.getByRole('button', { name: 'Save note' });
+  const openNote = async (scope: 'This exercise' | 'Today') => {
+    await page.getByRole('button', { name: 'Note', exact: true }).click();
+    await sheet.getByRole('radio', { name: scope }).click();
+  };
+
+  await openNote('Today');
+  await expect(lines, 'an older build’s note lists first').toHaveText(['Invented older line.']);
+  await expect(save, 'nothing to save on an empty field').toBeDisabled();
+  await sheet.getByLabel("Today's note").fill('Invented first.');
+  await save.click();
+  await expect(toast(page, 'Note saved')).toBeVisible();
+
+  await openNote('Today');
+  await expect(sheet.getByLabel("Today's note"), 'a fresh field for the next note').toHaveValue('');
+  await expect(lines).toHaveText(['Invented older line.', 'Invented first.']);
+  await sheet.getByLabel("Today's note").fill('Invented second.');
+  await save.click();
+  await expect.poll(() => notesOn(DAY), { timeout: 15_000 }).toEqual([
+    ['day', 'Note day', 'Invented first.'],
+    ['day', 'Note day', 'Invented second.'],
+  ]);
+
+  await openNote('Today');
+  await lines.filter({ hasText: 'Invented first.' }).click();
+  await expect(page.getByRole('dialog', { name: 'Edit note' })).toBeVisible();
+  await expect(lines, 'editing hides the other notes').toHaveCount(0);
+  await expect(sheet.getByLabel("Today's note")).toHaveValue('Invented first.');
+  await sheet.getByLabel("Today's note").fill('Invented first, edited.');
+  await save.click();
+  await openNote('Today');
+  await lines.filter({ hasText: 'Invented second.' }).click();
+  await sheet.getByRole('button', { name: 'Delete note' }).click();
+  await toast(page, 'Note deleted').getByRole('button', { name: 'Undo' }).click();
+  await openNote('Today');
+  await expect(lines).toHaveText(['Invented older line.', 'Invented first, edited.', 'Invented second.']);
+  await sheet.getByRole('button', { name: 'Cancel' }).click();
+
+  await openNote('This exercise');
+  await expect(lines, 'a day’s notes stay off the exercise').toHaveCount(0);
+  await sheet.getByLabel('On Pin press').fill('Invented on the press, before any set.');
+  await save.click();
+  await openNote('This exercise');
+  await expect(sheet.getByLabel('On Pin press')).toHaveValue('');
+  await lines.filter({ hasText: 'Invented on the press' }).click();
+  await sheet.getByRole('button', { name: 'Delete note' }).click();
+  await toast(page, 'Note deleted').getByRole('button', { name: 'Undo' }).click();
+  await openNote('This exercise');
+  await expect(lines).toHaveText(['Invented on the press, before any set.']);
+
+  await sheet.getByRole('radio', { name: 'Today' }).click();
+  await lines.filter({ hasText: 'Invented older line.' }).click();
+  await sheet.getByLabel("Today's note").fill('Invented older line, kept.');
+  await save.click();
+  await openNote('Today');
+  await expect(lines, 'it keeps its place').toHaveText(['Invented older line, kept.', 'Invented first, edited.', 'Invented second.']);
+  await expect.poll(() => sessionsOn(DAY).map((one) => one.note), { timeout: 15_000 }).toEqual([undefined]);
+  await expect.poll(() => notesOn(DAY), { timeout: 15_000 }).toEqual([
+    ['day', 'Note day', 'Invented older line, kept.'],
+    ['day', 'Note day', 'Invented first, edited.'],
+    ['day', 'Note day', 'Invented second.'],
+    ['exercise', 'Pin press', 'Invented on the press, before any set.'],
+  ]);
+  expect(reachesServer(DAY), 'a note needs no set').toEqual([]);
 });

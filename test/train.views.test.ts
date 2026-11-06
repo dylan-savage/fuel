@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openReplica, type Replica } from '../src/client/replica.js';
 import { dayLiftIds, dayScreenView, lastTimesView, pickerView, weekView, type DayScreenView, type WeekView } from '../src/client/views.js';
 import { weighInId } from '../src/domain/body.js';
+import { TrainingNoteId } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import type { Performance } from '../src/domain/lifts.js';
 import type { Program } from '../src/domain/program.js';
@@ -225,6 +226,13 @@ describe('dayScreenView', () => {
       { liftId: lift('tib-raise'), label: 'Tib raise' },
       { liftId: lift('calf-raise'), label: 'Calf raise' },
     ]);
+  });
+
+  it('holds that date\'s lines, which the Note sheet sorts by what they are about', async () => {
+    const replica = await replicaWith({ programs: [version] });
+    const line = (date: string, n: number) => ({ id: TrainingNoteId.parse(`3d4f7d8b-4a3e-4f6b-9cad-1e2f3a4b5c6${n}`), date: day(date), text: `Invented line ${n}.`, at: ms(T0 + n) });
+    await replica.commit([line('2030-03-07', 1), line('2030-03-06', 2)].map((doc): Mutation => ({ op: 'put', kind: 'trainingNote', doc })));
+    expect(held(await dayScreenView(replica.read, today)).trainingNotes.map((note) => note.text)).toEqual(['Invented line 1.']);
   });
 
   it('asks last time of a swap or an added lift with no set yet, and of what the day has logged', async () => {

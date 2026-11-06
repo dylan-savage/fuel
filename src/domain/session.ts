@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MET_ACTIVITIES, makeWorkout, metDraft, type Workout, type WorkoutDraft } from './burn.js';
-import { LocalDate, Millis, ProgramId, SessionId, TrainingNoteId, WorkoutId } from './ids.js';
+import { LocalDate, Millis, ProgramId, SessionId, WorkoutId } from './ids.js';
 import { SetLog, SlotId, performanceId, type LiftBook, type LiftId, type Performance, type Target, type Unit } from './lifts.js';
 import { workingSets } from './progress.js';
 import { BlockId, DayKey, type CardioBlock, type ChecklistBlock, type PlannedDay, type Slot } from './program.js';
@@ -26,15 +26,6 @@ export const Session = z.looseObject({
   source: z.literal('notion').optional(),
 });
 export type Session = z.infer<typeof Session>;
-
-/** A loose line to the coach with no session under it. Written only by the phone. */
-export const TrainingNote = z.looseObject({
-  id: TrainingNoteId,
-  date: LocalDate,
-  text: z.string().min(1).max(2000),
-  at: Millis,
-});
-export type TrainingNote = z.infer<typeof TrainingNote>;
 
 /** How long a session stays open after its last set, or its start before any set, until it counts as forgotten. */
 export const OPEN_HOURS = 6;

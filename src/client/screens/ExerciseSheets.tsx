@@ -1,11 +1,11 @@
 /** The sheets over an exercise: Skip, Note, Cue and editing a logged set. Swap is the lift picker. */
 import { useState } from 'preact/hooks';
-import type { Performance } from '../../domain/lifts.js';
+import { notesOn, type DayNoteTarget, type NoteLine, type NoteRef } from '../../domain/notes.js';
 import { entryOfSet, setLogOf, type DayRef, type Exercise, type LoggedSet } from '../../domain/session.js';
 import { entryOf, formOf, type SetForm } from '../trainDraft.js';
-import { useIntents } from '../views.js';
+import { useIntents, type DayScreenView } from '../views.js';
 import { CardActions, SetInputs, WarmUpToggle } from './SetCard.js';
-import { NoteField, Segmented, Sheet, useToast } from './ui.js';
+import { NoteField, Row, Segmented, Sheet, useToast } from './ui.js';
 
 export function SkipSheet({ label, onSkip, onClose }: { readonly label: string; readonly onSkip: (note: string) => void; readonly onClose: () => void }) {
   const [note, setNote] = useState('');
@@ -23,43 +23,66 @@ export function SkipSheet({ label, onSkip, onClose }: { readonly label: string; 
 
 type NoteScope = 'exercise' | 'day';
 
-/** On the exercise once it has a set, since a performance is the proof of one, and always on the day. */
-export function NoteSheet({ day, dayNote, exercise, onClose }: { readonly day: DayRef; readonly dayNote: string | undefined; readonly exercise: Performance | undefined; readonly onClose: () => void }) {
+const refKey = ({ kind, id }: NoteRef) => `${kind}:${id}`;
+
+/** That scope's earlier lines, oldest first, over a fresh field, so a second note never lands on the first. A tap on a line edits it, as Edit set does a set. */
+export function NoteSheet({ view, day, exercise, onClose }: { readonly view: DayScreenView; readonly day: DayRef; readonly exercise: Exercise; readonly onClose: () => void }) {
   const intents = useIntents();
   const toast = useToast();
-  const [scope, setScope] = useState<NoteScope>(exercise === undefined ? 'day' : 'exercise');
-  const [exerciseText, setExerciseText] = useState(exercise?.note ?? '');
-  const [dayText, setDayText] = useState(dayNote ?? '');
-  const text = scope === 'exercise' ? exerciseText : dayText;
+  const [scope, setScope] = useState<NoteScope>('exercise');
+  const [editing, setEditing] = useState<NoteLine | null>(null);
+  const [text, setText] = useState('');
+  const target: DayNoteTarget = scope === 'exercise' ? { kind: 'exercise', day, exercise } : { kind: 'day', day, label: view.plan.label };
+  const lines = notesOn(target, { notes: view.trainingNotes, session: view.session, performances: view.performances });
   const save = () => {
     onClose();
-    const write = scope === 'exercise' && exercise !== undefined ? intents.noteExercise(exercise.id, exerciseText) : intents.noteSession(day, dayText);
+    const write = editing === null ? intents.addNote(target, text) : intents.editNote(editing, text);
     void write.then((undo) => toast({ text: 'Note saved', undo }));
   };
+  const remove = (line: NoteLine) => {
+    onClose();
+    void intents.editNote(line, null).then((undo) => toast({ text: 'Note deleted', undo }));
+  };
   return (
-    <Sheet title="Note" onClose={onClose}>
-      {exercise !== undefined && (
-        <Segmented
-          label="Note on"
-          value={scope}
-          onChange={setScope}
-          options={[
-            { value: 'exercise', label: 'This exercise' },
-            { value: 'day', label: 'Today' },
-          ]}
-        />
+    <Sheet title={editing === null ? 'Note' : 'Edit note'} onClose={onClose}>
+      {editing === null && (
+        <>
+          <Segmented
+            label="Note on"
+            value={scope}
+            onChange={setScope}
+            options={[
+              { value: 'exercise', label: 'This exercise' },
+              { value: 'day', label: 'Today' },
+            ]}
+          />
+          {lines.length > 0 && (
+            <ul class="list note-lines" aria-label="Earlier notes">
+              {lines.map((line) => (
+                <li key={refKey(line.ref)}>
+                  <Row
+                    name={line.text}
+                    onClick={() => {
+                      setEditing(line);
+                      setText(line.text);
+                    }}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
-      <NoteField
-        label={scope === 'exercise' ? `On ${exercise?.label ?? 'this exercise'}` : "Today's note"}
-        labelClass={exercise === undefined ? 'field-label' : 'sr-only'}
-        value={text}
-        onInput={scope === 'exercise' ? setExerciseText : setDayText}
-        maxLength={scope === 'exercise' ? 1000 : 2000}
-      />
+      <NoteField label={scope === 'exercise' ? `On ${exercise.lift.label}` : "Today's note"} labelClass="sr-only" value={text} onInput={setText} maxLength={2000} />
       <div class="sheet-actions">
-        <button type="button" class="primary" onClick={save}>
+        <button type="button" class="primary" disabled={text.trim() === ''} onClick={save}>
           Save note
         </button>
+        {editing !== null && (
+          <button type="button" class="destructive" onClick={() => remove(editing)}>
+            Delete note
+          </button>
+        )}
       </div>
     </Sheet>
   );

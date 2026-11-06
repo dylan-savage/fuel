@@ -6,7 +6,7 @@
 import { useState } from 'preact/hooks';
 import type { Performance } from '../../domain/lifts.js';
 import { slotIn, type PlannedDay, type ProgramNote, type Slot } from '../../domain/program.js';
-import { cueFor, exerciseLog, isOn, type DayRef, type Exercise, type LiftChoice, type LoggedSet } from '../../domain/session.js';
+import { cueFor, exerciseLog, type DayRef, type Exercise, type LiftChoice, type LoggedSet } from '../../domain/session.js';
 import { afterLog, entryOf, typedFor, withSwap, withTyped, type SetForm, type TrainDraft } from '../trainDraft.js';
 import { useIntents, type DayScreenView } from '../views.js';
 import { CueSheet, EditSetSheet, NoteSheet, SkipSheet } from './ExerciseSheets.js';
@@ -129,7 +129,7 @@ export function ExerciseScreen({
           }}
         />
       )}
-      {sheet?.kind === 'note' && <NoteSheet day={day} dayNote={view.session?.note} exercise={view.performances.find((p) => isOn(exercise, p) && p.liftId === lift.liftId)} onClose={closeSheet} />}
+      {sheet?.kind === 'note' && <NoteSheet view={view} day={day} exercise={exercise} onClose={closeSheet} />}
       {sheet?.kind === 'cue' && <CueSheet lines={cues} onClose={closeSheet} />}
       {sheet?.kind === 'edit' && <EditSetSheet logged={sheet.row} exercise={exercise} onClose={closeSheet} />}
     </>
