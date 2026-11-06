@@ -99,4 +99,4 @@ Four tabs: Diary, Add, Train, Goal. The Scan tab goes, and scanning becomes a bu
 
 ## Seeing it
 
-`npm run build && node scripts/ui-review.mjs <label>` copies the live database to `.private/ui-review`, serves the copy on its own port, and walks the training screens on an iPhone-sized WebKit browser, logging a set on the copy, with contact sheets of every shot. `--dark` does dark mode. Food screens come from `npx playwright test e2e/shots.spec.ts`, which writes to `test-results/shots` with invented data, because the live diary is empty. Everything under `.private/` holds real data and never enters git.
+`npm run build && node scripts/ui-review.mjs <label>` copies the live database to `.private/ui-review`, serves the copy on its own port, and walks the training screens on an iPhone-sized WebKit browser, logging a set, a note and an added exercise on the copy, with contact sheets of every shot. `--dark` does dark mode. Food screens come from `npx playwright test e2e/shots.spec.ts`, which writes to `test-results/shots` with invented data, because the live diary is empty. Everything under `.private/` holds real data and never enters git.

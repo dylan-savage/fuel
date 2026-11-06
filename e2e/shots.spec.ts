@@ -12,8 +12,9 @@ import { makeEntry, type Meal } from '../src/domain/diary.js';
 import { snapshotOf, type Food, type Ingredient, type Serving } from '../src/domain/food.js';
 import { HOUR_MS, ML_PER_FL_OZ, type Fast, type FastEnd } from '../src/domain/habits.js';
 import { KG_PER_LB } from '../src/domain/goals.js';
-import { EntryId, FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, WaterId, WorkoutId, addDays, type LocalDate } from '../src/domain/ids.js';
+import { EntryId, FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, TrainingNoteId, WaterId, WorkoutId, addDays, type LocalDate } from '../src/domain/ids.js';
 import type { Mutation } from '../src/domain/kinds.js';
+import { Muscle } from '../src/domain/lifts.js';
 import type { Recipe, SavedMeal } from '../src/domain/reuse.js';
 import { band, bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, target, warm } from '../test/training.fixtures.js';
 import { openRow, saveGoal, seed, setGoal, stored, tab, typeBarcode } from './app.js';
@@ -283,7 +284,7 @@ function sessionDocs(): Mutation[] {
     swaps: [{ liftId: lift('landmine-press'), label: 'Landmine press' }, { liftId: lift('machine-press'), label: 'Machine press' }],
   });
   const row = slot('s2', 'seal-row', 3, { label: 'Seal row', target: target(3, 8, 12) });
-  const version = program(SESSION_MONDAY, [
+  const planned = program(SESSION_MONDAY, [
     {
       key: 'full',
       label: 'Upper body strength and accessory work',
@@ -300,6 +301,9 @@ function sessionDocs(): Mutation[] {
       ],
     },
   ]);
+  // Rows for the same muscle as the seal row, so Swap has something alike to suggest.
+  const back = Muscle.parse('back');
+  const version = { ...planned, lifts: [...planned.lifts.map((one) => (one.id === 'seal-row' ? { ...one, muscle: back } : one)), { id: lift('cable-row'), name: 'Cable row', aliases: [], muscle: back }, { id: lift('chest-supported-row'), name: 'Chest-supported row', aliases: [], muscle: back }] };
   const open = session({ date: day(SESSION_DAY), day: { key: dayKey('full'), label: 'Upper body strength and accessory work' }, programId: version.id, startedAt: ms(SESSION_NOW.getTime() - 19 * 60_000), checked: [checklist('warm').id] });
   const tap = (secondsAgo: number) => ({ at: ms(SESSION_NOW.getTime() - secondsAgo * 1000) });
   const performances = [
@@ -311,8 +315,20 @@ function sessionDocs(): Mutation[] {
     performance({ date: SESSION_LAST_WEEK, lift: 'reverse-crunch', sets: [bw(15), bw(14)] }),
     performance({ session: open.id, date: SESSION_DAY, slot: 's1', lift: 'single-arm-cable-press', label: press.label, sets: [{ ...sides(25, 12, 12), warmup: true, ...tap(960) }, { ...sides(32.5, 12, 11), ...tap(240) }], target: press.target }),
     performance({ session: open.id, date: SESSION_DAY, slot: 's2', lift: 'seal-row', label: row.label, sets: [{ ...kg(40, 12), ...tap(27) }], target: row.target }),
+    performance({ date: SESSION_LAST_WEEK, lift: 'calf-raise', label: 'Calf raise', sets: [lb(90, 15), lb(90, 15)] }),
+    performance({ session: open.id, date: SESSION_DAY, lift: 'calf-raise', label: 'Calf raise', sets: [{ ...lb(90, 15), ...tap(600) }, { ...lb(90, 14), ...tap(500) }] }),
   ];
-  return [...performances.map((doc): Mutation => ({ op: 'put', kind: 'performance', doc })), { op: 'put', kind: 'session', doc: open }, { op: 'put', kind: 'program', doc: version }];
+  const onRow = { kind: 'exercise' as const, key: dayKey('full'), slotId: row.id, liftId: row.liftId, label: row.label };
+  const notes = [
+    { id: TrainingNoteId.parse(randomUUID()), date: day(SESSION_DAY), text: 'Invented note: the pad slipped on the first set.', at: ms(SESSION_NOW.getTime() - 20_000), about: onRow },
+    { id: TrainingNoteId.parse(randomUUID()), date: day(SESSION_DAY), text: 'Invented note: a longer one, to see how a note of a few sentences sits as a row, where it should stop at two lines and open in full on a tap.', at: ms(SESSION_NOW.getTime() - 10_000), about: onRow },
+  ];
+  return [
+    ...performances.map((doc): Mutation => ({ op: 'put', kind: 'performance', doc })),
+    ...notes.map((doc): Mutation => ({ op: 'put', kind: 'trainingNote', doc })),
+    { op: 'put', kind: 'session', doc: open },
+    { op: 'put', kind: 'program', doc: version },
+  ];
 }
 
 test('seeds a day worth photographing', async ({ page, request }) => {
@@ -443,7 +459,21 @@ async function photographExercises(page: Page, name: (shot: string) => string) {
   await shoot('day');
   await page.getByRole('region', { name: 'Optional' }).getByText('Optional', { exact: true }).click();
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect(page.getByRole('region', { name: 'Added' }).getByRole('button', { name: /^Calf raise/ })).toHaveAccessibleName(/2 of 2 logged/);
+  await expectFullTapTargets(page, 'the day with an added exercise');
   await shoot('day-bottom');
+  await page.getByRole('button', { name: 'Add exercise' }).click();
+  const picker = page.getByRole('dialog', { name: 'Add exercise' });
+  await expect(picker.getByRole('heading', { name: 'All lifts' })).toBeVisible();
+  await expectFullTapTargets(page, 'Add exercise');
+  await shoot('add-exercise');
+  await picker.getByRole('button', { name: 'Cancel' }).click();
+
+  await openExercise(page, /^Calf raise/);
+  await expect(page.getByTestId('round')).toHaveText('Set 3');
+  await expectClearLayout(page);
+  await shoot('added');
+  await backToDay(page);
   await page.evaluate(() => window.scrollTo(0, 0));
 
   await openExercise(page, /^Seal row/);
@@ -455,6 +485,8 @@ async function photographExercises(page: Page, name: (shot: string) => string) {
 
   await page.getByRole('button', { name: 'Swap', exact: true }).click();
   const swap = page.getByRole('dialog', { name: 'Swap' });
+  await expect(swap.getByRole('list', { name: 'Suggested' }).getByRole('button'), 'alike lifts with no typing').toHaveText(['Cable row', 'Chest-supported row']);
+  await shoot('swap-suggested');
   await swap.getByLabel('Another lift').fill('Zottman curl');
   await shoot('swap');
   await swap.getByRole('button', { name: 'Cancel' }).click();
@@ -462,11 +494,18 @@ async function photographExercises(page: Page, name: (shot: string) => string) {
   await page.getByRole('button', { name: 'Note', exact: true }).click();
   const note = page.getByRole('dialog', { name: 'Note' });
   await expect(note.getByRole('radio', { name: 'This exercise' })).toBeChecked();
+  const earlier = note.getByRole('list', { name: 'Earlier notes' }).getByRole('button');
+  await expect(earlier).toHaveCount(2);
+  await shoot('note');
   const aboveNoteKeys = await raiseKeyboard(page);
   await shoot('note-keyboard');
   await expectAboveKeyboard(page, note.getByRole('button', { name: 'Save note' }), aboveNoteKeys, 'Save note');
   await lowerKeyboard(page);
-  await note.getByRole('button', { name: 'Cancel' }).click();
+  await earlier.last().click();
+  const editNote = page.getByRole('dialog', { name: 'Edit note' });
+  await expect(editNote.getByRole('button', { name: 'Delete note' })).toBeVisible();
+  await shoot('note-edit');
+  await editNote.getByRole('button', { name: 'Cancel' }).click();
 
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   const skip = page.getByRole('dialog', { name: /^Skip/ });

@@ -5,9 +5,10 @@
 //   node scripts/ui-review.mjs --sheet <dir>
 //
 // It copies the live database, serves the copy on its own port and walks the training screens,
-// logging a set on the copy, so nothing touches the live server. The copy and the shots hold real data, so both stay under
-// .private/ui-review, which git ignores. Food screens use invented data in e2e/shots.spec.ts,
-// because the live diary is empty. --serve keeps the server up for a live look at port 8796.
+// logging a set, a note and an added exercise on the copy, so nothing touches the live server.
+// The copy and the shots hold real data, so both stay under .private/ui-review, which git
+// ignores. Food screens use invented data in e2e/shots.spec.ts, because the live diary is empty.
+// --serve keeps the server up for a live look at port 8796.
 // --sheet makes contact sheets of a folder of shots, such as those, and does nothing else.
 /* global window, document */
 import { spawn, execFileSync } from 'node:child_process';
@@ -167,12 +168,14 @@ async function openLiftingDay() {
   }
 }
 
-/** A load on an exercise with no history, so Log set can be tapped. */
+/** A load and reps on an exercise with no history, so Log set can be tapped. */
 async function fillBlanks() {
   const load = page.getByLabel('Load', { exact: true });
   if ((await load.count()) > 0 && (await load.inputValue()) === '') await load.fill('50');
   const band = page.getByLabel('Band', { exact: true });
   if ((await band.count()) > 0 && (await band.inputValue()) === '') await band.fill('green');
+  const reps = page.getByLabel('Reps', { exact: true });
+  if ((await reps.count()) > 0 && (await reps.inputValue()) === '') await reps.fill('12');
 }
 
 // Every day once, for what one day holds and another does not, and the first checklist opened.
@@ -204,10 +207,19 @@ await shot('exercise-logged', async () => {
 });
 await shot('exercise-after-set', () => page.getByRole('status').first().waitFor({ state: 'hidden', timeout: 8000 }).catch(() => {}));
 await shot('action-swap', () => button('Swap').click({ timeout: 4000 }));
+await shot('action-swap-bottom', scrollSheet);
 await close();
 await shot('action-skip', () => button('Skip').click({ timeout: 4000 }));
 await close();
 await shot('action-note', () => button('Note').click({ timeout: 4000 }));
+// A note on the copy, so the sheet shows one listed over a fresh field, and then in edit.
+await shot('note-earlier', async () => {
+  await dialog().locator('textarea').fill('Invented note for the review.');
+  await dialog().getByRole('button', { name: 'Save note' }).click({ timeout: 2000 });
+  await page.waitForTimeout(300);
+  await button('Note').click({ timeout: 4000 });
+});
+await shot('note-edit', () => dialog().getByRole('list', { name: 'Earlier notes' }).getByRole('button').last().click({ timeout: 2000 }));
 await close();
 await shot('action-cue', () => button('Cue').click({ timeout: 4000 }));
 await close();
@@ -216,6 +228,24 @@ await button('Warm-up').click({ timeout: 4000 });
 await shot('edit-set', () => page.getByRole('group', { name: "Today's sets" }).getByRole('button').first().click({ timeout: 2000 }));
 await close();
 await shot('day-after-set', back);
+
+// An exercise off the list, on the copy: the picker, the exercise with no target, and its row on the day.
+await shot('add-exercise', async () => {
+  await pageBottom();
+  await button('Add exercise').click({ timeout: 4000 });
+});
+await shot('add-exercise-bottom', scrollSheet);
+await shot('added-exercise', () => dialog().locator('.swap-choice').first().click({ timeout: 4000 }));
+await shot('added-exercise-logged', async () => {
+  await fillBlanks();
+  await button('Log set').click({ timeout: 4000 });
+  await page.waitForTimeout(450);
+});
+await shot('day-with-added', async () => {
+  await back();
+  await page.getByRole('region', { name: 'Added' }).scrollIntoViewIfNeeded({ timeout: 2000 });
+});
+await pageTop();
 await shot('exercise-out-of-order', () => openExercises.last().click({ timeout: 4000 }));
 await back();
 await shot('week-after-set', back);
