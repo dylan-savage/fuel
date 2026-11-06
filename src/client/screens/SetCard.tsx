@@ -3,8 +3,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { lastLineOf, lastTimeOf, lastSwapAt, typedLine } from '../../domain/progress.js';
 import type { LiftBook, Performance, Target, Unit } from '../../domain/lifts.js';
-import type { Slot } from '../../domain/program.js';
-import { prefillSet, setLogOf, sideOrder, steppedLoad, steppedReps, type DayRef, type LiftChoice, type LoggedSet, type Side, type SlotLog } from '../../domain/session.js';
+import { prefillSet, setLogOf, sideOrder, steppedLoad, steppedReps, type DayRef, type Exercise, type ExerciseLog, type LiftChoice, type LoggedSet, type Side } from '../../domain/session.js';
 import { entryOf, formOf, type SetForm } from '../trainDraft.js';
 import { editable, parseNumber, repsTargetText, setOfText, shortDate } from './format.js';
 
@@ -181,20 +180,20 @@ export function CardAction({ label, disabled = false, onClick }: { readonly labe
   );
 }
 
-/** A logged set in words, for a screen reader. */
-function setRowText({ performance, set }: LoggedSet, slot: Slot): string {
-  const lift = performance.liftId === slot.liftId ? '' : `${performance.label}, `;
+/** A logged set in words, for a screen reader. A set of a lift other than the plan's names it. */
+function setRowText({ performance, set }: LoggedSet, { slot, lift: current }: Exercise): string {
+  const lift = performance.liftId === (slot?.liftId ?? current.liftId) ? '' : `${performance.label}, `;
   const note = set.note === undefined ? '' : `, ${set.note}`;
   return `${set.warmup === true ? 'Warm-up, ' : ''}${lift}${typedLine([set], '×')}${note}`;
 }
 
 /** Today's sets of this exercise, each a tap from editing. */
-function TodaySets({ sets, slot, onEdit }: { readonly sets: readonly LoggedSet[]; readonly slot: Slot; readonly onEdit: (row: LoggedSet) => void }) {
+function TodaySets({ sets, exercise, onEdit }: { readonly sets: readonly LoggedSet[]; readonly exercise: Exercise; readonly onEdit: (row: LoggedSet) => void }) {
   if (sets.length === 0) return null;
   return (
     <div class="today-sets" role="group" aria-label="Today's sets">
       {sets.map((row) => (
-        <button type="button" key={`${row.performance.id}#${row.index}`} aria-label={`Edit ${setRowText(row, slot)}`} onClick={() => onEdit(row)}>
+        <button type="button" key={`${row.performance.id}#${row.index}`} aria-label={`Edit ${setRowText(row, exercise)}`} onClick={() => onEdit(row)}>
           <span>
             {row.set.warmup === true && 'W '}
             {typedLine([row.set], '×')}
@@ -215,8 +214,7 @@ const revealField = (event: FocusEvent) => {
 };
 
 export function SetCard({
-  slot,
-  lift,
+  exercise,
   day,
   rows,
   book,
@@ -229,8 +227,7 @@ export function SetCard({
   onEdit,
   actions,
 }: {
-  readonly slot: Slot;
-  readonly lift: LiftChoice;
+  readonly exercise: Exercise;
   readonly day: DayRef;
   /** Last-time reads, which stop before the day's date. */
   readonly rows: readonly Performance[];
@@ -238,7 +235,7 @@ export function SetCard({
   /** Today's, for this day. */
   readonly performances: readonly Performance[];
   /** This exercise so far today. */
-  readonly log: SlotLog;
+  readonly log: ExerciseLog;
   /** What he has typed for this very set, if anything. */
   readonly typed: SetForm | undefined;
   readonly onForm: (form: SetForm) => void;
@@ -247,11 +244,13 @@ export function SetCard({
   readonly onEdit: (row: LoggedSet) => void;
   readonly actions: ComponentChildren;
 }) {
+  const { slot, lift } = exercise;
+  const target = slot?.target;
   const read = { lift: lift.liftId, rows, book, before: day.date };
   const last = lastTimeOf(read);
-  const form = typed ?? formOf({ ...prefillSet({ lift: lift.liftId, book, target: slot.target, today: performances, last }), warmup: false, note: '' });
+  const form = typed ?? formOf({ ...prefillSet({ lift: lift.liftId, book, target, today: performances, last }), warmup: false, note: '' });
   const line = lastLineOf(read);
-  const swapHint = lift.liftId === slot.liftId ? lastSwapAt({ ...read, lift: slot.liftId }) : undefined;
+  const swapHint = slot !== null && lift.liftId === slot.liftId ? lastSwapAt({ ...read, lift: slot.liftId }) : undefined;
   const valid = setLogOf(entryOf(form)) !== null;
   const [cooling, cool] = useCooldown();
 
@@ -268,9 +267,9 @@ export function SetCard({
         <h1>{lift.label}</h1>
         <p class="focus-line">
           <span class="focus-round" data-testid="round">
-            {setOfText(slot.target, log.done + 1)}
+            {setOfText(target, log.done + 1)}
           </span>
-          {` · ${repsTargetText(slot.target)}${log.skipped ? ' · Skipped' : ''}`}
+          {target !== undefined && ` · ${repsTargetText(target)}${log.skipped ? ' · Skipped' : ''}`}
         </p>
         {line !== null && (
           <p class="focus-line">
@@ -286,11 +285,11 @@ export function SetCard({
             </button>
           </p>
         )}
-        <TodaySets sets={log.sets} slot={slot} onEdit={onEdit} />
+        <TodaySets sets={log.sets} exercise={exercise} onEdit={onEdit} />
       </div>
       <div class="set-controls">
         <div class="set-inputs" onFocusIn={revealField}>
-          <SetInputs form={form} onChange={onForm} perSide={slot.target.perSide} prompt={slot.setPrompt} />
+          <SetInputs form={form} onChange={onForm} perSide={target?.perSide} prompt={slot?.setPrompt} />
         </div>
         <button type="button" class={valid && cooling ? 'primary log-set cooling' : 'primary log-set'} disabled={!valid || cooling} onClick={logIt}>
           Log set

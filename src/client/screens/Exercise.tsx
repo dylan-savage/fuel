@@ -5,8 +5,8 @@
  */
 import { useState } from 'preact/hooks';
 import type { Performance } from '../../domain/lifts.js';
-import type { LiftsBlock, ProgramNote, Slot } from '../../domain/program.js';
-import { cueFor, slotLog, type DayRef, type LiftChoice, type LoggedSet } from '../../domain/session.js';
+import { slotIn, type PlannedDay, type ProgramNote, type Slot } from '../../domain/program.js';
+import { cueFor, exerciseLog, isOn, type DayRef, type Exercise, type LiftChoice, type LoggedSet } from '../../domain/session.js';
 import { afterLog, entryOf, typedFor, withSwap, withTyped, type SetForm, type TrainDraft } from '../trainDraft.js';
 import { useIntents, type DayScreenView } from '../views.js';
 import { CueSheet, EditSetSheet, NoteSheet, SkipSheet, SwapSheet } from './ExerciseSheets.js';
@@ -16,14 +16,15 @@ import { BackButton, useToast } from './ui.js';
 import { Waiting } from './Waiting.js';
 
 /** What the Cue action opens: the words behind the numbers, rest among them as plain text. */
-function cueLines(block: LiftsBlock, slot: Slot, lift: LiftChoice, notes: readonly ProgramNote[]): readonly string[] {
+function cueLines(plan: PlannedDay, slot: Slot, lift: LiftChoice, notes: readonly ProgramNote[]): readonly string[] {
+  const block = slotIn(plan, slot.id)?.block;
   const cue = cueFor(slot, lift.liftId);
   return [
-    ...(block.slots.length === 1 && block.title !== undefined && block.title !== slot.label ? [block.title] : []),
+    ...(block !== undefined && block.slots.length === 1 && block.title !== undefined && block.title !== slot.label ? [block.title] : []),
     ...(cue === undefined ? [] : [cue]),
-    ...(block.note === undefined ? [] : [block.note]),
+    ...(block?.note === undefined ? [] : [block.note]),
     ...targetNotes(slot.target),
-    ...(block.restSeconds === undefined ? [] : [`Rest ${block.restSeconds}s`]),
+    ...(block?.restSeconds === undefined ? [] : [`Rest ${block.restSeconds}s`]),
     ...notes.map((note) => note.text),
   ];
 }
@@ -34,9 +35,7 @@ type OpenSheet = { readonly kind: 'swap' | 'skip' | 'note' | 'cue' } | { readonl
 export function ExerciseScreen({
   view,
   day,
-  block,
-  slot,
-  lift,
+  exercise,
   rows,
   draft,
   onDraft,
@@ -44,10 +43,8 @@ export function ExerciseScreen({
 }: {
   readonly view: DayScreenView;
   readonly day: DayRef;
-  readonly block: LiftsBlock;
-  readonly slot: Slot;
-  /** Whatever he is doing in this slot now, which a swap may have changed. */
-  readonly lift: LiftChoice;
+  /** A slot with whatever he is doing in it now, which a swap may have changed, or a lift he added. */
+  readonly exercise: Exercise;
   readonly rows: readonly Performance[];
   readonly draft: TrainDraft;
   readonly onDraft: (next: TrainDraft) => void;
@@ -57,18 +54,20 @@ export function ExerciseScreen({
   const toast = useToast();
   const [sheet, setSheet] = useState<OpenSheet | null>(null);
   const closeSheet = () => setSheet(null);
-  const log = slotLog(slot, view);
+  const { slot, lift } = exercise;
+  const log = exerciseLog(exercise, view);
   const nextSet = log.done + 1;
-  const cues = cueLines(block, slot, lift, view.notes);
+  const cues = slot === null ? [] : cueLines(view.plan, slot, lift, view.notes);
 
   const logSet = (form: SetForm) => {
-    void intents.logSet({ day, slot, lift }, entryOf(form)).then((undo) => {
+    void intents.logSet({ day, exercise }, entryOf(form)).then((undo) => {
       if (undo === null) return;
-      onDraft(afterLog(draft, slot.id));
+      onDraft(afterLog(draft, exercise));
       toast({ text: `${lift.label} logged`, undo });
     });
   };
 
+  const note = <CardAction label="Note" onClick={() => setSheet({ kind: 'note' })} />;
   return (
     <>
       <section class="exercise" aria-label="Exercise">
@@ -77,29 +76,34 @@ export function ExerciseScreen({
           <Waiting />
         </header>
         <SetCard
-          slot={slot}
-          lift={lift}
+          exercise={exercise}
           day={day}
           rows={rows}
           book={view.book}
           performances={view.performances}
           log={log}
-          typed={typedFor(draft, slot.id, lift, nextSet)}
-          onForm={(form) => onDraft(withTyped(draft, slot.id, lift, nextSet, form))}
+          typed={typedFor(draft, exercise, nextSet)}
+          onForm={(form) => onDraft(withTyped(draft, exercise, nextSet, form))}
           onLog={logSet}
-          onSwitch={(choice) => onDraft(withSwap(draft, slot.id, choice))}
+          onSwitch={(choice) => {
+            if (slot !== null) onDraft(withSwap(draft, slot.id, choice));
+          }}
           onEdit={(row) => setSheet({ kind: 'edit', row })}
           actions={
-            <>
-              <CardAction label="Swap" onClick={() => setSheet({ kind: 'swap' })} />
-              <CardAction label="Skip" onClick={() => setSheet({ kind: 'skip' })} />
-              <CardAction label="Note" onClick={() => setSheet({ kind: 'note' })} />
-              <CardAction label="Cue" disabled={cues.length === 0} onClick={() => setSheet({ kind: 'cue' })} />
-            </>
+            slot === null ? (
+              note
+            ) : (
+              <>
+                <CardAction label="Swap" onClick={() => setSheet({ kind: 'swap' })} />
+                <CardAction label="Skip" onClick={() => setSheet({ kind: 'skip' })} />
+                {note}
+                <CardAction label="Cue" disabled={cues.length === 0} onClick={() => setSheet({ kind: 'cue' })} />
+              </>
+            )
           }
         />
       </section>
-      {sheet?.kind === 'swap' && (
+      {sheet?.kind === 'swap' && slot !== null && (
         <SwapSheet
           slot={slot}
           lifts={view.lifts}
@@ -111,20 +115,20 @@ export function ExerciseScreen({
           }}
         />
       )}
-      {sheet?.kind === 'skip' && (
+      {sheet?.kind === 'skip' && slot !== null && (
         <SkipSheet
           label={lift.label}
           onClose={closeSheet}
-          onSkip={(note) => {
+          onSkip={(skipNote) => {
             closeSheet();
             onBack();
-            void intents.skipSlot(day, slot.id, note).then((undo) => toast({ text: `Skipped ${lift.label}`, undo }));
+            void intents.skipSlot(day, slot.id, skipNote).then((undo) => toast({ text: `Skipped ${lift.label}`, undo }));
           }}
         />
       )}
-      {sheet?.kind === 'note' && <NoteSheet day={day} dayNote={view.session?.note} exercise={view.performances.find((p) => p.slotId === slot.id && p.liftId === lift.liftId)} onClose={closeSheet} />}
+      {sheet?.kind === 'note' && <NoteSheet day={day} dayNote={view.session?.note} exercise={view.performances.find((p) => isOn(exercise, p) && p.liftId === lift.liftId)} onClose={closeSheet} />}
       {sheet?.kind === 'cue' && <CueSheet lines={cues} onClose={closeSheet} />}
-      {sheet?.kind === 'edit' && <EditSetSheet logged={sheet.row} slot={slot} onClose={closeSheet} />}
+      {sheet?.kind === 'edit' && <EditSetSheet logged={sheet.row} exercise={exercise} onClose={closeSheet} />}
     </>
   );
 }

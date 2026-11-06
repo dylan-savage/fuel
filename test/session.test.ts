@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeWorkout, type Workout } from '../src/domain/burn.js';
 import { WorkoutId } from '../src/domain/ids.js';
-import { liftBook, type Performance, type SetLog } from '../src/domain/lifts.js';
+import { Performance, liftBook, type SetLog } from '../src/domain/lifts.js';
 import {
   TrainingNote,
   afterSet,
@@ -9,8 +9,10 @@ import {
   cardioDoneOn,
   cueFor,
   entryOfSet,
+  exerciseLog,
   finishDocs,
   finishOf,
+  isOn,
   leftEmpty,
   liftInSlot,
   prefillSet,
@@ -21,7 +23,6 @@ import {
   sessionWorkoutId,
   setLogOf,
   sideOrder,
-  slotLog,
   steppedLoad,
   steppedReps,
   swapChoices,
@@ -294,6 +295,13 @@ describe('afterSet', () => {
     expect(next).toEqual(reopened(settled));
     expect(next.note).toBe('Invented note.');
   });
+
+  it('on an added exercise, only reopens a settled session and leaves every skip', () => {
+    const skipped = session({ skips: [{ slotId: a }] });
+    expect(afterSet(skipped, undefined)).toBe(skipped);
+    const settled = session({ finishedAt: minutes(60), skips: [{ slotId: a }] });
+    expect(afterSet(settled, undefined)).toEqual(reopened(settled));
+  });
 });
 
 describe('trainedLately', () => {
@@ -317,28 +325,60 @@ describe('TrainingNote', () => {
   });
 });
 
-describe('slotLog', () => {
+describe('exerciseLog', () => {
   const bench = slot('a1', 'bench-press', 3);
+  const benchNow = { slot: bench, lift: { liftId: bench.liftId, label: bench.label } };
+  const calves = { slot: null, lift: { liftId: lift('calf-raise'), label: 'Calf raise' } };
+  const added = (...sets: SetLog[]) => performance({ lift: 'calf-raise', sets });
 
   it('fills a dot per working set, across a swap and in the order tapped', () => {
     const planned = performance({ slot: 'a1', lift: 'bench-press', sets: [warm(lb(45, 10, 1)), lb(100, 8, 2)] });
     const swapped = performance({ slot: 'a1', lift: 'machine-press', planned: 'bench-press', sets: [lb(120, 8, 3)] });
-    const log = slotLog(bench, { session: session(), performances: [swapped, planned] });
+    const log = exerciseLog(benchNow, { session: session(), performances: [swapped, planned] });
     expect(log).toMatchObject({ done: 2, dots: 3, skipped: false });
     expect(log.sets.map((row) => `${row.performance.liftId}#${row.index}`)).toEqual(['bench-press#0', 'bench-press#1', 'machine-press#0']);
   });
 
   it('adds a dot for an extra set, and marks a skip', () => {
-    expect(slotLog(slot('a2', 'cable-row', 2), { session: session(), performances: [a2(lb(50, 8, 1), lb(50, 8, 2), lb(50, 8, 3))] })).toMatchObject({ done: 3, dots: 3 });
-    expect(slotLog(bench, { session: session({ skips: [{ slotId: bench.id }] }), performances: [] }).skipped).toBe(true);
+    const cableRow = slot('a2', 'cable-row', 2);
+    expect(exerciseLog({ slot: cableRow, lift: { liftId: cableRow.liftId, label: cableRow.label } }, { session: session(), performances: [a2(lb(50, 8, 1), lb(50, 8, 2), lb(50, 8, 3))] })).toMatchObject({ done: 3, dots: 3 });
+    expect(exerciseLog(benchNow, { session: session({ skips: [{ slotId: bench.id }] }), performances: [] }).skipped).toBe(true);
   });
 
   it('reads empty before the day has a session', () => {
-    expect(slotLog(bench, { session: null, performances: [] })).toEqual({ done: 0, dots: 3, skipped: false, sets: [] });
+    expect(exerciseLog(benchNow, { session: null, performances: [] })).toEqual({ done: 0, dots: 3, skipped: false, sets: [] });
   });
 
   it('counts this exercise alone, whatever else today holds', () => {
-    expect(slotLog(bench, { session: session(), performances: [a2(lb(50, 8, 1), lb(50, 8, 2))] }).done).toBe(0);
+    expect(exerciseLog(benchNow, { session: session(), performances: [a2(lb(50, 8, 1), lb(50, 8, 2))] }).done).toBe(0);
+  });
+
+  it('gives an added exercise a filled dot per working set, and never a skip', () => {
+    const log = exerciseLog(calves, { session: session({ skips: [{ slotId: bench.id }] }), performances: [added(warm(bw(15, 1)), bw(20, 2), bw(18, 3))] });
+    expect(log).toMatchObject({ done: 2, dots: 2, skipped: false });
+    expect(exerciseLog(calves, { session: null, performances: [] })).toEqual({ done: 0, dots: 0, skipped: false, sets: [] });
+  });
+
+  it('keeps an added exercise apart from a slot that did the same lift', () => {
+    const inSlot = performance({ slot: 'a1', lift: 'calf-raise', planned: 'bench-press', sets: [bw(20, 1)] });
+    expect(exerciseLog(calves, { session: session(), performances: [inSlot, added(bw(15, 2))] }).done).toBe(1);
+  });
+});
+
+describe('isOn', () => {
+  const row = slot('a2', 'cable-row', 2);
+
+  it('holds a swap in a planned exercise\'s slot', () => {
+    const exercise = { slot: row, lift: { liftId: row.liftId, label: 'Cable row' } };
+    expect(isOn(exercise, swappedA2(lb(30, 8)))).toBe(true);
+    expect(isOn(exercise, a1(lb(100, 8)))).toBe(false);
+  });
+
+  it('holds only slot-less rows of an added exercise\'s own lift', () => {
+    const exercise = { slot: null, lift: { liftId: lift('cable-row'), label: 'Cable row' } };
+    expect(isOn(exercise, performance({ lift: 'cable-row', sets: [lb(50, 8)] }))).toBe(true);
+    expect(isOn(exercise, performance({ lift: 'seal-row', sets: [lb(50, 8)] }))).toBe(false);
+    expect(isOn(exercise, a2(lb(50, 8)))).toBe(false);
   });
 });
 
@@ -433,8 +473,8 @@ describe('cueFor', () => {
 describe('withSet', () => {
   const doc = session();
   const row = slot('a2', 'cable-row', 2, { label: 'Cable row', target: target(2, 8, 12) });
-  const planned = { session: doc, slot: row, lift: { liftId: row.liftId, label: row.label } };
-  const swap = { session: doc, slot: row, lift: { liftId: lift('dumbbell-row'), label: 'Dumbbell row' } };
+  const planned = { session: doc, exercise: { slot: row, lift: { liftId: row.liftId, label: row.label } } };
+  const swap = { session: doc, exercise: { slot: row, lift: { liftId: lift('dumbbell-row'), label: 'Dumbbell row' } } };
 
   it('starts a performance holding the target by value', () => {
     expect(withSet(planned, undefined, lb(50, 8, 1))).toMatchObject({ sessionId: doc.id, date: doc.date, liftId: row.liftId, label: 'Cable row', slotId: row.id, target: row.target, sets: [lb(50, 8, 1)] });
@@ -450,6 +490,13 @@ describe('withSet', () => {
   it('appends to what is there, keeping what a newer app added', () => {
     const before = { ...withSet(planned, undefined, lb(50, 8, 1)), fromNewerApp: 1 };
     expect(withSet(planned, before, lb(50, 9, 2))).toMatchObject({ sets: [lb(50, 8, 1), lb(50, 9, 2)], fromNewerApp: 1 });
+  });
+
+  it('starts an added exercise with no slot, target or planned lift, as a performance that parses', () => {
+    const added = withSet({ session: doc, exercise: { slot: null, lift: { liftId: lift('calf-raise'), label: 'Calf raise' } } }, undefined, bw(20, 1));
+    expect(added.id).toBe(`pf:${doc.id}::calf-raise`);
+    expect(added).toEqual({ id: added.id, sessionId: doc.id, date: doc.date, liftId: lift('calf-raise'), label: 'Calf raise', sets: [bw(20, 1)] });
+    expect(Performance.safeParse(added).success).toBe(true);
   });
 });
 

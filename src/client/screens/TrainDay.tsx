@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Performance, SlotId } from '../../domain/lifts.js';
 import { exerciseCount, slotIn, type CardioBlock, type ChecklistBlock, type DayPart, type PlannedDay, type ProgramNote, type Slot } from '../../domain/program.js';
 import { lastLineOf } from '../../domain/progress.js';
-import { blockDone, liftInSlot, slotLog, type DayRef, type LiftChoice } from '../../domain/session.js';
+import { blockDone, exerciseLog, liftInSlot, type DayRef, type Exercise, type LiftChoice } from '../../domain/session.js';
 import { useTrainDraft } from '../trainDraft.js';
 import { dayLiftIds, dayScreenView, lastTimesView, useIntents, useLive, type DayScreenView } from '../views.js';
 import { ExerciseScreen } from './Exercise.js';
@@ -34,13 +34,14 @@ interface RowContext {
   /** From lastTimesView. */
   readonly lastTimes: readonly Performance[];
   readonly liftOf: (slot: Slot) => LiftChoice;
-  readonly onExercise: (slot: Slot) => void;
+  readonly onExercise: (exercise: Exercise) => void;
   readonly onCardio: (block: CardioBlock) => void;
 }
 
-function ExerciseRow({ slot, view, day, lastTimes, liftOf, onExercise }: RowContext & { readonly slot: Slot }) {
-  const lift = liftOf(slot);
-  const log = slotLog(slot, view);
+/** A planned row shows its prescription over the dots, and an added one only its dots. */
+function ExerciseRow({ exercise, view, day, lastTimes, onExercise }: RowContext & { readonly exercise: Exercise }) {
+  const { slot, lift } = exercise;
+  const log = exerciseLog(exercise, view);
   const last = lastLineOf({ lift: lift.liftId, rows: lastTimes, book: view.book, before: day.date });
   return (
     <Row
@@ -48,12 +49,12 @@ function ExerciseRow({ slot, view, day, lastTimes, liftOf, onExercise }: RowCont
       detail={last === null ? undefined : `${last.line} · ${shortDate(last.date, day.date)}`}
       end={
         <span class="exercise-end">
-          {prescriptionText(slot.target)}
+          {slot !== null && prescriptionText(slot.target)}
           {log.skipped ? <span class="detail">Skipped</span> : <Dots filled={log.done} total={log.dots} />}
         </span>
       }
       chevron
-      onClick={() => onExercise(slot)}
+      onClick={() => onExercise(exercise)}
     />
   );
 }
@@ -91,7 +92,7 @@ function PartRows({ part: { block }, ...context }: RowContext & { readonly part:
         <>
           {block.slots.map((slot) => (
             <li key={slot.id}>
-              <ExerciseRow slot={slot} {...context} />
+              <ExerciseRow exercise={{ slot, lift: context.liftOf(slot) }} {...context} />
             </li>
           ))}
         </>
@@ -202,14 +203,14 @@ function HeldDay({ view, day, slotId, onSlot, onBack }: { readonly view: DayScre
         day={day}
         lastTimes={lastTimes}
         liftOf={liftOf}
-        onExercise={(slot) => {
+        onExercise={({ slot }) => {
           dayScroll.current = window.scrollY;
-          onSlot(slot.id);
+          if (slot !== null) onSlot(slot.id);
         }}
         onCardio={setCardio}
         onBack={onBack}
       />
-      {open !== undefined && <ExerciseScreen view={view} day={day} block={open.block} slot={open.slot} lift={liftOf(open.slot)} rows={lastTimes} draft={draft} onDraft={setDraft} onBack={() => onSlot(null)} />}
+      {open !== undefined && <ExerciseScreen view={view} day={day} exercise={{ slot: open.slot, lift: liftOf(open.slot) }} rows={lastTimes} draft={draft} onDraft={setDraft} onBack={() => onSlot(null)} />}
       {cardio !== null && <WorkoutSheet date={day.date} day={day} lead={cardio.note} onClose={() => setCardio(null)} />}
     </>
   );

@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { LocalDate } from '../domain/ids.js';
 import { LiftId, Unit, type SlotId } from '../domain/lifts.js';
 import { DayKey } from '../domain/program.js';
-import type { DayRef, LiftChoice, SetEntry } from '../domain/session.js';
+import type { DayRef, Exercise, LiftChoice, SetEntry } from '../domain/session.js';
 import { editable, parseNumber } from './screens/format.js';
 
 const KEY = 'fuel:train:draft';
@@ -32,7 +32,7 @@ const TrainDraft = z.object({
   date: LocalDate,
   /** Swaps chosen before their first set, by slot. */
   swaps: z.record(z.string(), z.object({ liftId: LiftId, label: z.string().min(1) })),
-  /** By slot, each naming its lift and set, so typed digits cannot land on another set. */
+  /** By exercise, each naming its lift and set, so typed digits cannot land on another set. */
   typed: z.record(z.string(), z.object({ liftId: LiftId, set: z.number().int(), form: SetForm })),
 });
 export type TrainDraft = z.infer<typeof TrainDraft>;
@@ -59,25 +59,30 @@ export function entryOf(form: SetForm): SetEntry {
   };
 }
 
+/** Where an exercise's typed digits live. The prefixes keep a slot id and a lift id from ever meeting. */
+const slotKey = (slotId: SlotId) => `s:${slotId}`;
+const typedKey = ({ slot, lift }: Exercise) => (slot === null ? `a:${lift.liftId}` : slotKey(slot.id));
+
 /** What he has typed for this very set, if anything. */
-export function typedFor(draft: TrainDraft, slotId: SlotId, lift: LiftChoice, set: number): SetForm | undefined {
-  const typed = draft.typed[slotId];
-  return typed?.liftId === lift.liftId && typed.set === set ? typed.form : undefined;
+export function typedFor(draft: TrainDraft, exercise: Exercise, set: number): SetForm | undefined {
+  const typed = draft.typed[typedKey(exercise)];
+  return typed?.liftId === exercise.lift.liftId && typed.set === set ? typed.form : undefined;
 }
 
-export function withTyped(draft: TrainDraft, slotId: SlotId, lift: LiftChoice, set: number, form: SetForm): TrainDraft {
-  return { ...draft, typed: { ...draft.typed, [slotId]: { liftId: lift.liftId, set, form } } };
+export function withTyped(draft: TrainDraft, exercise: Exercise, set: number, form: SetForm): TrainDraft {
+  return { ...draft, typed: { ...draft.typed, [typedKey(exercise)]: { liftId: exercise.lift.liftId, set, form } } };
 }
 
-/** The set's lift is now on its performance, so nothing of this slot stays. */
-export function afterLog(draft: TrainDraft, slotId: SlotId): TrainDraft {
-  const { [slotId]: _swap, ...swaps } = draft.swaps;
-  const { [slotId]: _typed, ...typed } = draft.typed;
+/** The set's lift is now on its performance, so the exercise's typed digits go, and a planned one's pre-set swap. */
+export function afterLog(draft: TrainDraft, exercise: Exercise): TrainDraft {
+  const { [typedKey(exercise)]: _typed, ...typed } = draft.typed;
+  if (exercise.slot === null) return { ...draft, typed };
+  const { [exercise.slot.id]: _swap, ...swaps } = draft.swaps;
   return { ...draft, swaps, typed };
 }
 
 export function withSwap(draft: TrainDraft, slotId: SlotId, lift: LiftChoice): TrainDraft {
-  const { [slotId]: _typed, ...typed } = draft.typed;
+  const { [slotKey(slotId)]: _typed, ...typed } = draft.typed;
   return { ...draft, swaps: { ...draft.swaps, [slotId]: { liftId: lift.liftId, label: lift.label } }, typed };
 }
 

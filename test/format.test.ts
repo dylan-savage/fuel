@@ -100,6 +100,11 @@ describe('the Train tab\'s wording', () => {
     expect(setOfText(threeSets, 4)).toBe('Extra set');
   });
 
+  it('counts a set with no prescription and no end, as on an exercise he added', () => {
+    expect(setOfText(undefined, 1)).toBe('Set 1');
+    expect(setOfText(undefined, 12)).toBe('Set 12');
+  });
+
   it('clips long text at a word and leaves short text whole', () => {
     expect(clipped('short enough', 12)).toBeNull();
     expect(clipped('one two three four', 9)).toBe('one two…');

@@ -22,7 +22,7 @@ import { EntryId, FastEndId, FastId, FoodId, Millis, RecipeId, SavedMealId, Sess
 import type { PhoneMutation } from '../domain/kinds.js';
 import { SetLog, type SlotId } from '../domain/lifts.js';
 import type { CoreKey } from '../domain/nutrients.js';
-import { plannedDay, type BlockId, type Slot as ProgramSlot } from '../domain/program.js';
+import { plannedDay, type BlockId } from '../domain/program.js';
 import { Recipe, type EditedRef, type RecipeDraft, type SavedMeal, type SavedMealDraft } from '../domain/reuse.js';
 import {
   afterSet,
@@ -41,8 +41,8 @@ import {
   withSet,
   withSkip,
   type DayRef,
+  type Exercise,
   type FinishDocs,
-  type LiftChoice,
   type Session,
   type SessionLogs,
   type SetEntry,
@@ -137,11 +137,11 @@ export interface Intents {
   editWorkout(id: WorkoutId, draft: WorkoutDraft): Promise<Undo>;
   deleteWorkout(id: WorkoutId): Promise<Undo>;
   /**
-   * Stores a set at its tap. Null while the entry is incomplete, or when the plan does not hold the
-   * day. A set on a slot he skipped takes the skip back, and a set in a session settled earlier that
-   * date reopens it, both in the same commit.
+   * Stores a set at its tap, on a planned or an added exercise. Null while the entry is incomplete,
+   * or when the plan does not hold the day. A set on a slot he skipped takes the skip back, and a set
+   * in a session settled earlier that date reopens it, both in the same commit.
    */
-  logSet(place: { readonly day: DayRef; readonly slot: ProgramSlot; readonly lift: LiftChoice }, entry: SetEntry): Promise<Undo | null>;
+  logSet(place: { readonly day: DayRef; readonly exercise: Exercise }, entry: SetEntry): Promise<Undo | null>;
   /** Changes one logged set, keeping its tap, or removes it when `entry` is null. Removing the last removes the performance. A settled session reopens, so its workout catches up. */
   editSet(ref: { readonly performanceId: PerformanceId; readonly index: number }, entry: SetEntry | null): Promise<Undo>;
   /** Blank text removes the note. */
@@ -434,7 +434,7 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
       return () => replica.commit([{ op: 'put', kind: 'workout', doc: before }]);
     },
 
-    logSet: ({ day, slot, lift }, entry) =>
+    logSet: ({ day, exercise }, entry) =>
       oneAtATime(async () => {
         const at = clock.now();
         const set = setLogOf(entry, at);
@@ -442,10 +442,10 @@ export function createIntents(replica: Pick<Replica, 'read'> & { commit(mutation
         const target = await sessionToWrite(day, at);
         if (target === null) return null;
         const { session, isNew } = target;
-        const place = { session, slot, lift };
+        const place = { session, exercise };
         const id = performanceIdOf(place);
         const before = await replica.read.get('performance', id);
-        const next = afterSet(session, slot.id);
+        const next = afterSet(session, exercise.slot?.id);
         const touchesSession = isNew || next !== session;
         const write: readonly PhoneMutation[] = touchesSession ? [{ op: 'put', kind: 'session', doc: next }] : [];
         const restore: readonly PhoneMutation[] = touchesSession ? [restoreSession(target)] : [];

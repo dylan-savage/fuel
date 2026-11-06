@@ -2,7 +2,7 @@
 import { useState } from 'preact/hooks';
 import type { Lift, LiftId, Performance } from '../../domain/lifts.js';
 import type { Slot } from '../../domain/program.js';
-import { entryOfSet, setLogOf, swapChoices, type DayRef, type LiftChoice, type LoggedSet } from '../../domain/session.js';
+import { entryOfSet, setLogOf, swapChoices, type DayRef, type Exercise, type LiftChoice, type LoggedSet } from '../../domain/session.js';
 import { entryOf, formOf, type SetForm } from '../trainDraft.js';
 import { useIntents } from '../views.js';
 import { CardActions, SetInputs, WarmUpToggle } from './SetCard.js';
@@ -130,7 +130,7 @@ export function CueSheet({ lines, onClose }: { readonly lines: readonly string[]
 }
 
 /** A logged set, from its value on the exercise. Its tap stays, so the minutes hold. */
-export function EditSetSheet({ logged, slot, onClose }: { readonly logged: LoggedSet; readonly slot: Slot; readonly onClose: () => void }) {
+export function EditSetSheet({ logged, exercise: { slot }, onClose }: { readonly logged: LoggedSet; readonly exercise: Exercise; readonly onClose: () => void }) {
   const intents = useIntents();
   const toast = useToast();
   const [form, setForm] = useState<SetForm>(() => formOf(entryOfSet(logged.set)));
@@ -140,7 +140,7 @@ export function EditSetSheet({ logged, slot, onClose }: { readonly logged: Logge
   return (
     <Sheet title={`Edit ${logged.performance.label}`} onClose={onClose}>
       <div class="edit-set">
-        <SetInputs form={form} onChange={setForm} perSide={slot.target.perSide} prompt={slot.setPrompt ?? (logged.set.note === undefined ? undefined : 'Note')} />
+        <SetInputs form={form} onChange={setForm} perSide={slot?.target.perSide} prompt={slot?.setPrompt ?? (logged.set.note === undefined ? undefined : 'Note')} />
         <CardActions>
           <WarmUpToggle on={form.warmup} onToggle={() => setForm({ ...form, warmup: !form.warmup })} />
         </CardActions>

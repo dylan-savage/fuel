@@ -198,8 +198,9 @@ export function targetNotes({ perSide, load }: Target): readonly string[] {
   return [...(perSide === undefined ? [] : [PER_SIDE[perSide]]), ...(note === null ? [] : [note])];
 }
 
-/** "Set 2 of 3", counted for this exercise alone, then "Extra set". */
-export function setOfText(target: Target, set: number): string {
+/** "Set 2 of 3", counted for this exercise alone, then "Extra set". With no target, as on an exercise he added, "Set 2". */
+export function setOfText(target: Target | undefined, set: number): string {
+  if (target === undefined) return `Set ${set}`;
   return set > target.sets ? 'Extra set' : `Set ${set} of ${target.sets}`;
 }
 

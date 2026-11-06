@@ -9,6 +9,7 @@ import { metDraft } from '../src/domain/burn.js';
 import type { GoalDraft } from '../src/domain/goals.js';
 import { addDays, type Millis } from '../src/domain/ids.js';
 import { performanceId } from '../src/domain/lifts.js';
+import type { Slot } from '../src/domain/program.js';
 import { sessionWorkoutId, type DayRef, type Session, type SetEntry } from '../src/domain/session.js';
 import { T0, blockId, cardio, checklist, day, dayKey, liftsBlock, ms, program, session, slot, target } from './training.fixtures.js';
 
@@ -50,8 +51,9 @@ async function setup() {
 type Setup = Awaited<ReturnType<typeof setup>>;
 
 const lbs = (amount: number, reps: number): SetEntry => ({ load: { kind: 'weight', amount, unit: 'lb' }, reps: { kind: 'total', reps }, warmup: false, note: '' });
-const benchOn = (date = TODAY) => ({ day: { key: dayKey('push'), date }, slot: bench, lift: { liftId: bench.liftId, label: bench.label } });
-const rowOn = (date = TODAY) => ({ day: { key: dayKey('push'), date }, slot: row, lift: { liftId: row.liftId, label: row.label } });
+const planned = (one: Slot) => ({ slot: one, lift: { liftId: one.liftId, label: one.label } });
+const benchOn = (date = TODAY) => ({ day: { key: dayKey('push'), date }, exercise: planned(bench) });
+const rowOn = (date = TODAY) => ({ day: { key: dayKey('push'), date }, exercise: planned(row) });
 const benchId = (doc: Session) => performanceId(doc.id, bench.id, bench.liftId);
 
 async function pendingOps(port: SyncPort) {
@@ -135,7 +137,7 @@ describe('the lazy session', () => {
   it('gives each day its own, and another date a new one', async () => {
     const s = await setup();
     const first = await logged(s);
-    await s.intents.logSet({ day: { key: dayKey('pull'), date: TODAY }, slot: slot('b1', 'seal-row', 3), lift: { liftId: slot('b1', 'seal-row', 3).liftId, label: 'Seal row' } }, lbs(70, 8));
+    await s.intents.logSet({ day: { key: dayKey('pull'), date: TODAY }, exercise: planned(slot('b1', 'seal-row', 3, { label: 'Seal row' })) }, lbs(70, 8));
     expect((await s.replica.read.onDate('session', TODAY)).map((doc) => doc.day?.key).toSorted()).toEqual(['pull', 'push']);
 
     const tomorrow = addDays(TODAY, 1);

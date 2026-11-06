@@ -92,11 +92,6 @@ export function cardioDoneOn(session: Session | null, workouts: readonly Workout
   return workouts.some((workout) => workout.id !== own);
 }
 
-/** Sets across a swap count together, because a swap keeps the slot's id. Warm-ups never count. */
-function setsDone(performances: readonly Performance[], slotId: SlotId): number {
-  return performances.filter((p) => p.slotId === slotId).reduce((sum, p) => sum + workingSets(p.sets).length, 0);
-}
-
 /** A checklist tapped Done, or a cardio logged. */
 export function blockDone(block: ChecklistBlock | CardioBlock, { session, cardioDone }: Pick<DayLogs, 'session' | 'cardioDone'>): boolean {
   return session?.checked?.includes(block.id) === true || (block.kind === 'cardio' && cardioDone);
@@ -109,28 +104,41 @@ export interface LoggedSet {
   readonly set: SetLog;
 }
 
+/**
+ * An exercise on a day as he is doing it now: a slot with whatever lift is in it, or a lift he
+ * added on the spot, which has no slot and is only its lift. Mirrors Performance's optional slotId.
+ */
+export interface Exercise {
+  readonly slot: Slot | null;
+  readonly lift: LiftChoice;
+}
+
+/** A planned exercise holds every row in its slot, across a swap. An added one holds only slot-less rows of its own lift, so a swap into a slot never lands on it. */
+export function isOn(exercise: Exercise, row: { readonly slotId?: SlotId | undefined; readonly liftId: LiftId }): boolean {
+  return exercise.slot === null ? row.slotId === undefined && row.liftId === exercise.lift.liftId : row.slotId === exercise.slot.id;
+}
+
 /** What today holds of one exercise. */
-export interface SlotLog {
+export interface ExerciseLog {
   /** Working sets, which fill the dots. The next set is one past these. */
   readonly done: number;
-  /** One per prescribed set, and one more per extra. */
+  /** One per prescribed set, and one more per extra. An added exercise prescribes none, so it has one per working set. */
   readonly dots: number;
+  /** An added exercise is never skipped. */
   readonly skipped: boolean;
   /** Warm-ups too, across a swap, in the order tapped. */
   readonly sets: readonly LoggedSet[];
 }
 
-function setsInSlot(performances: readonly Performance[], slotId: SlotId): readonly LoggedSet[] {
-  return performances
-    .filter((p) => p.slotId === slotId)
+export function exerciseLog(exercise: Exercise, { session, performances }: Pick<DayLogs, 'session' | 'performances'>): ExerciseLog {
+  const sets = performances
+    .filter((p) => isOn(exercise, p))
     .flatMap((performance) => performance.sets.map((set, index) => ({ performance, index, set })))
     .toSorted((a, b) => (a.set.at ?? 0) - (b.set.at ?? 0));
-}
-
-export function slotLog(slot: Slot, { session, performances }: Pick<DayLogs, 'session' | 'performances'>): SlotLog {
-  const done = setsDone(performances, slot.id);
-  const skipped = session?.skips?.some((skip) => skip.slotId === slot.id) === true;
-  return { done, dots: Math.max(slot.target.sets, done), skipped, sets: setsInSlot(performances, slot.id) };
+  const done = workingSets(sets.map((row) => row.set)).length;
+  const { slot } = exercise;
+  if (slot === null) return { done, dots: done, skipped: false, sets };
+  return { done, dots: Math.max(slot.target.sets, done), skipped: session?.skips?.some((skip) => skip.slotId === slot.id) === true, sets };
 }
 
 /** Set inputs before a tap. A number may be blank, which a prefill cannot always fill. */
@@ -239,8 +247,9 @@ export interface LiftChoice {
  * he swaps back, else what the plan names.
  */
 export function liftInSlot(slot: Slot, performances: readonly Performance[]): LiftChoice {
-  const newest = setsInSlot(performances, slot.id).at(-1)?.performance;
-  return newest === undefined || newest.liftId === slot.liftId ? { liftId: slot.liftId, label: slot.label } : { liftId: newest.liftId, label: newest.label };
+  const planned = { liftId: slot.liftId, label: slot.label };
+  const newest = exerciseLog({ slot, lift: planned }, { session: null, performances }).sets.at(-1)?.performance;
+  return newest === undefined || newest.liftId === slot.liftId ? planned : { liftId: newest.liftId, label: newest.label };
 }
 
 /** The cue on the exercise. A listed swap's replaces the slot's, and any other lift has none. */
@@ -248,31 +257,36 @@ export function cueFor(slot: Slot, liftId: LiftId): string | undefined {
   return liftId === slot.liftId ? slot.cue : slot.swaps?.find((swap) => swap.liftId === liftId)?.cue;
 }
 
-/** Where a set goes, in the plan and in the lifts. */
+/** Where a set goes. */
 export interface SetPlace {
   readonly session: Pick<Session, 'id' | 'date'>;
-  readonly slot: Slot;
-  readonly lift: LiftChoice;
+  readonly exercise: Exercise;
 }
 
-export function performanceIdOf({ session, slot, lift }: SetPlace) {
-  return performanceId(session.id, slot.id, lift.liftId);
+export function performanceIdOf({ session, exercise }: SetPlace) {
+  return performanceId(session.id, exercise.slot?.id, exercise.lift.liftId);
 }
 
-/** The exercise with one more set. A lift other than the slot's makes a new performance marked as a swap, leaving sets already logged where they are. */
+/**
+ * The exercise with one more set. A first set makes the performance. A planned one carries its
+ * slot and target, and a lift other than the slot's is marked as a swap, leaving sets already
+ * logged where they are. An added one carries none of them.
+ */
 export function withSet(place: SetPlace, before: Performance | undefined, set: SetLog): Performance {
   if (before !== undefined) return { ...before, sets: [...before.sets, set] };
-  const { session, slot, lift } = place;
+  const {
+    session,
+    exercise: { slot, lift },
+  } = place;
   return {
     id: performanceIdOf(place),
     sessionId: session.id,
     date: session.date,
     liftId: lift.liftId,
     label: lift.label,
-    slotId: slot.id,
-    target: slot.target,
+    ...(slot === null ? {} : { slotId: slot.id, target: slot.target }),
     sets: [set],
-    ...(lift.liftId === slot.liftId ? {} : { plannedLiftId: slot.liftId }),
+    ...(slot === null || lift.liftId === slot.liftId ? {} : { plannedLiftId: slot.liftId }),
   };
 }
 
@@ -301,10 +315,15 @@ export function reopened(session: Session): Session {
   return rest;
 }
 
-/** What a set does to its session: it takes back a skip of that slot and reopens a settled one. The same session when neither applies, so a set usually writes one document. */
-export function afterSet(session: Session, slotId: SlotId): Session {
-  const skipped = session.skips?.some((skip) => skip.slotId === slotId) === true;
-  return !skipped && session.finishedAt === undefined ? session : reopened(withoutSkip(session, slotId));
+/**
+ * What a set does to its session: it takes back a skip of that slot and reopens a settled one. A
+ * set on an added exercise has no skip to take back. The same session when neither applies, so a
+ * set usually writes one document.
+ */
+export function afterSet(session: Session, slotId: SlotId | undefined): Session {
+  const skipped = slotId !== undefined && session.skips?.some((skip) => skip.slotId === slotId) === true;
+  if (!skipped && session.finishedAt === undefined) return session;
+  return reopened(slotId === undefined ? session : withoutSkip(session, slotId));
 }
 
 export function withChecked(session: Session, blockId: BlockId): Session {
