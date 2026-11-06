@@ -31,6 +31,17 @@ export function liftIdOf(name: string): LiftId | null {
   return parsed.success ? parsed.data : null;
 }
 
+/**
+ * What a lift mainly trains, which is what makes two lifts alike to the pickers. Stored as any
+ * slug, so a phone a build behind reads a value added later as one more name. checkPublish holds
+ * the coach to MUSCLES.
+ */
+export const Muscle = z.string().regex(SLUG).max(24).brand<'Muscle'>();
+export type Muscle = z.infer<typeof Muscle>;
+
+/** What a publish accepts. Append only. The snapshot hands this list to the coach, so the prompt never repeats it. */
+export const MUSCLES = ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms', 'core', 'quads', 'hamstrings', 'glutes', 'calves', 'full-body'] as const;
+
 /** A catalog row. `aliases` joins histories on read, so merging two lifts rewrites no performance. */
 export const Lift = z.looseObject({
   id: LiftId,
@@ -38,6 +49,8 @@ export const Lift = z.looseObject({
   aliases: z.array(LiftId),
   /** Shown on the key-lift board. */
   key: z.boolean().optional(),
+  /** Absent until the coach places it, which leaves it out of "alike" and nothing else. */
+  muscle: Muscle.optional(),
 });
 export type Lift = z.infer<typeof Lift>;
 
@@ -49,6 +62,8 @@ export interface LiftBook {
   nameOf(id: LiftId): string | undefined;
   /** In the catalog, as a lift or an alias. */
   has(id: LiftId): boolean;
+  /** Through an alias, like nameOf. */
+  muscleOf(id: LiftId): Muscle | undefined;
 }
 
 /** One hop is enough, because checkPublish refuses an alias that chains. */
@@ -65,6 +80,7 @@ export function liftBook(lifts: readonly Lift[]): LiftBook {
     },
     nameOf: (id) => owners.get(id)?.name,
     has: (id) => owners.has(id),
+    muscleOf: (id) => owners.get(id)?.muscle,
   };
 }
 

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { snapshotOf } from '../src/domain/coach.js';
 import { TrainingNoteId } from '../src/domain/ids.js';
+import { Muscle } from '../src/domain/lifts.js';
 import { ProgramDraft, Report, type Program } from '../src/domain/program.js';
 import { isRecord } from '../src/domain/strict.js';
 import { PublishAnswer } from '../src/protocol.js';
@@ -375,6 +376,11 @@ describe('scripts/coach-prompt.md', () => {
     report: { text: 'Invented report.' },
     notes: [{ text: 'Invented note.', day: dayKey('push') }],
     changes: [{ target: 'slot:push/a2', why: 'Invented reason.' }],
+    lifts: [
+      { id: lift('bench-press'), name: 'Bench press', aliases: [], muscle: Muscle.parse('chest') },
+      { id: lift('pec-deck'), name: 'Pec deck', aliases: [] },
+      { id: lift('cable-row'), name: 'Cable row', aliases: [] },
+    ],
   });
 
   /** Every key and string a JSON value holds. */

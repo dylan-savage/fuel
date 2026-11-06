@@ -37,6 +37,8 @@ Change the program only for what his logs and notes imply. Do not redesign it.
 - A note for one day sets `day` to that day's key, and shows on that day's screen instead of the week. The day must be in this version.
 - A change to a prescription does not revert by itself. If it must revert, such as a light week, publish this version, then a following version dated a week later that restores it, explained in its own `changes`, with `basedOnRev` set to the `rev` the first publish printed.
 - Place each `uncataloged` name in `lifts`, as an alias of a lift it is the same as, or as its own lift. The catalog only grows, so never remove a lift or alias. Every slot and swap must name a lift in the catalog. A lift id is a slug of its name.
+- Every lift in `lifts` carries a `muscle`, one of `muscles`, for what it mainly trains. Give any lift without one its muscle. The phone offers lifts of the same muscle first when he swaps or adds.
+- Give each slot two to four `swaps` he can do on other equipment, closest first. A lift he swapped to in a slot more than once belongs in that slot's `swaps`.
 - To make a swap permanent, point the slot at the new lift with a new `label`, list the old one in `swaps`, and explain the prescription change.
 
 ## 4. Write the report

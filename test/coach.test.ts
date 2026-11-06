@@ -4,7 +4,7 @@ import { checkPublish, coachWeek, parseProgramDraft, programDiff, sameContent, s
 import { makeWorkout, metDraft } from '../src/domain/burn.js';
 import type { Entry } from '../src/domain/diary.js';
 import { TrainingNoteId, WorkoutId, type LocalDate } from '../src/domain/ids.js';
-import { Lift, Target } from '../src/domain/lifts.js';
+import { Lift, Muscle, Target } from '../src/domain/lifts.js';
 import { CardioBlock, ChecklistBlock, Day, LiftsBlock, ProgramDraft, ProgramNote, Slot, StandingText, SwapOption, type Block, type Program } from '../src/domain/program.js';
 import { entry, newEntryId, weighIn } from './fixtures.js';
 import { T0, blockId, bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, pinned, program, session, slot, slotId, target, warm } from './training.fixtures.js';
@@ -219,8 +219,8 @@ describe('programDiff', () => {
       ['Lift.key', onLift('cable-row', { key: undefined }), 'lift-key-changed', 'lift:cable-row', false, 'Cable row left the key lifts'],
     ];
 
-    /** Fields with no row: the version's own date and words, and ids, where a new one reads as removed and added. */
-    const LEFT_OUT = ['Program.effectiveFrom', 'Program.report', 'Program.changes', 'Day.key', 'Block.id', 'Block.kind', 'Slot.id', 'ProgramNote.day', 'StandingText.key', 'Lift.id'];
+    /** Fields with no row: the version's own date and words, ids, where a new one reads as removed and added, and a lift's muscle, which only the pickers read. */
+    const LEFT_OUT = ['Program.effectiveFrom', 'Program.report', 'Program.changes', 'Day.key', 'Block.id', 'Block.kind', 'Slot.id', 'ProgramNote.day', 'StandingText.key', 'Lift.id', 'Lift.muscle'];
 
     it('has a row for each, or says why not, so a new field cannot slip past the diff', () => {
       const fieldsOf = (name: string, ...schemas: readonly { readonly shape: object }[]) => schemas.flatMap((schema) => Object.keys(schema.shape).map((field) => `${name}.${field}`));
@@ -238,6 +238,12 @@ describe('programDiff', () => {
       const covered = [...FIELDS.map(([field]) => field.split(' ')[0] ?? ''), ...LEFT_OUT];
       expect([...new Set(schema)].filter((field) => !covered.includes(field))).toEqual([]);
       expect([...new Set(covered)].filter((field) => !schema.includes(field))).toEqual([]);
+    });
+
+    it('names nothing for a muscle placed on every lift, though the version is not the same', () => {
+      const placed = draftOf(full, '2030-03-11', (d) => ({ ...d, lifts: d.lifts.map((l) => ({ ...l, muscle: Muscle.parse('chest') })) }));
+      expect(programDiff(full, placed)).toEqual([]);
+      expect(sameContent(draftOf(full, '2030-03-11', (d) => d), placed)).toBe(false);
     });
 
     it.each(FIELDS)('lists %s, in words the phone can show', (_field, edit, kind, changeTarget, needsReason, words) => {
@@ -399,6 +405,22 @@ describe('coachWeek', () => {
 describe('checkPublish', () => {
   const versions = [base];
   const check = (edit: (draft: ProgramDraft) => ProgramDraft, date = '2030-03-11') => checkPublish(draftOf(base, date, edit), versions, AT);
+
+  describe('a lift\'s muscle', () => {
+    const placed = (muscle: string) => (d: ProgramDraft): ProgramDraft => ({ ...d, lifts: d.lifts.map((l) => (l.id === 'squat' ? { ...l, muscle: Muscle.parse(muscle) } : l)) });
+
+    it('is refused off the list, at its path, and may be absent on the other lifts', () => {
+      expect(codes(check(placed('quadz')))).toEqual(['unknown-muscle']);
+      expect(problemsOf(check(placed('quadz')))[0]?.path).toMatch(/^lifts\[\d+\]\.muscle$/);
+      expect(check(placed('quads')).status).toBe('valid');
+    });
+
+    it('takes every value the snapshot hands the coach', () => {
+      const { muscles } = snapshotOf({ programRev: 0, programs: [], sessions: [], performances: [], trainingNotes: [], weighIns: [], entries: [], workouts: [] }, { ...AT, phoneLastSyncAt: null });
+      expect(muscles.length).toBeGreaterThan(0);
+      expect(muscles.map((muscle) => check(placed(muscle)).status)).toEqual(muscles.map(() => 'valid'));
+    });
+  });
 
   it('stamps a valid draft with its id and time, and carries the diff', () => {
     const verdict = check((d) => withDay(d, 'push', onlySlots({ ...benchSlot, cue: 'Pause longer.' }, rowSlot)));

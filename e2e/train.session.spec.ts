@@ -7,6 +7,7 @@ import { expect, test, type APIRequestContext, type BrowserContext, type Page } 
 import { z } from 'zod';
 import { PROFILE_ID, goalId } from '../src/domain/goals.js';
 import { addDays } from '../src/domain/ids.js';
+import { Muscle } from '../src/domain/lifts.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import { sessionWorkoutId } from '../src/domain/session.js';
 import { cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, ms, performance, program, session, slot, target } from '../test/training.fixtures.js';
@@ -263,7 +264,7 @@ test('a swap prefills from the new lift, holds with no set under it, and both la
   await openExercise(page, 'Landmine press', 'Set 1 of 3');
   await page.getByRole('button', { name: 'Swap', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: 'Swap' });
-  await expect(sheet.getByRole('list', { name: 'Listed for this slot' })).toHaveCount(0);
+  await expect(sheet.getByRole('list', { name: 'Suggested' })).toHaveCount(0);
   await sheet.getByLabel('Another lift').fill('Zottman press (seated)');
   await sheet.getByRole('button', { name: 'Use "Zottman press (seated)"' }).click();
   await expectCard(page, 'Zottman press (seated)', 'Set 1 of 3');
@@ -1075,4 +1076,47 @@ test('an exercise off the list logs from Add exercise, shows on the day, and lea
   await logSet(page);
   await expectCard(page, 'Tib raise (wall)', 'Set 2');
   await expect.poll(() => coachReads(request, DAY), { timeout: 15_000 }).toMatchObject({ exercises: [['tib-raise', true]], uncataloged: expect.arrayContaining(['tib-raise']) });
+});
+
+test('Swap suggests the listed swap and lifts for the same muscle with no typing, and a search still names a new one', async ({ page, request }) => {
+  const MONDAY = '2031-06-16';
+  const DAY = '2031-06-18';
+  const chest = Muscle.parse('chest');
+  const press = slot('a1', 'bench-press', 3, { label: 'Bench press', target: target(3, 8, 12), swaps: [{ liftId: lift('machine-press'), label: 'Machine press' }] });
+  const catalog = [
+    { id: lift('bench-press'), name: 'Bench press', aliases: [], muscle: chest },
+    { id: lift('machine-press'), name: 'Machine press', aliases: [], muscle: chest },
+    { id: lift('svend-press'), name: 'Svend press', aliases: [], muscle: chest },
+    { id: lift('pec-deck'), name: 'Pec deck', aliases: [], muscle: chest },
+    { id: lift('seal-row'), name: 'Seal row', aliases: [], muscle: Muscle.parse('back') },
+  ];
+  const version = program(MONDAY, [{ key: 'alike', label: 'Alike day', weekday: 3, blocks: [liftsBlock('main', [press])] }], { lifts: catalog });
+  const history = [performance({ date: '2031-06-17', lift: 'pec-deck', label: 'Pec deck', sets: [lb(90, 12)] }), performance({ date: '2031-06-16', lift: 'svend-press', label: 'Svend press', sets: [lb(25, 12)] })];
+  await seed(request, docs(putPrograms(version), putPerformances(...history)));
+  await page.clock.install({ time: at(DAY) });
+  await openWeek(page);
+  await openDay(page, 'Alike day');
+  await openExercise(page, 'Bench press', 'Set 1 of 3');
+
+  await page.getByRole('button', { name: 'Swap', exact: true }).click();
+  const sheet = page.getByRole('dialog', { name: 'Swap' });
+  const suggested = sheet.getByRole('list', { name: 'Suggested' }).getByRole('button');
+  await expect(suggested, 'the plan’s swap, then the same muscle by when he last did it').toHaveText(['Machine press', 'Pec deck', 'Svend press']);
+  await expect(sheet.getByRole('heading', { name: 'All lifts' })).toBeVisible();
+  await expect(sheet.getByRole('list', { name: 'All lifts' })).toContainText('Seal row');
+  await expect(sheet, 'never the lift he is on').not.toContainText('Bench press');
+  await expect(sheet.getByLabel('Another lift'), 'no keyboard over the list').not.toBeFocused();
+  await suggested.filter({ hasText: 'Pec deck' }).click();
+  await expectCard(page, 'Pec deck', 'Set 1 of 3');
+  await expect(card(page)).toContainText('Last 90 lb × 12 · Jun 17');
+  expect(await countOnPhone(page, 'outbox'), 'a swap with no set stores nothing').toBe(0);
+
+  await page.getByRole('button', { name: 'Swap', exact: true }).click();
+  await expect(suggested, 'the plan’s lift comes back first').toHaveText(['Bench press', 'Machine press', 'Svend press']);
+  await sheet.getByLabel('Another lift').fill('mach');
+  await expect(suggested, 'a search filters in place').toHaveText(['Machine press']);
+  await sheet.getByLabel('Another lift').fill('Guillotine press (slow)');
+  await expect(sheet.getByRole('list', { name: 'Suggested' })).toHaveCount(0);
+  await sheet.getByRole('button', { name: 'Use "Guillotine press (slow)"' }).click();
+  await expectCard(page, 'Guillotine press (slow)', 'Set 1 of 3');
 });

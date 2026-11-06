@@ -28,7 +28,6 @@ import {
   sideOrder,
   steppedLoad,
   steppedReps,
-  swapChoices,
   trainedLately,
   withChecked,
   withEditedSet,
@@ -553,49 +552,6 @@ describe('skips and ticks', () => {
 
   it('ticks a block once', () => {
     expect(withChecked(withChecked(session(), blockId('warm')), blockId('warm')).checked).toEqual([blockId('warm')]);
-  });
-});
-
-describe('swapChoices', () => {
-  const press = slot('a1', 'bench-press', 3, { label: 'Bench press', swaps: [{ liftId: lift('landmine-press'), label: 'Landmine press' }, { liftId: lift('machine-press'), label: 'Machine press' }] });
-  const lifts = [
-    { id: lift('bench-press'), name: 'Bench press', aliases: [] },
-    { id: lift('landmine-press'), name: 'Landmine press', aliases: [] },
-    { id: lift('machine-press'), name: 'Machine press', aliases: [] },
-    { id: lift('pin-press'), name: 'Pin press', aliases: [lift('rack-press')] },
-    { id: lift('seal-row'), name: 'Seal row', aliases: [] },
-  ];
-  const choose = (query: string, current = press.liftId) => swapChoices({ slot: press, lifts, current, query });
-  const ids = (choices: readonly { readonly liftId: string }[]) => choices.map((c) => c.liftId);
-
-  it('offers the listed swaps first, and no catalog until a search', () => {
-    expect(ids(choose('').listed)).toEqual(['landmine-press', 'machine-press']);
-    expect(choose('')).toMatchObject({ catalog: [], typed: null });
-  });
-
-  it('offers the plan\'s lift back once he has left it, and not the one he is on', () => {
-    expect(ids(choose('', lift('landmine-press')).listed)).toEqual(['bench-press', 'machine-press']);
-  });
-
-  it('searches the catalog by name without repeating a listed lift or the current one', () => {
-    expect(ids(choose('press').catalog)).toEqual(['pin-press']);
-    expect(ids(choose('SEAL').catalog)).toEqual(['seal-row']);
-  });
-
-  it('finds a catalog lift through its alias, so an old name lands on the same history', () => {
-    const found = choose('rack press');
-    expect(ids(found.catalog)).toEqual(['pin-press']);
-    expect(found.typed).toBeNull();
-  });
-
-  it('turns an unknown name into a new lift through its slug, keeping the words as typed', () => {
-    expect(choose(' Zottman curl (slow) ').typed).toEqual({ liftId: lift('zottman-curl'), label: 'Zottman curl (slow)' });
-  });
-
-  it('offers nothing to type when the name has nothing to slug or the catalog knows it', () => {
-    expect(choose('!!!').typed).toBeNull();
-    expect(choose('Seal row').typed).toBeNull();
-    expect(choose('Bench press').typed).toBeNull();
   });
 });
 

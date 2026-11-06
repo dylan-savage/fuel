@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { MET_ACTIVITIES, makeWorkout, metDraft, type Workout, type WorkoutDraft } from './burn.js';
 import { LocalDate, Millis, ProgramId, SessionId, TrainingNoteId, WorkoutId } from './ids.js';
-import { SetLog, SlotId, liftBook, liftIdOf, performanceId, type Lift, type LiftBook, type LiftId, type Performance, type Target, type Unit } from './lifts.js';
+import { SetLog, SlotId, performanceId, type LiftBook, type LiftId, type Performance, type Target, type Unit } from './lifts.js';
 import { workingSets } from './progress.js';
 import { BlockId, DayKey, type CardioBlock, type ChecklistBlock, type PlannedDay, type Slot } from './program.js';
 
@@ -343,38 +343,6 @@ export function afterSet(session: Session, slotId: SlotId | undefined): Session 
 
 export function withChecked(session: Session, blockId: BlockId): Session {
   return { ...session, checked: [...new Set([...(session.checked ?? []), blockId])] };
-}
-
-const MAX_LABEL = 80;
-
-export interface SwapChoices {
-  /** The plan's own lift when he has left it, then the slot's listed swaps. */
-  readonly listed: readonly LiftChoice[];
-  /** Catalog lifts matching the search. Empty with no search. */
-  readonly catalog: readonly LiftChoice[];
-  /** The search as a new lift, when it slugs and the catalog does not know it. */
-  readonly typed: LiftChoice | null;
-}
-
-/** A swap's three sources, in the order the sheet offers them, without repeating a lift or offering the one he is on. */
-export function swapChoices(input: { readonly slot: Slot; readonly lifts: readonly Lift[]; readonly current: LiftId; readonly query: string }): SwapChoices {
-  const { slot, lifts, current } = input;
-  const book = liftBook(lifts);
-  const query = input.query.trim();
-  const needle = query.toLowerCase();
-  const slug = liftIdOf(query);
-  const onlyOnce = new Set<LiftId>([book.canonical(current)]);
-  const fresh = (choice: LiftChoice) => {
-    const id = book.canonical(choice.liftId);
-    if (onlyOnce.has(id)) return false;
-    onlyOnce.add(id);
-    return true;
-  };
-  const listed = [{ liftId: slot.liftId, label: slot.label }, ...(slot.swaps ?? []).map(({ liftId, label }) => ({ liftId, label }))].filter(fresh);
-  const matching = query === '' ? [] : lifts.filter((lift) => lift.name.toLowerCase().includes(needle) || (slug !== null && (lift.id === slug || lift.aliases.includes(slug))));
-  const catalog = matching.map((lift) => ({ liftId: lift.id, label: lift.name })).filter(fresh);
-  const typed = slug === null || book.has(slug) || onlyOnce.has(slug) ? null : { liftId: slug, label: query.slice(0, MAX_LABEL) };
-  return { listed, catalog, typed };
 }
 
 /** Nothing in it: no set, tick, skip or note, as after deleting its only set. It does not count, and settling it leaves no trace. */

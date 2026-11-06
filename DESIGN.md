@@ -49,6 +49,8 @@ Four tabs: Diary, Add, Train, Goal. The Scan tab goes, and scanning becomes a bu
 - Skip goes back to the day and marks the row.
 - An exercise he added has no target, so it reads "Set 2", never "of 3" or "Extra set", and its quiet actions are Note and Warm-up.
 
+**Lift picker.** Swap and Add exercise are one sheet. A search field, not focused on open, so no keyboard covers the list. Then suggestions as a list with no heading: the plan's own swaps, what he did there before, then lifts for the same muscle. Then "All lifts", A–Z. Typing filters both lists in place, and a name nothing offered has becomes a last row, `Use "…"`. A tap picks.
+
 **No session on screen.** Nothing names one, and nothing starts or finishes. The first write for a day makes it, and the diary's workout appears by itself once he has been idle for six hours.
 
 **Progress.** No question headings and no captions.

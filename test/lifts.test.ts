@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { LocalDate, addDays, isMonday, mondayOf, weekdayOf } from '../src/domain/ids.js';
-import { Performance, liftBook, liftIdOf, performanceId, type Lift } from '../src/domain/lifts.js';
+import { Lift, Muscle, Performance, liftBook, liftIdOf, performanceId } from '../src/domain/lifts.js';
 import { day, lb, lift, newSessionId, performance, slotId } from './training.fixtures.js';
 
 describe('mondayOf', () => {
@@ -59,7 +59,7 @@ describe('liftIdOf', () => {
 
 describe('liftBook', () => {
   const catalog: readonly Lift[] = [
-    { id: lift('squat'), name: 'Squat', aliases: [lift('back-squat'), lift('high-bar-squat')] },
+    { id: lift('squat'), name: 'Squat', aliases: [lift('back-squat'), lift('high-bar-squat')], muscle: Muscle.parse('quads') },
     { id: lift('curl'), name: 'Curl', aliases: [] },
   ];
   const book = liftBook(catalog);
@@ -70,12 +70,27 @@ describe('liftBook', () => {
     expect(book.nameOf(lift('high-bar-squat'))).toBe('Squat');
   });
 
+  it('reads a muscle through an alias, and none where the coach has placed none', () => {
+    expect(book.muscleOf(lift('back-squat'))).toBe('quads');
+    expect(book.muscleOf(lift('curl'))).toBeUndefined();
+    expect(book.muscleOf(lift('landmine-press'))).toBeUndefined();
+  });
+
   it('treats a name it has never heard of as its own lift', () => {
     const typed = lift('landmine-press');
     expect(book.canonical(typed)).toBe(typed);
     expect(book.members(typed)).toEqual([typed]);
     expect(book.has(typed)).toBe(false);
     expect(book.nameOf(typed)).toBeUndefined();
+  });
+});
+
+describe('Lift', () => {
+  it('parses with no muscle, and with a slug a later build may add, so an old phone keeps the catalog', () => {
+    const row = { id: 'squat', name: 'Squat', aliases: [] };
+    expect(Lift.safeParse(row).success).toBe(true);
+    expect(Lift.safeParse({ ...row, muscle: 'adductors' }).success).toBe(true);
+    expect(Lift.safeParse({ ...row, muscle: 'Not a slug' }).success).toBe(false);
   });
 });
 

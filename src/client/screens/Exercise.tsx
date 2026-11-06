@@ -9,8 +9,9 @@ import { slotIn, type PlannedDay, type ProgramNote, type Slot } from '../../doma
 import { cueFor, exerciseLog, isOn, type DayRef, type Exercise, type LiftChoice, type LoggedSet } from '../../domain/session.js';
 import { afterLog, entryOf, typedFor, withSwap, withTyped, type SetForm, type TrainDraft } from '../trainDraft.js';
 import { useIntents, type DayScreenView } from '../views.js';
-import { CueSheet, EditSetSheet, NoteSheet, SkipSheet, SwapSheet } from './ExerciseSheets.js';
+import { CueSheet, EditSetSheet, NoteSheet, SkipSheet } from './ExerciseSheets.js';
 import { targetNotes } from './format.js';
+import { LiftPicker } from './LiftPicker.js';
 import { CardAction, SetCard } from './SetCard.js';
 import { BackButton, useToast } from './ui.js';
 import { Waiting } from './Waiting.js';
@@ -104,15 +105,17 @@ export function ExerciseScreen({
         />
       </section>
       {sheet?.kind === 'swap' && slot !== null && (
-        <SwapSheet
-          slot={slot}
+        <LiftPicker
+          title="Swap"
+          pickFor={{ kind: 'swap', slot, current: lift.liftId }}
+          day={day}
           lifts={view.lifts}
-          current={lift.liftId}
-          onClose={closeSheet}
+          book={view.book}
           onPick={(choice) => {
             onDraft(withSwap(draft, slot.id, choice));
             closeSheet();
           }}
+          onClose={closeSheet}
         />
       )}
       {sheet?.kind === 'skip' && slot !== null && (

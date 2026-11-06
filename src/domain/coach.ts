@@ -3,7 +3,7 @@ import type { WeighIn } from './body.js';
 import type { Workout } from './burn.js';
 import { summarizeDay, type Entry } from './diary.js';
 import { addDays, isMonday, mondayOf, type LocalDate, type Millis, type ProgramId, type SessionId } from './ids.js';
-import { liftBook, type Lift, type LiftId, type Performance, type Target } from './lifts.js';
+import { MUSCLES, liftBook, type Lift, type LiftId, type Performance, type Target } from './lifts.js';
 import { Program, ProgramDraft, plannedDay, programId, programOn, type Block, type Day, type ProgramNote, type Report, type Slot, type StandingText } from './program.js';
 import { addWeightNext, skipsOf, sessionsDone, swapsOf, totalsOf, typedLine, workingSets, type Skip, type Swap } from './progress.js';
 import { finishOf, sessionPhase, sessionWorkoutDraft, type Session, type SessionPhase, type TrainingNote } from './session.js';
@@ -314,7 +314,7 @@ export function sameContent(a: ProgramDraft, b: ProgramDraft): boolean {
   return content(a) === content(b);
 }
 
-export type ProblemCode = 'shape' | 'unknown-field' | 'frozen' | 'back-dated' | 'duplicate-id' | 'unknown-lift' | 'unknown-day' | 'alias-conflict' | 'catalog-drop' | 'bad-only-week' | 'unexplained';
+export type ProblemCode = 'shape' | 'unknown-field' | 'frozen' | 'back-dated' | 'duplicate-id' | 'unknown-lift' | 'unknown-day' | 'alias-conflict' | 'catalog-drop' | 'bad-only-week' | 'unexplained' | 'unknown-muscle';
 
 export interface Problem {
   readonly code: ProblemCode;
@@ -364,6 +364,12 @@ function liftProblems(draft: ProgramDraft): readonly Problem[] {
       });
     }),
   );
+}
+
+/** A stored muscle is any slug, so a phone a build behind reads one added later. The publish is where the coach is held to the list. */
+function muscleProblems(draft: ProgramDraft): readonly Problem[] {
+  const known = new Set<string>(MUSCLES);
+  return draft.lifts.flatMap((lift, l) => (lift.muscle === undefined || known.has(lift.muscle) ? [] : [{ code: 'unknown-muscle', path: `lifts[${l}].muscle`, message: `${lift.muscle} is not one of ${MUSCLES.join(', ')}` }]));
 }
 
 /** A note naming a day the version lacks would never show anywhere, which is a quiet drop. */
@@ -441,6 +447,7 @@ export function checkPublish(raw: unknown, versions: readonly Program[], at: { r
     ...liftProblems(draft),
     ...noteDayProblems(draft),
     ...aliasProblems(draft, before),
+    ...muscleProblems(draft),
     ...onlyWeekProblems(draft),
     ...diff.filter((item) => item.needsReason && item.why === null).map((item): Problem => ({ code: 'unexplained', path: 'changes', message: `${item.kind} ${item.label}: name target "${item.target}" in changes with a reason` })),
   ];
@@ -544,6 +551,8 @@ export interface CoachSnapshot {
   readonly notes: readonly SnapshotNote[];
   /** Names typed on the phone that the catalog has not placed. */
   readonly uncataloged: readonly { readonly liftId: LiftId; readonly label: string; readonly lastDone: LocalDate }[];
+  /** The values a lift's `muscle` may take. */
+  readonly muscles: readonly string[];
   readonly phoneLastSyncAt: Millis | null;
   /** The version that will hold the target Monday, ready for Claude to edit in place, so a following version published ahead is not lost to the week before it. Null with no version by then. */
   readonly draft: ProgramDraft | null;
@@ -707,6 +716,7 @@ export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; rea
     weeks,
     notes: [...summaries.flatMap(({ notes }) => notes), ...trainingNotes].toSorted((a, b) => a.date.localeCompare(b.date)),
     uncataloged,
+    muscles: MUSCLES,
     phoneLastSyncAt: at.phoneLastSyncAt,
     draft: holdingTarget === undefined ? null : draftFrom(holdingTarget, targetMonday),
   };

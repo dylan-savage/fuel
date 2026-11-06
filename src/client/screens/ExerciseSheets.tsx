@@ -1,63 +1,11 @@
-/** The sheets over an exercise: Swap, Skip, Note, Cue and editing a logged set. */
+/** The sheets over an exercise: Skip, Note, Cue and editing a logged set. Swap is the lift picker. */
 import { useState } from 'preact/hooks';
-import type { Lift, LiftId, Performance } from '../../domain/lifts.js';
-import type { Slot } from '../../domain/program.js';
-import { entryOfSet, setLogOf, swapChoices, type DayRef, type Exercise, type LiftChoice, type LoggedSet } from '../../domain/session.js';
+import type { Performance } from '../../domain/lifts.js';
+import { entryOfSet, setLogOf, type DayRef, type Exercise, type LoggedSet } from '../../domain/session.js';
 import { entryOf, formOf, type SetForm } from '../trainDraft.js';
 import { useIntents } from '../views.js';
 import { CardActions, SetInputs, WarmUpToggle } from './SetCard.js';
-import { NoteField, Segmented, Sheet, TextField, useToast } from './ui.js';
-
-function ChoiceList({ title, choices, onPick }: { readonly title: string; readonly choices: readonly LiftChoice[]; readonly onPick: (choice: LiftChoice) => void }) {
-  if (choices.length === 0) return null;
-  return (
-    <ul class="list" aria-label={title}>
-      {choices.map((choice) => (
-        <li key={choice.liftId}>
-          <button type="button" class="row-button swap-choice" onClick={() => onPick(choice)}>
-            {choice.label}
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** The slot's listed swaps first, then the catalog by search, then the search itself as a new lift. */
-export function SwapSheet({
-  slot,
-  lifts,
-  current,
-  onPick,
-  onClose,
-}: {
-  readonly slot: Slot;
-  readonly lifts: readonly Lift[];
-  readonly current: LiftId;
-  readonly onPick: (choice: LiftChoice) => void;
-  readonly onClose: () => void;
-}) {
-  const [query, setQuery] = useState('');
-  const { listed, catalog, typed } = swapChoices({ slot, lifts, current, query });
-  return (
-    <Sheet title="Swap" onClose={onClose}>
-      <ChoiceList title="Listed for this slot" choices={listed} onPick={onPick} />
-      <div class="group swap-search">
-        <TextField label="Another lift" value={query} onInput={setQuery} placeholder="Search or type a name" />
-      </div>
-      <ChoiceList title="In the catalog" choices={catalog} onPick={onPick} />
-      {typed !== null && (
-        <ul class="list" aria-label="New lift">
-          <li>
-            <button type="button" class="row-button swap-choice" onClick={() => onPick(typed)}>
-              Use "{typed.label}"
-            </button>
-          </li>
-        </ul>
-      )}
-    </Sheet>
-  );
-}
+import { NoteField, Segmented, Sheet, useToast } from './ui.js';
 
 export function SkipSheet({ label, onSkip, onClose }: { readonly label: string; readonly onSkip: (note: string) => void; readonly onClose: () => void }) {
   const [note, setNote] = useState('');
