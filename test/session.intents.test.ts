@@ -329,7 +329,7 @@ describe('notes', () => {
     s.later(MINUTE);
     await s.intents.addNote(dayNote, 'Invented second.');
     await s.intents.addNote(dayNote, '   ');
-    expect(await s.replica.read.all('trainingNote')).toMatchObject([
+    expect((await s.replica.read.all('trainingNote')).toSorted((a, b) => a.at - b.at)).toMatchObject([
       { date: TODAY, text: 'Invented first.', about: { kind: 'day', key: 'push', label: 'Push' } },
       { date: TODAY, text: 'Invented second.', about: { kind: 'day', key: 'push', label: 'Push' } },
     ]);
