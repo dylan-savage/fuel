@@ -1,6 +1,6 @@
 # Open questions for training
 
-Deferred decisions and unstated assumptions for [design.md](design.md), as of 2026-11-04.
+Deferred decisions and unstated assumptions for [design.md](design.md) and [added-exercises-and-notes.md](added-exercises-and-notes.md), as of 2026-11-06.
 
 ## For Dylan
 
@@ -24,6 +24,10 @@ Deferred decisions and unstated assumptions for [design.md](design.md), as of 20
 17. **A day repeated in a week.** "2 of 5 done" counts sessions, as the show-up chart and the coach do, so the same day on two dates fills two strip segments and one row reads Done.
 18. **Sets from an earlier date.** A day shows today's sets only, so a set logged on Monday cannot be edited on Tuesday.
 19. **A skip goes back to the day.** The brief asks only that Log set stays put. A skip has nothing left to do on the exercise, so it returns to the list with the row marked and an undo.
+20. **Muscle tags before Sunday.** The "alike" tier of Swap and Add exercise reads `Lift.muscle`, which the coach fills on its next publish. Until then the pickers suggest from the plan's swaps and his history. Tagging the catalog sooner means a catalog-only publish, which changes nothing on any day.
+21. **The muscle list.** `chest, back, shoulders, biceps, triceps, forearms, core, quads, hamstrings, glutes, calves, full-body`. Say if a group is missing. Adding one later is safe.
+22. **The Note sheet after Save.** It closes with an undo, like every other sheet, and reopens on an empty field with the saved note listed above. Staying open with the field cleared is the other choice.
+23. **A repeated added exercise.** The coach reads it as grounds for a slot, not as a rule. Say if adding one twice should always put it in the plan.
 
 ## Assumptions to check
 
