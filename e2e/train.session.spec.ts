@@ -393,6 +393,10 @@ test('kg and lb in one lift, bodyweight, a band, per-side, an extra set, a skip 
   await expect(unit(page)).toHaveText('kg');
   await logSet(page);
   await expectCard(page, 'Goblet squat', 'Extra set');
+  await load(page).fill('1');
+  await page.getByRole('button', { name: 'Less load' }).click();
+  await expect(page.locator('.set-row-text'), 'minus past the last step is bodyweight').toHaveText('Bodyweight');
+  await expect(logButton(page)).toBeEnabled();
   await back(page);
 
   // A per-side set shows two rows in the order the target names, and rest is plain text under Cue.

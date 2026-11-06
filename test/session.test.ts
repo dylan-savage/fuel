@@ -372,14 +372,15 @@ describe('setLogOf', () => {
 });
 
 describe('the steppers', () => {
-  it('step a load by 2.5 lb or 1 kg, stopping at one step and leaving a blank alone on minus', () => {
+  it('step a load by 2.5 lb or 1 kg, and minus past the last step is bodyweight', () => {
     expect(steppedLoad(85, 'lb', 1)).toBe(87.5);
     expect(steppedLoad(85, 'lb', -1)).toBe(82.5);
     expect(steppedLoad(20, 'kg', 1)).toBe(21);
-    expect(steppedLoad(2.5, 'lb', -1)).toBe(2.5);
-    expect(steppedLoad(1, 'kg', -1)).toBe(1);
+    expect(steppedLoad(3.5, 'lb', -1)).toBe(1);
+    expect(steppedLoad(2.5, 'lb', -1)).toBe('bodyweight');
+    expect(steppedLoad(1, 'kg', -1)).toBe('bodyweight');
     expect(steppedLoad(null, 'lb', 1)).toBe(2.5);
-    expect(steppedLoad(null, 'kg', -1)).toBeNull();
+    expect(steppedLoad(null, 'kg', -1)).toBe('bodyweight');
   });
 
   it('step reps by one, down to zero', () => {
