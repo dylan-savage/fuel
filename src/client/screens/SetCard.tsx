@@ -118,7 +118,7 @@ function LoadRow({ form, onChange }: { readonly form: SetForm; readonly onChange
               onInput={(amount) => onChange({ ...form, load: { ...load, amount } })}
               onStep={(direction) => {
                 const next = steppedLoad(parseNumber(load.amount), load.unit, direction);
-                onChange({ ...form, load: { ...load, amount: next === null ? '' : editable(next) } });
+                onChange({ ...form, load: next === 'bodyweight' ? { kind: 'bodyweight' } : { ...load, amount: editable(next) } });
               }}
             />
             <UnitToggle unit={load.unit} onChange={(unit) => onChange({ ...form, load: { ...load, unit } })} />

@@ -210,11 +210,10 @@ export function setLogOf(entry: SetEntry, at?: Millis): SetLog | null {
 
 export const LOAD_STEP: Readonly<Record<Unit, number>> = { lb: 2.5, kg: 1 };
 
-/** The − and + on a load. A load is positive, so − stops at one step, and a blank stays blank. */
-export function steppedLoad(amount: number | null, unit: Unit, direction: 1 | -1): number | null {
-  const step = LOAD_STEP[unit];
-  if (amount === null) return direction === 1 ? step : null;
-  return Math.max(step, amount + direction * step);
+/** The − and + on a load. A load is positive, so − past the last step is bodyweight, as on a dumbbell lift done without one. */
+export function steppedLoad(amount: number | null, unit: Unit, direction: 1 | -1): number | 'bodyweight' {
+  const next = (amount ?? 0) + direction * LOAD_STEP[unit];
+  return next > 0 ? next : 'bodyweight';
 }
 
 /** The − and + on reps. Zero is a real answer: he tried and got none. */
