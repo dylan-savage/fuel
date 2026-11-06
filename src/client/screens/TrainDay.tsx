@@ -3,11 +3,12 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Performance, SlotId } from '../../domain/lifts.js';
 import { exerciseCount, slotIn, type CardioBlock, type ChecklistBlock, type DayPart, type PlannedDay, type ProgramNote, type Slot } from '../../domain/program.js';
 import { lastLineOf } from '../../domain/progress.js';
-import { blockDone, exerciseLog, liftInSlot, type DayRef, type Exercise, type LiftChoice } from '../../domain/session.js';
+import { blockDone, exerciseLog, liftInSlot, liftsOnDay, type DayRef, type Exercise, type LiftChoice } from '../../domain/session.js';
 import { useTrainDraft } from '../trainDraft.js';
 import { dayLiftIds, dayScreenView, lastTimesView, useIntents, useLive, type DayScreenView } from '../views.js';
 import { ExerciseScreen } from './Exercise.js';
 import { checklistLabel, count, planSections, prescriptionText, shortDate } from './format.js';
+import { LiftPicker } from './LiftPicker.js';
 import { BackButton, ExpandRow, Row, TitleBar, useKeyboardAvoidance, useToast } from './ui.js';
 import { WorkoutSheet } from './Workouts.js';
 
@@ -142,8 +143,8 @@ function partNames({ block }: DayPart): readonly string[] {
   }
 }
 
-function DayScreen({ hidden, onBack, ...context }: RowContext & { readonly hidden: boolean; readonly onBack: () => void }) {
-  const { plan, notes, parts } = context.view;
+function DayScreen({ hidden, onAdd, onBack, ...context }: RowContext & { readonly hidden: boolean; readonly onAdd: () => void; readonly onBack: () => void }) {
+  const { plan, notes, parts, added } = context.view;
   const required = parts.filter((part) => part.block.optional !== true);
   const optional = parts.filter((part) => part.block.optional === true);
   const line = dayLine(plan);
@@ -162,6 +163,17 @@ function DayScreen({ hidden, onBack, ...context }: RowContext & { readonly hidde
         </ul>
       )}
       <PartLists parts={required} {...context} />
+      {added.length > 0 && (
+        <section class="plan-section" aria-label="Added">
+          <ul class="list">
+            {added.map((lift) => (
+              <li key={lift.liftId}>
+                <ExerciseRow exercise={{ slot: null, lift }} {...context} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {optional.length > 0 && (
         <section class="plan-section" aria-label="Optional">
           <ul class="list">
@@ -173,21 +185,42 @@ function DayScreen({ hidden, onBack, ...context }: RowContext & { readonly hidde
           </ul>
         </section>
       )}
+      <div class="quiet-actions start">
+        <button type="button" class="text-button" onClick={onAdd}>
+          Add exercise
+        </button>
+      </div>
     </section>
   );
 }
 
+/** Which exercise is open: a slot by id, or an added lift, which needs its label before it has a set. */
+export type OpenExercise = { readonly kind: 'slot'; readonly slotId: SlotId } | { readonly kind: 'added'; readonly lift: LiftChoice };
+
+/** Undefined when the slot left the plan, which lands him on the day. */
+function exerciseAt(open: OpenExercise | null, plan: PlannedDay, liftOf: (slot: Slot) => LiftChoice): Exercise | undefined {
+  if (open === null) return undefined;
+  if (open.kind === 'added') return { slot: null, lift: open.lift };
+  const slot = slotIn(plan, open.slotId)?.slot;
+  return slot === undefined ? undefined : { slot, lift: liftOf(slot) };
+}
+
 /** Holds what the day and its exercises share, so going between them draws no gap and loses no place. */
-function HeldDay({ view, day, slotId, onSlot, onBack }: { readonly view: DayScreenView; readonly day: DayRef; readonly slotId: SlotId | null; readonly onSlot: (slot: SlotId | null) => void; readonly onBack: () => void }) {
+function HeldDay({ view, day, place, onOpen, onBack }: { readonly view: DayScreenView; readonly day: DayRef; readonly place: OpenExercise | null; readonly onOpen: (open: OpenExercise | null) => void; readonly onBack: () => void }) {
   const [draft, setDraft] = useTrainDraft(day);
   const [cardio, setCardio] = useState<CardioBlock | null>(null);
-  const liftIds = dayLiftIds(view, Object.values(draft.swaps));
-  const lastTimes = useLive((r) => lastTimesView(r, liftIds, day.date), [liftIds.join(), day.date]);
-  const open = slotId === null ? undefined : slotIn(view.plan, slotId);
+  const [picking, setPicking] = useState(false);
   const liftOf = (slot: Slot) => draft.swaps[slot.id] ?? liftInSlot(slot, view.performances);
+  const open = exerciseAt(place, view.plan, liftOf);
+  const liftIds = dayLiftIds(view, [...Object.values(draft.swaps), ...(open?.slot === null ? [open.lift] : [])]);
+  const lastTimes = useLive((r) => lastTimesView(r, liftIds, day.date), [liftIds.join(), day.date]);
 
   // Back lands where he left, because he goes between the day and its exercises all session.
   const dayScroll = useRef(0);
+  const openExercise = ({ slot, lift }: Exercise) => {
+    dayScroll.current = window.scrollY;
+    onOpen(slot === null ? { kind: 'added', lift } : { kind: 'slot', slotId: slot.id });
+  };
   const onDay = open === undefined;
   useLayoutEffect(() => {
     if (onDay) window.scrollTo(0, dayScroll.current);
@@ -203,20 +236,32 @@ function HeldDay({ view, day, slotId, onSlot, onBack }: { readonly view: DayScre
         day={day}
         lastTimes={lastTimes}
         liftOf={liftOf}
-        onExercise={({ slot }) => {
-          dayScroll.current = window.scrollY;
-          if (slot !== null) onSlot(slot.id);
-        }}
+        onExercise={openExercise}
         onCardio={setCardio}
+        onAdd={() => setPicking(true)}
         onBack={onBack}
       />
-      {open !== undefined && <ExerciseScreen view={view} day={day} exercise={{ slot: open.slot, lift: liftOf(open.slot) }} rows={lastTimes} draft={draft} onDraft={setDraft} onBack={() => onSlot(null)} />}
+      {open !== undefined && <ExerciseScreen view={view} day={day} exercise={open} rows={lastTimes} draft={draft} onDraft={setDraft} onBack={() => onOpen(null)} />}
       {cardio !== null && <WorkoutSheet date={day.date} day={day} lead={cardio.note} onClose={() => setCardio(null)} />}
+      {picking && (
+        <LiftPicker
+          title="Add exercise"
+          pickFor={{ kind: 'add', onDay: liftsOnDay(view.plan, view.added, liftOf) }}
+          day={day}
+          lifts={view.lifts}
+          book={view.book}
+          onPick={(lift) => {
+            setPicking(false);
+            openExercise({ slot: null, lift });
+          }}
+          onClose={() => setPicking(false)}
+        />
+      )}
     </>
   );
 }
 
-export function TrainDay({ day, slotId, onSlot, onBack }: { readonly day: DayRef; readonly slotId: SlotId | null; readonly onSlot: (slot: SlotId | null) => void; readonly onBack: () => void }) {
+export function TrainDay({ day, open, onOpen, onBack }: { readonly day: DayRef; readonly open: OpenExercise | null; readonly onOpen: (open: OpenExercise | null) => void; readonly onBack: () => void }) {
   const view = useLive((r) => dayScreenView(r, day), [day.key, day.date]);
   useKeyboardAvoidance();
   if (view === undefined) return null;
@@ -228,5 +273,5 @@ export function TrainDay({ day, slotId, onSlot, onBack }: { readonly day: DayRef
       </section>
     );
   }
-  return <HeldDay view={view} day={day} slotId={slotId} onSlot={onSlot} onBack={onBack} />;
+  return <HeldDay view={view} day={day} place={open} onOpen={onOpen} onBack={onBack} />;
 }

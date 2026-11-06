@@ -413,7 +413,7 @@ async function expectClearLayout(page: Page) {
     expect(controls.y + controls.height, 'nothing sits under the tab bar').toBeLessThanOrEqual(bar.y + 0.5);
     expect(heading.y, 'the exercise starts inside its area').toBeGreaterThanOrEqual(focus.y - 0.5);
     expect(heading.y + heading.height, 'and clears the controls').toBeLessThanOrEqual(controls.y + 0.5);
-    for (const action of await page.locator('.quiet-actions button').all()) {
+    for (const action of await page.locator('.exercise .quiet-actions button').all()) {
       const box = await boxOf(page, action);
       expect(box.height, 'a quiet action is a full tap target').toBeGreaterThanOrEqual(44);
       expect(box.x + box.width, 'and fits across the screen').toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));

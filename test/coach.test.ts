@@ -721,6 +721,7 @@ describe('snapshotOf', () => {
         e1rmLb: 100 * (1 + 10 / 30),
         addWeightNext: true,
         swappedFrom: null,
+        added: false,
       });
     });
 
@@ -743,6 +744,23 @@ describe('snapshotOf', () => {
         ['training', null, 'Sleep has been short.'],
       ]);
     });
+  });
+
+  it('marks an exercise added on the spot in a pinned session, and never one of an import', () => {
+    const pinnedDay = session({ date: day('2030-03-06'), programId: pinned('2030-03-04'), finishedAt: minutes(30) });
+    const imported = session({ date: day('2030-03-07'), source: 'notion', startedAt: undefined });
+    const calves = performance({ session: pinnedDay.id, date: '2030-03-06', lift: 'calf-raise', sets: [bw(20, 1)] });
+    const bench = performance({ session: pinnedDay.id, date: '2030-03-06', slot: 'a1', lift: 'bench-press', sets: [lb(100, 8, 2)] });
+    const old = performance({ session: imported.id, date: '2030-03-07', lift: 'calf-raise', sets: [bw(20)] });
+    const docs = { ...noDocs, programs: [arrived(base)], sessions: [arrived(pinnedDay), arrived(imported)], performances: [arrived(calves), arrived(bench), arrived(old)] };
+    const sessions = snapshotOf(docs, AT_SUNDAY).weeks.at(-1)?.sessions;
+    expect(sessions?.map((one) => one.exercises.map((exercise) => [exercise.liftId, exercise.added]))).toEqual([
+      [
+        ['calf-raise', true],
+        ['bench-press', false],
+      ],
+      [['calf-raise', false]],
+    ]);
   });
 
   it('marks a session open with no minutes, and does not call the rest of it skips', () => {

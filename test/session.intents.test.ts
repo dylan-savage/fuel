@@ -11,7 +11,7 @@ import { addDays, type Millis } from '../src/domain/ids.js';
 import { performanceId } from '../src/domain/lifts.js';
 import type { Slot } from '../src/domain/program.js';
 import { sessionWorkoutId, type DayRef, type Session, type SetEntry } from '../src/domain/session.js';
-import { T0, blockId, cardio, checklist, day, dayKey, liftsBlock, ms, program, session, slot, target } from './training.fixtures.js';
+import { T0, blockId, cardio, checklist, day, dayKey, lift, liftsBlock, ms, program, session, slot, target } from './training.fixtures.js';
 
 const TODAY = day('2030-03-06');
 const MINUTE = 60_000;
@@ -243,6 +243,25 @@ describe('logSet', () => {
   it('writes nothing while the entry is incomplete', async () => {
     const s = await setup();
     expect(await s.intents.logSet(benchOn(), { ...lbs(100, 8), load: { kind: 'weight', amount: null, unit: 'lb' } })).toBeNull();
+    expect(await s.replica.read.all('session')).toEqual([]);
+  });
+
+  it('logs an added exercise as one slot-less performance, makes the session, and undo takes both', async () => {
+    const s = await setup();
+    const calves = { day: PUSH, exercise: { slot: null, lift: { liftId: lift('calf-raise'), label: 'Calf raise' } } };
+    const first = await s.intents.logSet(calves, lbs(45, 15));
+    const doc = await sessionOf(s);
+    await s.intents.logSet(calves, lbs(45, 12));
+    const stored = await s.replica.read.performancesOfSession(doc.id);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ id: performanceId(doc.id, undefined, lift('calf-raise')), liftId: 'calf-raise', label: 'Calf raise', sets: [{ reps: { reps: 15 } }, { reps: { reps: 12 } }] });
+    expect(stored[0]).not.toHaveProperty('slotId');
+    expect(stored[0]).not.toHaveProperty('target');
+    expect((await dayScreenView(s.replica.read, PUSH))?.added).toEqual([{ liftId: lift('calf-raise'), label: 'Calf raise' }]);
+
+    await s.intents.editSet({ performanceId: performanceId(doc.id, undefined, lift('calf-raise')), index: 1 }, null);
+    await first?.();
+    expect(await s.replica.read.all('performance')).toEqual([]);
     expect(await s.replica.read.all('session')).toEqual([]);
   });
 

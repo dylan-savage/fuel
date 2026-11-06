@@ -3,7 +3,7 @@ import { MET_ACTIVITIES, makeWorkout, metDraft, type Workout, type WorkoutDraft 
 import { LocalDate, Millis, ProgramId, SessionId, TrainingNoteId, WorkoutId } from './ids.js';
 import { SetLog, SlotId, liftBook, liftIdOf, performanceId, type Lift, type LiftBook, type LiftId, type Performance, type Target, type Unit } from './lifts.js';
 import { workingSets } from './progress.js';
-import { BlockId, DayKey, type CardioBlock, type ChecklistBlock, type Slot } from './program.js';
+import { BlockId, DayKey, type CardioBlock, type ChecklistBlock, type PlannedDay, type Slot } from './program.js';
 
 /**
  * A session is thin: which day, which pinned version, when, plus the taps that have no sets to
@@ -139,6 +139,21 @@ export function exerciseLog(exercise: Exercise, { session, performances }: Pick<
   const { slot } = exercise;
   if (slot === null) return { done, dots: done, skipped: false, sets };
   return { done, dots: Math.max(slot.target.sets, done), skipped: session?.skips?.some((skip) => skip.slotId === slot.id) === true, sets };
+}
+
+/** The exercises he added that day, in the order he started them. Derived from performances, so there is no list to keep. */
+export function addedOn(performances: readonly Performance[]): readonly LiftChoice[] {
+  const startOf = (p: Performance) => Math.min(...p.sets.map((set) => set.at ?? 0));
+  return performances
+    .filter((p) => p.slotId === undefined)
+    .toSorted((a, b) => startOf(a) - startOf(b))
+    .map((p) => ({ liftId: p.liftId, label: p.label }));
+}
+
+/** Every lift the day already holds: each slot's planned lift and the one in it now, and what he added. The add picker leaves these out. */
+export function liftsOnDay(plan: PlannedDay, added: readonly LiftChoice[], liftOf: (slot: Slot) => LiftChoice): readonly LiftId[] {
+  const slots = plan.blocks.flatMap((block) => (block.kind === 'lifts' ? block.slots : []));
+  return [...new Set([...slots.flatMap((slot) => [slot.liftId, liftOf(slot).liftId]), ...added.map((lift) => lift.liftId)])];
 }
 
 /** Set inputs before a tap. A number may be blank, which a prefill cannot always fill. */

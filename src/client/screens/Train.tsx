@@ -1,13 +1,12 @@
 import { useState } from 'preact/hooks';
 import type { CoachWeek } from '../../domain/coach.js';
 import { mondayOf, type LocalDate } from '../../domain/ids.js';
-import type { SlotId } from '../../domain/lifts.js';
 import type { DayKey, StandingText } from '../../domain/program.js';
 import { TrainingNote } from '../../domain/session.js';
 import { useIntents, useLive, weekView, type WeekView } from '../views.js';
 import { changeWords, clipped, count, pastMoment, shortDate, weekdayName } from './format.js';
 import { ProgressSheet } from './Progress.js';
-import { TrainDay } from './TrainDay.js';
+import { TrainDay, type OpenExercise } from './TrainDay.js';
 import { ExpandRow, NoteField, Row, Sheet, TitleBar, useKeyboardAvoidance, useToast } from './ui.js';
 import { WeighInSheet } from './Weight.js';
 
@@ -173,17 +172,17 @@ function WeekScreen({ today, onDay }: { readonly today: LocalDate; readonly onDa
 }
 
 /** Where he is in Train: the week, a day, or an exercise in a day. Held above the tab, so going to the Diary and back loses nothing. */
-export type TrainPlace = { readonly key: DayKey; readonly slot: SlotId | null } | null;
+export type TrainPlace = { readonly key: DayKey; readonly open: OpenExercise | null } | null;
 
 export function Train({ today, place, onPlace }: { readonly today: LocalDate; readonly place: TrainPlace; readonly onPlace: (place: TrainPlace) => void }) {
-  if (place === null) return <WeekScreen today={today} onDay={(key) => onPlace({ key, slot: null })} />;
+  if (place === null) return <WeekScreen today={today} onDay={(key) => onPlace({ key, open: null })} />;
   const { key } = place;
   return (
     <TrainDay
       key={`${key}:${today}`}
       day={{ key, date: today }}
-      slotId={place.slot}
-      onSlot={(slot) => onPlace({ key, slot })}
+      open={place.open}
+      onOpen={(open) => onPlace({ key, open })}
       onBack={() => {
         onPlace(null);
         window.scrollTo(0, 0);

@@ -3,14 +3,14 @@ import Dexie from 'dexie';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openReplica, type Replica } from '../src/client/replica.js';
-import { dayLiftIds, dayScreenView, lastTimesView, weekView, type DayScreenView, type WeekView } from '../src/client/views.js';
+import { dayLiftIds, dayScreenView, lastTimesView, pickerView, weekView, type DayScreenView, type WeekView } from '../src/client/views.js';
 import { weighInId } from '../src/domain/body.js';
 import type { Mutation } from '../src/domain/kinds.js';
 import type { Performance } from '../src/domain/lifts.js';
 import type { Program } from '../src/domain/program.js';
 import { lastLineOf } from '../src/domain/progress.js';
 import type { Session } from '../src/domain/session.js';
-import { T0, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, target } from './training.fixtures.js';
+import { T0, bw, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, program, session, sides, slot, target } from './training.fixtures.js';
 
 const open: Replica[] = [];
 afterEach(() => {
@@ -210,7 +210,24 @@ describe('dayScreenView', () => {
     expect(lastOf('crunch')).toBeNull();
   });
 
-  it('asks last time of a swap with no set yet, and of what the day has logged', async () => {
+  it('holds that date\'s added exercises, in the order he started them', async () => {
+    const mine = session({ date: LATER, day: { key: PUSH, label: 'Push' }, programId: version.id });
+    const replica = await replicaWith({
+      programs: [version],
+      sessions: [mine],
+      performances: [
+        performance({ session: mine.id, date: '2030-03-07', lift: 'calf-raise', label: 'Calf raise', sets: [bw(20, 5)] }),
+        performance({ session: mine.id, date: '2030-03-07', slot: 'a1', lift: 'bench-press', sets: [lb(100, 8, 1)] }),
+        performance({ session: mine.id, date: '2030-03-07', lift: 'tib-raise', label: 'Tib raise', sets: [bw(15, 2)] }),
+      ],
+    });
+    expect(held(await dayScreenView(replica.read, today)).added).toEqual([
+      { liftId: lift('tib-raise'), label: 'Tib raise' },
+      { liftId: lift('calf-raise'), label: 'Calf raise' },
+    ]);
+  });
+
+  it('asks last time of a swap or an added lift with no set yet, and of what the day has logged', async () => {
     const replica = await replicaWith({ programs: [version] });
     const view = held(await dayScreenView(replica.read, today));
     expect(dayLiftIds(view, [])).not.toContain('landmine-press');
@@ -247,5 +264,24 @@ describe('dayScreenView', () => {
     expect(lastRuns).toBe(2);
     stopDay();
     stopLast();
+  });
+});
+
+describe('pickerView', () => {
+  it('reads this day\'s sessions in the weeks before the date, and each lift\'s newest row', async () => {
+    const PUSH = dayKey('push');
+    const on = (date: string, key = PUSH) => session({ date: day(date), day: { key, label: key }, finishedAt: minutes(60) });
+    const inside = on('2030-02-25');
+    const tooOld = on('2030-01-09');
+    const otherDay = on('2030-03-01', dayKey('pull'));
+    const today = on('2030-03-07');
+    const row = (of: Session, name: string) => performance({ session: of.id, date: of.date, lift: name, sets: [bw(20)] });
+    const replica = await replicaWith({
+      sessions: [inside, tooOld, otherDay, today],
+      performances: [row(inside, 'calf-raise'), row(tooOld, 'tib-raise'), row(otherDay, 'seal-row'), row(today, 'leg-press')],
+    });
+    const view = await pickerView(replica.read, { key: PUSH, date: LATER });
+    expect(view.dayHistory.map((p) => p.liftId)).toEqual(['calf-raise']);
+    expect(view.newest.map((p) => p.liftId).toSorted()).toEqual(['calf-raise', 'leg-press', 'seal-row', 'tib-raise']);
   });
 });

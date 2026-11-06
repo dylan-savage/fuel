@@ -53,7 +53,8 @@ import {
   type WeekProgress,
 } from '../domain/progress.js';
 import { refreshFor, type EditedRef, type Recipe, type Refresh, type SavedMeal } from '../domain/reuse.js';
-import { cardioDoneOn, sessionForDay, trainedLately, type DayLogs, type DayRef, type Session, type SessionLogs } from '../domain/session.js';
+import { PICK_WEEKS } from '../domain/picks.js';
+import { addedOn, cardioDoneOn, sessionForDay, trainedLately, type DayLogs, type DayRef, type LiftChoice, type Session, type SessionLogs } from '../domain/session.js';
 import { localDate } from './clock.js';
 import type { Intents } from './intents.js';
 import type { Replica, ReplicaReader, Subscribable } from './replica.js';
@@ -182,8 +183,10 @@ export interface DayScreenView extends DayLogs {
   readonly parts: readonly DayPart[];
   readonly notes: readonly ProgramNote[];
   readonly book: LiftBook;
-  /** The catalog a swap searches. */
+  /** The catalog the pickers offer. */
   readonly lifts: readonly Lift[];
+  /** Exercises he added that day, from addedOn. */
+  readonly added: readonly LiftChoice[];
 }
 
 /**
@@ -199,6 +202,7 @@ export async function dayScreenView(r: ReplicaReader, { key, date }: DayRef): Pr
   const program = pinnedPlan === undefined ? inEffect : pinned;
   const plan = pinnedPlan ?? (inEffect === undefined ? undefined : plannedDay(inEffect, key, date));
   if (program === undefined || plan === undefined) return null;
+  const performances = session === null ? [] : await r.performancesOfSession(session.id);
   return {
     plan,
     parts: dayParts(plan),
@@ -206,9 +210,24 @@ export async function dayScreenView(r: ReplicaReader, { key, date }: DayRef): Pr
     book: liftBook(program.lifts),
     lifts: program.lifts,
     session,
-    performances: session === null ? [] : await r.performancesOfSession(session.id),
+    performances,
+    added: addedOn(performances),
     cardioDone: cardioDoneOn(session, workouts),
   };
+}
+
+export interface PickerView {
+  readonly newest: readonly Performance[];
+  readonly dayHistory: readonly Performance[];
+}
+
+/** What the pickers rank by: each lift's newest row, and this day's sessions in the PICK_WEEKS before the date. Read while a picker is open. */
+export async function pickerView(r: ReplicaReader, { key, date }: DayRef): Promise<PickerView> {
+  const from = addDays(date, -7 * PICK_WEEKS);
+  const to = addDays(date, -1);
+  const [newest, sessions, performances] = await Promise.all([r.newestOfEachLift(), r.between('session', from, to), r.between('performance', from, to)]);
+  const onDay = new Set(sessions.filter((session) => session.day?.key === key).map((session) => session.id));
+  return { newest, dayHistory: performances.filter((p) => onDay.has(p.sessionId)) };
 }
 
 /** Every id whose last time the day can show: its plan, what it has logged, and swaps chosen with no set yet. */

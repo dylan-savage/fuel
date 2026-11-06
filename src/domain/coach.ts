@@ -480,6 +480,8 @@ export interface SnapshotExercise {
   readonly e1rmLb: number | null;
   readonly addWeightNext: boolean;
   readonly swappedFrom: LiftId | null;
+  /** Not on the day's plan: he added it on the spot. Only in a session pinned to a plan, so an import's exercises never read as added. */
+  readonly added: boolean;
 }
 
 export interface SnapshotSession {
@@ -599,7 +601,7 @@ function weekWeighIns(weighIns: readonly WeighIn[], monday: LocalDate): Snapshot
   return { readings, averageKg: readings.length === 0 ? null : readings.reduce((sum, reading) => sum + reading.kg, 0) / readings.length };
 }
 
-function snapshotExercise(performance: Performance): SnapshotExercise {
+function snapshotExercise(performance: Performance, pinned: boolean): SnapshotExercise {
   const working = workingSets(performance.sets);
   const { topLb, volumeLb, e1rmLb } = totalsOf(working);
   return {
@@ -612,6 +614,7 @@ function snapshotExercise(performance: Performance): SnapshotExercise {
     e1rmLb,
     addWeightNext: addWeightNext(performance),
     swappedFrom: performance.plannedLiftId ?? null,
+    added: pinned && performance.slotId === undefined,
   };
 }
 
@@ -661,7 +664,7 @@ export function snapshotOf(docs: TrainDocs, at: { readonly today: LocalDate; rea
       day: session.day?.label ?? null,
       phase,
       minutes,
-      exercises: read.performances.map(snapshotExercise),
+      exercises: read.performances.map((performance) => snapshotExercise(performance, session.programId !== undefined)),
       skips,
       swaps: swapsOf(read.performances),
       newSinceLastReport: lastReportRev === null || late(read.arrived),

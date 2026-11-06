@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { makeWorkout, type Workout } from '../src/domain/burn.js';
 import { WorkoutId } from '../src/domain/ids.js';
 import { Performance, liftBook, type SetLog } from '../src/domain/lifts.js';
+import type { Slot } from '../src/domain/program.js';
 import {
   TrainingNote,
+  addedOn,
   afterSet,
   blockDone,
   cardioDoneOn,
@@ -15,6 +17,7 @@ import {
   isOn,
   leftEmpty,
   liftInSlot,
+  liftsOnDay,
   prefillSet,
   reopened,
   sessionForDay,
@@ -34,7 +37,7 @@ import {
   withoutSkip,
   type Session,
 } from '../src/domain/session.js';
-import { T0, band, blockId, bw, cardio, checklist, day, dayKey, kg, lb, lift, minutes, ms, performance, session, sides, slot, slotId, target, warm } from './training.fixtures.js';
+import { T0, band, blockId, bw, cardio, checklist, day, dayKey, kg, lb, lift, liftsBlock, minutes, ms, performance, session, sides, slot, slotId, target, warm } from './training.fixtures.js';
 
 const noCatalog = liftBook([]);
 
@@ -362,6 +365,26 @@ describe('exerciseLog', () => {
   it('keeps an added exercise apart from a slot that did the same lift', () => {
     const inSlot = performance({ slot: 'a1', lift: 'calf-raise', planned: 'bench-press', sets: [bw(20, 1)] });
     expect(exerciseLog(calves, { session: session(), performances: [inSlot, added(bw(15, 2))] }).done).toBe(1);
+  });
+});
+
+describe('addedOn', () => {
+  it('lists the slot-less lifts in the order of their first set', () => {
+    const calves = performance({ lift: 'calf-raise', label: 'Calf raise', sets: [bw(20, 9), bw(20, 12)] });
+    const curls = performance({ lift: 'zottman-curl', label: 'Zottman curl', sets: [lb(20, 10, 3)] });
+    expect(addedOn([calves, a1(lb(100, 8, 1)), curls])).toEqual([
+      { liftId: lift('zottman-curl'), label: 'Zottman curl' },
+      { liftId: lift('calf-raise'), label: 'Calf raise' },
+    ]);
+    expect(addedOn([a1(lb(100, 8, 1))])).toEqual([]);
+  });
+});
+
+describe('liftsOnDay', () => {
+  it('holds each slot\'s planned lift and the one in it now, and what he added', () => {
+    const plan = { key: dayKey('push'), label: 'Push', minutes: undefined, blocks: [liftsBlock('pair', [slot('a1', 'bench-press', 3), slot('a2', 'cable-row', 3)]), checklist('warm')] };
+    const liftOf = (one: Slot) => (one.id === 'a2' ? { liftId: lift('seal-row'), label: 'Seal row' } : { liftId: one.liftId, label: one.label });
+    expect(liftsOnDay(plan, [{ liftId: lift('calf-raise'), label: 'Calf raise' }], liftOf).toSorted()).toEqual(['bench-press', 'cable-row', 'calf-raise', 'seal-row']);
   });
 });
 

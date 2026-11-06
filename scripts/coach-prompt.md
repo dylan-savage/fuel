@@ -18,6 +18,7 @@ Change the program only for what his logs and notes imply. Do not redesign it.
 
 - Pain in a joint means swap that exercise, never push through.
 - A swap he repeated and a note saying he preferred it are grounds to make it permanent. A swap once because a machine was taken is not.
+- `added` marks an exercise he put on the day himself. One he adds to the same day week after week is grounds for a slot.
 - `addWeightNext` says he has earned more weight on a lift. Say so in the report.
 - When a lift stalls you may look at that week's `diet`. If `daysLogged` is under 4, say the diary has too few days to judge, and do not blame food or credit it. `proteinIsLowerBound` means the true protein average is at least that number.
 - `newSinceLastReport` marks sessions you have not reviewed, some of them from earlier weeks that reached the mini late. Review those too.

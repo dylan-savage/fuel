@@ -36,8 +36,10 @@ Four tabs: Diary, Add, Train, Goal. The Scan tab goes, and scanning becomes a bu
 - A one-lift block has no heading. A superset gets one short label as plain information: "Superset · 3 rounds · rest 60s".
 - A checklist is one row, "Warm-up · 3 moves", that expands with a Done.
 - Cardio is a row that opens the workout logger, with its note in full at the top.
+- An exercise he added follows the required parts in its own list with no heading: the name, a filled dot per working set, and the last-time line. It appears with its first set and goes with its last.
 - Optional blocks collapse into one row at the end.
 - A day note is one line that expands.
+- The last line is a quiet "Add exercise", which opens the lift picker. The day still has no primary action, and "8 exercises" counts the plan only.
 
 **An exercise.** Tapping an exercise opens it, and Back returns to the day.
 - Top: the exercise name large, "Set 2 of 3" counted for this exercise alone, the target, last time, and an "Add weight" mark when earned. Sets logged today sit under it as small tappable values, for editing and deleting.
@@ -45,6 +47,7 @@ Four tabs: Diary, Add, Train, Goal. The Scan tab goes, and scanning becomes a bu
 - After Log set it stays here and fills in the next set. It never moves him on, never says what is next, and shows no rest timer. Past the prescribed count it keeps logging, as "Extra set".
 - Cue holds the words behind the numbers: the cue, the block's note, the side and load notes, and the rest as plain text.
 - Skip goes back to the day and marks the row.
+- An exercise he added has no target, so it reads "Set 2", never "of 3" or "Extra set", and its quiet actions are Note and Warm-up.
 
 **No session on screen.** Nothing names one, and nothing starts or finishes. The first write for a day makes it, and the diary's workout appears by itself once he has been idle for six hours.
 
